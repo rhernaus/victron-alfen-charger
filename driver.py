@@ -384,7 +384,7 @@ def main():
     service.register()
 
     def poll():
-        global charging_start_time, last_current_set_time, session_start_energy_kwh
+        global charging_start_time, last_current_set_time, session_start_energy_kwh, last_sent_current, low_soc_active
         try:
             if not client.is_socket_open():
                 logger.info("Modbus connection is closed. Attempting to reconnect...")
@@ -639,6 +639,7 @@ def main():
                 ok = _write_current_with_verification(effective_current)
                 if ok:
                     last_current_set_time = current_time
+                    last_sent_current = effective_current
                     logger.info(
                         "Set effective current to %.2f A (mode: %s, intended: %.2f)",
                         effective_current,
