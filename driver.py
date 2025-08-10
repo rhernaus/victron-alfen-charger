@@ -444,6 +444,7 @@ class AlfenDriver:
                         "Immediate SetCurrent applied: %.2f A (MANUAL)",
                         target,
                     )
+            self.logger.info("SetCurrent changed to %.2f A", self.intended_set_current)
             return True
         except Exception as e:
             self.logger.error("Set current error: %s\n%s", e, traceback.format_exc())
@@ -495,6 +496,7 @@ class AlfenDriver:
                     effective_current,
                     self.current_mode.name,
                 )
+            self.logger.info("Mode changed to %s", self.current_mode.name)
             return True
         except ValueError:
             return False
@@ -517,6 +519,7 @@ class AlfenDriver:
                         target,
                         self.start_stop.name,
                     )
+            self.logger.info("StartStop changed to %s", self.start_stop.name)
             return True
         except ValueError:
             return False
