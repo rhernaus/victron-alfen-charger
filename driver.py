@@ -41,6 +41,8 @@ REG_MANUFACTURER = 117
 REG_MANUFACTURER_COUNT = 5
 REG_PLATFORM_TYPE = 140
 REG_PLATFORM_TYPE_COUNT = 17
+REG_MAX_CURRENT_APPLIED = 1206
+
 
 # --- Globals ---
 charging_start_time = 0
@@ -227,20 +229,23 @@ def main():
             )
             if rr_status.isError():
                 raise ConnectionError("Modbus error reading status")
-            status_str = "".join(chr(r & 0xFF) for r in rr_status.registers).strip(
-                "\x00 "
+            status_str = (
+                "".join(chr(r & 0xFF) for r in rr_status.registers)
+                .strip("\x00 ")
+                .upper()
             )
-            # Map Alfen values to Victron EVCS status: 0=disconnected, 1=connected, 2=charging
-            try:
-                status_code = int(status_str[:1]) if status_str else 0
-            except Exception:
-                status_code = 0
-            if status_code >= 2:
-                new_victron_status = 2
-            elif status_code == 1:
-                new_victron_status = 1
+
+            # Map Alfen Mode 3 state to Victron EVCS status
+            # (0=disconnected, 1=connected, 2=charging)
+            if "A" in status_str:
+                new_victron_status = 0  # Disconnected
+            elif "B" in status_str or "C" in status_str:
+                new_victron_status = 1  # Connected, not charging
+            elif "D" in status_str:
+                new_victron_status = 2  # Charging
             else:
-                new_victron_status = 0
+                new_victron_status = 0  # Default to disconnected for unknown states
+
             old_victron_status = service["/Status"]
             service["/Status"] = new_victron_status
             if new_victron_status == 2 and old_victron_status != 2:
@@ -250,6 +255,21 @@ def main():
             service["/ChargingTime"] = (
                 time.time() - charging_start_time if charging_start_time > 0 else 0
             )
+
+            # Read and update MaxCurrent
+            try:
+                rr_max_c = client.read_holding_registers(
+                    REG_MAX_CURRENT_APPLIED, 2, slave=SOCKET_SLAVE_ID
+                )
+                if not rr_max_c.isError():
+                    max_current = BinaryPayloadDecoder.fromRegisters(
+                        rr_max_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+                    ).decode_32bit_float()
+                    service["/MaxCurrent"] = round(
+                        max_current if not math.isnan(max_current) else 0, 1
+                    )
+            except Exception as e:
+                logger.debug(f"MaxCurrent read failed: {e}")
 
             # (Voltage, Current, Power reading logic is unchanged)
             rr_v = client.read_holding_registers(REG_VOLTAGES, 6, slave=SOCKET_SLAVE_ID)
