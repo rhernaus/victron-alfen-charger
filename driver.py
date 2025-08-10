@@ -19,6 +19,11 @@ from pymodbus.constants import Endian
 from pymodbus.payload import BinaryPayloadBuilder, BinaryPayloadDecoder
 from vedbus import VeDbusService
 
+try:
+    import dbus
+except Exception:  # pragma: no cover
+    dbus = None
+
 
 class EVC_MODE(enum.IntEnum):
     MANUAL = 0
@@ -72,6 +77,16 @@ schedule_enabled = 0
 schedule_days_mask = 0
 schedule_start = "00:00"  # HH:MM
 schedule_end = "00:00"  # HH:MM
+WATCHDOG_INTERVAL_SECONDS = 30
+
+# Low SoC controls
+low_soc_enabled = 0
+low_soc_threshold = 20.0
+low_soc_hysteresis = 2.0
+low_soc_active = False
+battery_soc = None
+_dbus_bus = None
+_dbus_soc_obj = None
 
 
 def main():
@@ -123,6 +138,33 @@ def main():
             return minutes_now >= start_min or minutes_now < end_min
         except Exception:
             return False
+
+    def _ensure_soc_proxy():
+        global _dbus_bus, _dbus_soc_obj
+        if dbus is None:
+            return False
+        try:
+            if _dbus_bus is None:
+                _dbus_bus = dbus.SystemBus()
+            if _dbus_soc_obj is None:
+                _dbus_soc_obj = _dbus_bus.get_object(
+                    "com.victronenergy.system", "/Dc/Battery/Soc"
+                )
+            return True
+        except Exception:
+            _dbus_soc_obj = None
+            return False
+
+    def _read_battery_soc():
+        try:
+            if not _ensure_soc_proxy():
+                return None
+            val = _dbus_soc_obj.GetValue(dbus_interface="com.victronenergy.BusItem")
+            if val is None:
+                return None
+            return float(val)
+        except Exception:
+            return None
 
     def _write_current_with_verification(target_amps: float) -> bool:
         """Write float32 to REG_AMPS_CONFIG and verify by reading back.
@@ -220,6 +262,30 @@ def main():
         except Exception:
             return False
 
+    def low_soc_enabled_callback(path, value):
+        global low_soc_enabled
+        try:
+            low_soc_enabled = int(value)
+            return True
+        except Exception:
+            return False
+
+    def low_soc_threshold_callback(path, value):
+        global low_soc_threshold
+        try:
+            low_soc_threshold = float(value)
+            return True
+        except Exception:
+            return False
+
+    def low_soc_hysteresis_callback(path, value):
+        global low_soc_hysteresis
+        try:
+            low_soc_hysteresis = max(0.0, float(value))
+            return True
+        except Exception:
+            return False
+
     # --- D-Bus Path Definitions ---
     service.add_path("/Mgmt/ProcessName", __file__)
     service.add_path("/Mgmt/ProcessVersion", "1.4")
@@ -293,6 +359,27 @@ def main():
         writeable=True,
         onchangecallback=schedule_end_callback,
     )
+
+    # Low SoC configuration and telemetry
+    service.add_path(
+        "/LowSoc/Enabled",
+        low_soc_enabled,
+        writeable=True,
+        onchangecallback=low_soc_enabled_callback,
+    )
+    service.add_path(
+        "/LowSoc/Threshold",
+        low_soc_threshold,
+        writeable=True,
+        onchangecallback=low_soc_threshold_callback,
+    )
+    service.add_path(
+        "/LowSoc/Hysteresis",
+        low_soc_hysteresis,
+        writeable=True,
+        onchangecallback=low_soc_hysteresis_callback,
+    )
+    service.add_path("/LowSoc/Value", 0.0)
 
     service.register()
 
@@ -397,7 +484,6 @@ def main():
             old_victron_status = service["/Status"]
 
             connected = raw_status >= 1
-            charging = raw_status == 2
 
             new_victron_status = raw_status
             # Manual mode gating => WAIT_START when connected and autostart is disabled and StartStop is disabled
@@ -416,6 +502,25 @@ def main():
             if current_mode == EVC_MODE.SCHEDULED and connected:
                 if not _is_within_schedule(time.time()):
                     new_victron_status = 6  # WAIT_START
+
+            # Read battery SoC and apply Low SoC logic
+            battery_soc_value = _read_battery_soc()
+            if battery_soc_value is not None and not math.isnan(battery_soc_value):
+                battery_soc_value = float(battery_soc_value)
+                service["/LowSoc/Value"] = round(battery_soc_value, 1)
+            else:
+                battery_soc_value = None
+
+            if low_soc_enabled and battery_soc_value is not None:
+                # Hysteresis
+                if low_soc_active:
+                    if battery_soc_value >= (low_soc_threshold + low_soc_hysteresis):
+                        low_soc_active = False
+                else:
+                    if battery_soc_value <= low_soc_threshold:
+                        low_soc_active = True
+                if low_soc_active and connected:
+                    new_victron_status = 7  # LOW_SOC
 
             service["/Status"] = new_victron_status
 
@@ -502,32 +607,38 @@ def main():
             rr_ph = client.read_holding_registers(REG_PHASES, 1, slave=SOCKET_SLAVE_ID)
             service["/Ac/PhaseCount"] = rr_ph.registers[0]
 
-            # Compute effective current
+            # Compute effective current (always, to keep Alfen setpoint alive)
             effective_current = 0.0
-            if connected:
-                if current_mode == EVC_MODE.MANUAL:
-                    if start_stop == EVC_CHARGE.ENABLED or auto_start == 1:
-                        effective_current = intended_set_current
-                    else:
-                        effective_current = 0.0
-                elif current_mode == EVC_MODE.AUTO:
-                    # In AUTO, we pass through intended_set_current (expected to be managed by GX/EMS)
+            if current_mode == EVC_MODE.MANUAL:
+                if start_stop == EVC_CHARGE.ENABLED or auto_start == 1:
                     effective_current = intended_set_current
-                elif current_mode == EVC_MODE.SCHEDULED:
-                    if _is_within_schedule(time.time()):
-                        effective_current = intended_set_current
-                    else:
-                        effective_current = 0.0
+                else:
+                    effective_current = 0.0
+            elif current_mode == EVC_MODE.AUTO:
+                # In AUTO, we pass through intended_set_current (expected to be managed by GX/EMS)
+                effective_current = intended_set_current
+            elif current_mode == EVC_MODE.SCHEDULED:
+                if _is_within_schedule(time.time()):
+                    effective_current = intended_set_current
+                else:
+                    effective_current = 0.0
+
+            # Low SoC gating for AUTO/SCHEDULED
+            if (
+                low_soc_enabled
+                and low_soc_active
+                and current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
+            ):
+                effective_current = 0.0
 
             # Write if changed or watchdog
             current_time = time.time()
             if abs(effective_current - last_sent_current) > 0.1 or (
-                charging and current_time - last_current_set_time > 60
+                current_time - last_current_set_time > WATCHDOG_INTERVAL_SECONDS
             ):
                 ok = _write_current_with_verification(effective_current)
                 if ok:
                     last_current_set_time = current_time
-                    last_sent_current = effective_current
                     logger.info(
                         "Set effective current to %.2f A (mode: %s, intended: %.2f)",
                         effective_current,
