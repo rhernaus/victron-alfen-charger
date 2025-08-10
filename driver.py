@@ -105,6 +105,11 @@ def main():
     client = ModbusTcpClient(host=ALFEN_IP, port=ALFEN_PORT)
     service_name = f"com.victronenergy.evcharger.alfen_{DEVICE_INSTANCE}"
 
+    # We will potentially update global configuration defaults from existing D-Bus values
+    global current_mode, start_stop, auto_start, intended_set_current
+    global schedule_enabled, schedule_days_mask, schedule_start, schedule_end
+    global low_soc_enabled, low_soc_threshold, low_soc_hysteresis
+
     # Try to load existing values from an already-registered service with the same name
     def _get_busitem_value(bus, svc: str, path: str):
         try:
@@ -129,73 +134,99 @@ def main():
                         mode_val = int(v)
                         if mode_val in (0, 1, 2):
                             current_mode = EVC_MODE(mode_val)
-                    except Exception:
-                        pass
+                        else:
+                            logger.warning("Existing /Mode out of range: %r", v)
+                    except Exception as e:
+                        logger.warning("Failed to parse existing /Mode: %r (%s)", v, e)
                 v = _get_busitem_value(bus, service_name, "/StartStop")
                 if v is not None:
                     try:
                         ss_val = int(v)
                         if ss_val in (0, 1):
                             start_stop = EVC_CHARGE(ss_val)
-                    except Exception:
-                        pass
+                        else:
+                            logger.warning("Existing /StartStop out of range: %r", v)
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /StartStop: %r (%s)", v, e
+                        )
                 v = _get_busitem_value(bus, service_name, "/AutoStart")
                 if v is not None:
                     try:
                         auto_start = int(v)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /AutoStart: %r (%s)", v, e
+                        )
                 v = _get_busitem_value(bus, service_name, "/SetCurrent")
                 if v is not None:
                     try:
                         intended_set_current = float(v)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /SetCurrent: %r (%s)", v, e
+                        )
                 v = _get_busitem_value(bus, service_name, "/Schedule/Enabled")
                 if v is not None:
                     try:
                         schedule_enabled = int(v)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /Schedule/Enabled: %r (%s)", v, e
+                        )
                 v = _get_busitem_value(bus, service_name, "/Schedule/Days")
                 if v is not None:
                     try:
                         schedule_days_mask = int(v) & 0x7F
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /Schedule/Days: %r (%s)", v, e
+                        )
                 v = _get_busitem_value(bus, service_name, "/Schedule/Start")
                 if v is not None:
                     try:
                         schedule_start = str(v)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /Schedule/Start: %r (%s)", v, e
+                        )
                 v = _get_busitem_value(bus, service_name, "/Schedule/End")
                 if v is not None:
                     try:
                         schedule_end = str(v)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /Schedule/End: %r (%s)", v, e
+                        )
                 v = _get_busitem_value(bus, service_name, "/LowSoc/Enabled")
                 if v is not None:
                     try:
                         low_soc_enabled = int(v)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /LowSoc/Enabled: %r (%s)", v, e
+                        )
                 v = _get_busitem_value(bus, service_name, "/LowSoc/Threshold")
                 if v is not None:
                     try:
                         low_soc_threshold = float(v)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /LowSoc/Threshold: %r (%s)", v, e
+                        )
                 v = _get_busitem_value(bus, service_name, "/LowSoc/Hysteresis")
                 if v is not None:
                     try:
                         low_soc_hysteresis = float(v)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to parse existing /LowSoc/Hysteresis: %r (%s)", v, e
+                        )
         except Exception:
             # Ignore D-Bus inspection failures; fall back to script defaults
-            pass
+            logger.warning(
+                "Failed to inspect existing D-Bus service state; using defaults."
+            )
 
     service = VeDbusService(service_name, register=False)
 
