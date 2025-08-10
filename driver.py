@@ -207,8 +207,7 @@ class AlfenDriver:
                 dbus_iface = dbus.Interface(dbus_proxy, "org.freedesktop.DBus")
                 if dbus_iface.NameHasOwner(self.service_name):
                     self.logger.info(
-                        "Existing D-Bus service %s found. Loading initial values from it.",
-                        self.service_name,
+                        f"Existing D-Bus service {self.service_name} found. Loading initial values from it."
                     )
                     existing_service_found = True
                     self._load_from_dbus(bus)
@@ -246,9 +245,7 @@ class AlfenDriver:
                 try:
                     setter(v)
                 except Exception as e:
-                    self.logger.warning(
-                        "Failed to parse existing %s: %r (%s)", path, v, e
-                    )
+                    self.logger.warning(f"Failed to parse existing {path}: {v!r} ({e})")
 
     def _get_busitem_value(self, bus: Any, path: str) -> Optional[Any]:
         try:
@@ -280,7 +277,7 @@ class AlfenDriver:
             with open(self.config_file_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f)
         except Exception as e:
-            self.logger.warning("Failed to persist config: %s", e)
+            self.logger.warning(f"Failed to persist config: {e}")
 
     def _load_config_from_disk(self) -> Optional[Dict[str, Any]]:
         try:
@@ -289,7 +286,7 @@ class AlfenDriver:
             with open(self.config_file_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            self.logger.warning("Failed to load persisted config: %s", e)
+            self.logger.warning(f"Failed to load persisted config: {e}")
             return None
 
     def _apply_config(self, data: Dict[str, Any]) -> None:
@@ -387,11 +384,11 @@ class AlfenDriver:
                 dec = BinaryPayloadDecoder.fromRegisters(
                     regs, byteorder=Endian.BIG, wordorder=Endian.BIG
                 ).decode_32bit_float()
-                self.logger.info("SetCurrent write: raw=%s, dec=%.3f", regs, dec)
+                self.logger.info(f"SetCurrent write: raw={regs}, dec={dec:.3f}")
                 if abs(dec - float(target_amps)) < 0.25:
                     return True
         except Exception as e:
-            self.logger.error("SetCurrent write failed: %s", e)
+            self.logger.error(f"SetCurrent write failed: {e}")
         return False
 
     def set_current_callback(self, path: str, value: Any) -> bool:
@@ -399,33 +396,14 @@ class AlfenDriver:
         try:
             requested = max(0.0, min(64.0, float(value)))
             if self.current_mode == EVC_MODE.MANUAL:
-                try:
-                    rr_max_c = self.client.read_holding_registers(
-                        REG_STATION_MAX_CURRENT, 2, slave=STATION_SLAVE_ID
-                    )
-                    if not rr_max_c.isError():
-                        max_current = BinaryPayloadDecoder.fromRegisters(
-                            rr_max_c.registers,
-                            byteorder=Endian.BIG,
-                            wordorder=Endian.BIG,
-                        ).decode_32bit_float()
-                        if not math.isnan(max_current) and max_current > 0:
-                            self.station_max_current = float(max_current)
-                            self.service["/MaxCurrent"] = round(
-                                self.station_max_current, 1
-                            )
-                except Exception:
-                    pass
-
-            if self.current_mode == EVC_MODE.MANUAL:
+                self._update_station_max_current()
                 max_allowed = max(0.0, float(self.station_max_current))
                 self.intended_set_current = min(requested, max_allowed)
             else:
                 self.intended_set_current = requested
             self.service["/SetCurrent"] = round(self.intended_set_current, 1)
             self.logger.info(
-                "GUI request to set intended current to %.2f A",
-                self.intended_set_current,
+                f"GUI request to set intended current to {self.intended_set_current:.2f} A"
             )
             self._persist_config_to_disk()
 
@@ -441,13 +419,12 @@ class AlfenDriver:
                     self.last_current_set_time = time.time()
                     self.last_sent_current = target
                     self.logger.info(
-                        "Immediate SetCurrent applied: %.2f A (MANUAL)",
-                        target,
+                        f"Immediate SetCurrent applied: {target:.2f} A (MANUAL)"
                     )
-            self.logger.info("SetCurrent changed to %.2f A", self.intended_set_current)
+            self.logger.info(f"SetCurrent changed to {self.intended_set_current:.2f} A")
             return True
         except Exception as e:
-            self.logger.error("Set current error: %s\n%s", e, traceback.format_exc())
+            self.logger.error(f"Set current error: {e}\n{traceback.format_exc()}")
             return False
 
     def mode_callback(self, path: str, value: Any) -> bool:
@@ -463,8 +440,7 @@ class AlfenDriver:
                     self.service["/SetCurrent"] = round(self.intended_set_current, 1)
                     self._persist_config_to_disk()
                     self.logger.info(
-                        "Clamped /SetCurrent to station max: %.1f A (on MANUAL mode)",
-                        self.intended_set_current,
+                        f"Clamped /SetCurrent to station max: {self.intended_set_current:.1f} A (on MANUAL mode)"
                     )
                 effective_current = (
                     self.intended_set_current
@@ -492,11 +468,9 @@ class AlfenDriver:
                 self.last_current_set_time = now
                 self.last_sent_current = effective_current
                 self.logger.info(
-                    "Immediate Mode change applied current: %.2f A (mode=%s)",
-                    effective_current,
-                    self.current_mode.name,
+                    f"Immediate Mode change applied current: {effective_current:.2f} A (mode={self.current_mode.name})"
                 )
-            self.logger.info("Mode changed to %s", self.current_mode.name)
+            self.logger.info(f"Mode changed to {self.current_mode.name}")
             return True
         except ValueError:
             return False
@@ -515,11 +489,9 @@ class AlfenDriver:
                     self.last_current_set_time = time.time()
                     self.last_sent_current = target
                     self.logger.info(
-                        "Immediate StartStop change applied: %.2f A (StartStop=%s)",
-                        target,
-                        self.start_stop.name,
+                        f"Immediate StartStop change applied: {target:.2f} A (StartStop={self.start_stop.name})"
                     )
-            self.logger.info("StartStop changed to %s", self.start_stop.name)
+            self.logger.info(f"StartStop changed to {self.start_stop.name}")
             return True
         except ValueError:
             return False
@@ -527,7 +499,7 @@ class AlfenDriver:
     def autostart_callback(self, path: str, value: Any) -> bool:
         self.auto_start = int(value)
         self._persist_config_to_disk()
-        self.logger.info("AutoStart changed to %d", self.auto_start)
+        self.logger.info(f"AutoStart changed to {self.auto_start}")
         return True
 
     def schedule_enabled_callback(self, path: str, value: Any) -> bool:
@@ -587,6 +559,69 @@ class AlfenDriver:
             return True
         except ValueError:
             return False
+
+    def _update_station_max_current(self) -> bool:
+        try:
+            rr_max_current = self.client.read_holding_registers(
+                REG_STATION_MAX_CURRENT, 1, slave=STATION_SLAVE_ID
+            )
+            if rr_max_current.isError():
+                raise ConnectionError("Modbus error reading station max current")
+            self.station_max_current = BinaryPayloadDecoder.fromRegisters(
+                rr_max_current.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+            ).decode_32bit_float()
+            self.service["/MaxCurrent"] = round(self.station_max_current, 1)
+            self.logger.info(
+                f"Station Max Current updated: {self.station_max_current:.1f} A"
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to update station max current: {e}")
+            return False
+
+    def _update_ac_measurements(self) -> None:
+        """Read and update AC voltages, currents, power, and phase count from Modbus."""
+        rr_v = self.client.read_holding_registers(
+            REG_VOLTAGES, 6, slave=SOCKET_SLAVE_ID
+        )
+        decoder_v = BinaryPayloadDecoder.fromRegisters(
+            rr_v.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+        )
+        v1, v2, v3 = (
+            decoder_v.decode_32bit_float(),
+            decoder_v.decode_32bit_float(),
+            decoder_v.decode_32bit_float(),
+        )
+        self.service["/Ac/L1/Voltage"] = round(v1 if not math.isnan(v1) else 0, 2)
+        self.service["/Ac/L2/Voltage"] = round(v2 if not math.isnan(v2) else 0, 2)
+        self.service["/Ac/L3/Voltage"] = round(v3 if not math.isnan(v3) else 0, 2)
+        rr_c = self.client.read_holding_registers(
+            REG_CURRENTS, 6, slave=SOCKET_SLAVE_ID
+        )
+        decoder_c = BinaryPayloadDecoder.fromRegisters(
+            rr_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+        )
+        i1, i2, i3 = (
+            decoder_c.decode_32bit_float(),
+            decoder_c.decode_32bit_float(),
+            decoder_c.decode_32bit_float(),
+        )
+        self.service["/Ac/L1/Current"] = round(i1 if not math.isnan(i1) else 0, 2)
+        self.service["/Ac/L2/Current"] = round(i2 if not math.isnan(i2) else 0, 2)
+        self.service["/Ac/L3/Current"] = round(i3 if not math.isnan(i3) else 0, 2)
+        current_a = round(max(i1, i2, i3), 2)
+        self.service["/Ac/Current"] = current_a
+        self.service["/Current"] = current_a
+        self.service["/Ac/L1/Power"] = round(v1 * i1, 2)
+        self.service["/Ac/L2/Power"] = round(v2 * i2, 2)
+        self.service["/Ac/L3/Power"] = round(v3 * i3, 2)
+        rr_p = self.client.read_holding_registers(REG_POWER, 2, slave=SOCKET_SLAVE_ID)
+        power = BinaryPayloadDecoder.fromRegisters(
+            rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+        ).decode_32bit_float()
+        self.service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
+        rr_ph = self.client.read_holding_registers(REG_PHASES, 1, slave=SOCKET_SLAVE_ID)
+        self.service["/Ac/PhaseCount"] = rr_ph.registers[0]
 
     def poll(self) -> bool:
         """Poll the Modbus device for updates and apply logic."""
@@ -703,19 +738,7 @@ class AlfenDriver:
             else:
                 self.service["/Ac/Energy/Forward"] = 0.0
 
-            try:
-                rr_max_c = self.client.read_holding_registers(
-                    REG_STATION_MAX_CURRENT, 2, slave=STATION_SLAVE_ID
-                )
-                if not rr_max_c.isError():
-                    max_current = BinaryPayloadDecoder.fromRegisters(
-                        rr_max_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-                    ).decode_32bit_float()
-                    if not math.isnan(max_current) and max_current > 0:
-                        self.station_max_current = float(max_current)
-                    self.service["/MaxCurrent"] = round(self.station_max_current, 1)
-            except Exception as e:
-                self.logger.debug(f"Station MaxCurrent read failed: {e}")
+            self._update_station_max_current()
 
             if self.current_mode == EVC_MODE.MANUAL:
                 max_allowed = max(0.0, float(self.station_max_current))
@@ -724,84 +747,12 @@ class AlfenDriver:
                     self.service["/SetCurrent"] = round(self.intended_set_current, 1)
                     self._persist_config_to_disk()
                     self.logger.info(
-                        "Clamped DBus /SetCurrent to station max: %.1f A (MANUAL mode)",
-                        self.intended_set_current,
+                        f"Clamped DBus /SetCurrent to station max: {self.intended_set_current:.1f} A (MANUAL mode)"
                     )
 
-            rr_v = self.client.read_holding_registers(
-                REG_VOLTAGES, 6, slave=SOCKET_SLAVE_ID
-            )
-            decoder_v = BinaryPayloadDecoder.fromRegisters(
-                rr_v.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-            )
-            v1, v2, v3 = (
-                decoder_v.decode_32bit_float(),
-                decoder_v.decode_32bit_float(),
-                decoder_v.decode_32bit_float(),
-            )
-            self.service["/Ac/L1/Voltage"] = round(v1 if not math.isnan(v1) else 0, 2)
-            self.service["/Ac/L2/Voltage"] = round(v2 if not math.isnan(v2) else 0, 2)
-            self.service["/Ac/L3/Voltage"] = round(v3 if not math.isnan(v3) else 0, 2)
+            self._update_ac_measurements()
 
-            rr_c = self.client.read_holding_registers(
-                REG_CURRENTS, 6, slave=SOCKET_SLAVE_ID
-            )
-            decoder_c = BinaryPayloadDecoder.fromRegisters(
-                rr_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-            )
-            i1, i2, i3 = (
-                decoder_c.decode_32bit_float(),
-                decoder_c.decode_32bit_float(),
-                decoder_c.decode_32bit_float(),
-            )
-            self.service["/Ac/L1/Current"] = round(i1 if not math.isnan(i1) else 0, 2)
-            self.service["/Ac/L2/Current"] = round(i2 if not math.isnan(i2) else 0, 2)
-            self.service["/Ac/L3/Current"] = round(i3 if not math.isnan(i3) else 0, 2)
-            current_a = round(max(i1, i2, i3), 2)
-            self.service["/Ac/Current"] = current_a
-            self.service["/Current"] = current_a
-            self.service["/Ac/L1/Power"] = round(v1 * i1, 2)
-            self.service["/Ac/L2/Power"] = round(v2 * i2, 2)
-            self.service["/Ac/L3/Power"] = round(v3 * i3, 2)
-
-            rr_p = self.client.read_holding_registers(
-                REG_POWER, 2, slave=SOCKET_SLAVE_ID
-            )
-            power = BinaryPayloadDecoder.fromRegisters(
-                rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-            ).decode_32bit_float()
-            self.service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
-
-            rr_ph = self.client.read_holding_registers(
-                REG_PHASES, 1, slave=SOCKET_SLAVE_ID
-            )
-            self.service["/Ac/PhaseCount"] = rr_ph.registers[0]
-
-            effective_current = 0.0
-            if self.current_mode == EVC_MODE.MANUAL:
-                if self.start_stop == EVC_CHARGE.ENABLED:
-                    effective_current = self.intended_set_current
-                else:
-                    effective_current = 0.0
-            elif self.current_mode == EVC_MODE.AUTO:
-                effective_current = (
-                    self.intended_set_current
-                    if self.start_stop == EVC_CHARGE.ENABLED
-                    else 0.0
-                )
-            elif self.current_mode == EVC_MODE.SCHEDULED:
-                if self._is_within_schedule(time.time()):
-                    effective_current = self.intended_set_current
-                else:
-                    effective_current = 0.0
-
-            if (
-                self.low_soc_enabled
-                and self.low_soc_active
-                and self.current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
-            ):
-                effective_current = 0.0
-
+            effective_current = self._compute_effective_current(time.time())
             if effective_current < 0:
                 effective_current = 0.0
             if effective_current > self.station_max_current:
@@ -817,10 +768,7 @@ class AlfenDriver:
                     self.last_current_set_time = current_time
                     self.last_sent_current = effective_current
                     self.logger.info(
-                        "Set effective current to %.2f A (mode: %s, intended: %.2f)",
-                        effective_current,
-                        self.current_mode.name,
-                        self.intended_set_current,
+                        f"Set effective current to {effective_current:.2f} A (mode: {self.current_mode.name}, intended: {self.intended_set_current:.2f})"
                     )
 
             # Auto-start logic: if just connected in MANUAL mode and auto_start enabled, enable StartStop
@@ -840,7 +788,7 @@ class AlfenDriver:
                 if self._write_current_with_verification(target):
                     self.last_current_set_time = time.time()
                     self.last_sent_current = target
-                    self.logger.info("Auto-start applied current: %.2f A", target)
+                    self.logger.info(f"Auto-start applied current: {target:.2f} A")
 
             self.service["/Connected"] = 1
             self.logger.debug("Poll completed successfully")
@@ -866,7 +814,7 @@ class AlfenDriver:
             fw_str = "".join(chr(b) for b in bytes_fw).strip("\x00 ")
             self.service["/FirmwareVersion"] = fw_str
         except Exception as e:
-            self.logger.debug("FirmwareVersion read failed: %s", e)
+            self.logger.debug(f"FirmwareVersion read failed: {e}")
 
     def _read_station_serial(self) -> None:
         try:
@@ -883,7 +831,7 @@ class AlfenDriver:
             sn_str = "".join(chr(b) for b in bytes_sn).strip("\x00 ")
             self.service["/Serial"] = sn_str
         except Exception as e:
-            self.logger.debug("Serial read failed: %s", e)
+            self.logger.debug(f"Serial read failed: {e}")
 
     def _read_product_name(self) -> None:
         try:
@@ -911,7 +859,7 @@ class AlfenDriver:
 
             self.service["/ProductName"] = f"{mfg_str} {pt_str}"
         except Exception as e:
-            self.logger.debug("ProductName creation failed: %s", e)
+            self.logger.debug(f"ProductName creation failed: {e}")
 
     def run(self) -> None:
         GLib.timeout_add(1000, self.poll)
