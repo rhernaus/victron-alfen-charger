@@ -429,10 +429,44 @@ def main():
             return False
 
     def mode_callback(path, value):
-        global current_mode
+        global current_mode, last_current_set_time, last_sent_current
         try:
             current_mode = EVC_MODE(int(value))
             _persist_config_to_disk()
+            # Apply effective current immediately when mode changes
+            now = time.time()
+            effective_current = 0.0
+            if current_mode == EVC_MODE.MANUAL:
+                effective_current = (
+                    intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+                )
+            elif current_mode == EVC_MODE.AUTO:
+                effective_current = (
+                    intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+                )
+            elif current_mode == EVC_MODE.SCHEDULED:
+                effective_current = (
+                    intended_set_current if _is_within_schedule(now) else 0.0
+                )
+            # Low SoC gating for AUTO/SCHEDULED
+            if (
+                low_soc_enabled
+                and low_soc_active
+                and current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
+            ):
+                effective_current = 0.0
+
+            try:
+                if _write_current_with_verification(effective_current):
+                    last_current_set_time = now
+                    last_sent_current = effective_current
+                    logger.info(
+                        "Immediate Mode change applied current: %.2f A (mode=%s)",
+                        effective_current,
+                        current_mode.name,
+                    )
+            except Exception as e:
+                logger.error("Immediate Mode apply failed: %s", e)
             return True
         except ValueError:
             return False
@@ -743,9 +777,11 @@ def main():
                 and start_stop == EVC_CHARGE.DISABLED
             ):
                 new_victron_status = 6  # WAIT_START
-            # AUTO: show WAIT_SUN when connected but effective setpoint is zero
+            # AUTO: respect StartStop; show WAIT_START when disabled; otherwise WAIT_SUN when setpoint is zero
             if current_mode == EVC_MODE.AUTO and connected:
-                if intended_set_current <= 0.1:
+                if start_stop == EVC_CHARGE.DISABLED:
+                    new_victron_status = 6  # WAIT_START
+                elif intended_set_current <= 0.1:
                     new_victron_status = 4  # WAIT_SUN
             # SCHEDULED: outside window show WAIT_START
             if current_mode == EVC_MODE.SCHEDULED and connected:
@@ -866,8 +902,10 @@ def main():
                     # Keep writing 0.0 to prevent Alfen falling back to its safe current
                     effective_current = 0.0
             elif current_mode == EVC_MODE.AUTO:
-                # In AUTO, we pass through intended_set_current (expected to be managed by GX/EMS)
-                effective_current = intended_set_current
+                # In AUTO, respect StartStop: disabled -> 0 A
+                effective_current = (
+                    intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+                )
             elif current_mode == EVC_MODE.SCHEDULED:
                 if _is_within_schedule(time.time()):
                     effective_current = intended_set_current
