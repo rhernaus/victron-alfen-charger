@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import enum
 import logging
 import math
 import os
@@ -17,6 +18,18 @@ from pymodbus.client import ModbusTcpClient
 from pymodbus.constants import Endian
 from pymodbus.payload import BinaryPayloadBuilder, BinaryPayloadDecoder
 from vedbus import VeDbusService
+
+
+class EVC_MODE(enum.IntEnum):
+    MANUAL = 0
+    AUTO = 1
+    SCHEDULED = 2
+
+
+class EVC_CHARGE(enum.IntEnum):
+    DISABLED = 0
+    ENABLED = 1
+
 
 # --- Configuration ---
 ALFEN_IP = "10.128.0.64"
@@ -49,6 +62,11 @@ charging_start_time = 0
 # NEW: Global for watchdog timer
 last_current_set_time = 0
 session_start_energy_kwh = 0
+intended_set_current = 6.0
+current_mode = EVC_MODE.AUTO
+start_stop = EVC_CHARGE.DISABLED
+auto_start = 1
+last_sent_current = -1.0
 
 
 def main():
@@ -96,21 +114,38 @@ def main():
         return False
 
     def set_current_callback(path, value):
-        global last_current_set_time
+        global intended_set_current
         try:
-            # Clamp within sensible bounds (6..32 A typical for AC per phase)
-            target = max(0.0, min(64.0, float(value)))
-            logger.info("GUI request to set current to %.2f A", target)
-            ok = _write_current_with_verification(target)
-            if ok:
-                logger.info("Successfully set current setpoint to %.2f A.", target)
-                last_current_set_time = time.time()
-                return True
-            logger.error("Failed to verify current setpoint write")
-            return False
+            intended_set_current = max(0.0, min(64.0, float(value)))
+            service["/SetCurrent"] = round(intended_set_current, 1)
+            logger.info(
+                "GUI request to set intended current to %.2f A", intended_set_current
+            )
+            return True
         except Exception as e:
             logger.error("Set current error: %s\n%s", e, traceback.format_exc())
             return False
+
+    def mode_callback(path, value):
+        global current_mode
+        try:
+            current_mode = EVC_MODE(int(value))
+            return True
+        except ValueError:
+            return False
+
+    def startstop_callback(path, value):
+        global start_stop
+        try:
+            start_stop = EVC_CHARGE(int(value))
+            return True
+        except ValueError:
+            return False
+
+    def autostart_callback(path, value):
+        global auto_start
+        auto_start = int(value)
+        return True
 
     # --- D-Bus Path Definitions ---
     service.add_path("/Mgmt/ProcessName", __file__)
@@ -123,12 +158,25 @@ def main():
     service.add_path("/FirmwareVersion", "N/A")
     service.add_path("/Serial", "ALFEN-001")
     service.add_path("/Status", 0)
-    service.add_path("/Mode", 1, writeable=True)
     service.add_path(
-        "/SetCurrent", 0.0, writeable=True, onchangecallback=set_current_callback
+        "/Mode", current_mode.value, writeable=True, onchangecallback=mode_callback
+    )
+    service.add_path(
+        "/StartStop",
+        start_stop.value,
+        writeable=True,
+        onchangecallback=startstop_callback,
+    )
+    service.add_path(
+        "/SetCurrent",
+        intended_set_current,
+        writeable=True,
+        onchangecallback=set_current_callback,
     )
     service.add_path("/MaxCurrent", 32.0)
-    service.add_path("/Enable", 1, writeable=True)
+    service.add_path(
+        "/AutoStart", auto_start, writeable=True, onchangecallback=autostart_callback
+    )
     service.add_path("/ChargingTime", 0)
     # EVCS UI expects both "/Current" and "/Ac/Current"; publish both
     service.add_path("/Current", 0.0)
@@ -241,13 +289,26 @@ def main():
 
             # Map Alfen Mode 3 state to Victron EVCS status
             if status_str in ("C2", "D2"):
-                new_victron_status = 2  # Charging
+                raw_status = 2  # Charging
             elif status_str in ("B1", "B2", "C1", "D1"):
-                new_victron_status = 1  # Connected, not charging
+                raw_status = 1  # Connected, not charging
             else:  # A, E, F, and others
-                new_victron_status = 0  # Disconnected
+                raw_status = 0  # Disconnected
 
             old_victron_status = service["/Status"]
+
+            connected = raw_status >= 1
+            charging = raw_status == 2
+
+            new_victron_status = raw_status
+            if (
+                current_mode == EVC_MODE.MANUAL
+                and connected
+                and start_stop == EVC_CHARGE.DISABLED
+                and auto_start == 0
+            ):
+                new_victron_status = 6  # WAIT_START
+
             service["/Status"] = new_victron_status
 
             # Get total energy before checking for session start
@@ -330,27 +391,34 @@ def main():
                 rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             ).decode_32bit_float()
             service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
-            rr_sc = client.read_holding_registers(
-                REG_AMPS_CONFIG, 2, slave=SOCKET_SLAVE_ID
-            )
-            set_current = BinaryPayloadDecoder.fromRegisters(
-                rr_sc.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-            ).decode_32bit_float()
-            service["/SetCurrent"] = round(
-                set_current if not math.isnan(set_current) else 0, 1
-            )
             rr_ph = client.read_holding_registers(REG_PHASES, 1, slave=SOCKET_SLAVE_ID)
             service["/Ac/PhaseCount"] = rr_ph.registers[0]
 
-            # === NEW: WATCHDOG HANDLING LOGIC ===
-            # If charging, and it's been 60 seconds since last set, re-send the current.
-            if service["/Status"] == 2 and (time.time() - last_current_set_time > 60):
-                current_setpoint = float(service["/SetCurrent"])
-                logger.info(
-                    f"Watchdog: Re-sending current setpoint of {current_setpoint} A to Alfen."
-                )
-                if _write_current_with_verification(current_setpoint):
-                    last_current_set_time = time.time()
+            # Compute effective current
+            effective_current = 0.0
+            if connected:
+                if current_mode == EVC_MODE.MANUAL:
+                    if start_stop == EVC_CHARGE.ENABLED or auto_start == 1:
+                        effective_current = intended_set_current
+                    else:
+                        effective_current = 0.0
+                else:  # AUTO or SCHEDULED
+                    effective_current = intended_set_current
+
+            # Write if changed or watchdog
+            current_time = time.time()
+            if abs(effective_current - last_sent_current) > 0.1 or (
+                charging and current_time - last_current_set_time > 60
+            ):
+                ok = _write_current_with_verification(effective_current)
+                if ok:
+                    last_current_set_time = current_time
+                    logger.info(
+                        "Set effective current to %.2f A (mode: %s, intended: %.2f)",
+                        effective_current,
+                        current_mode.name,
+                        intended_set_current,
+                    )
 
             service["/Connected"] = 1
             logger.debug("Poll completed successfully")
