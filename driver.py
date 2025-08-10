@@ -322,15 +322,9 @@ def main():
             current_a = round(max(i1, i2, i3), 2)
             service["/Ac/Current"] = current_a
             service["/Current"] = current_a
-            service["/Ac/L1/Power"] = (
-                service["/Ac/L1/Voltage"] * service["/Ac/L1/Current"]
-            )
-            service["/Ac/L2/Power"] = (
-                service["/Ac/L2/Voltage"] * service["/Ac/L2/Current"]
-            )
-            service["/Ac/L3/Power"] = (
-                service["/Ac/L3/Voltage"] * service["/Ac/L3/Current"]
-            )
+            service["/Ac/L1/Power"] = round(service["/Ac/L1/Voltage"] * i1, 2)
+            service["/Ac/L2/Power"] = round(service["/Ac/L2/Voltage"] * i2, 2)
+            service["/Ac/L3/Power"] = round(service["/Ac/L3/Voltage"] * i3, 2)
             rr_p = client.read_holding_registers(REG_POWER, 2, slave=SOCKET_SLAVE_ID)
             power = BinaryPayloadDecoder.fromRegisters(
                 rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
