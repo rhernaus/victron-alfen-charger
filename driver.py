@@ -21,7 +21,7 @@ from vedbus import VeDbusService
 # --- Configuration ---
 ALFEN_IP = "10.128.0.64"
 ALFEN_PORT = 502
-ALFEN_SLAVE_ID = 1
+ALFEN_SLAVE_ID = 200
 DEVICE_INSTANCE = 0
 
 # --- Modbus Registers ---
