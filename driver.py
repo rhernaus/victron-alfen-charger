@@ -48,6 +48,7 @@ REG_MAX_CURRENT_APPLIED = 1206
 charging_start_time = 0
 # NEW: Global for watchdog timer
 last_current_set_time = 0
+session_start_energy_kwh = 0
 
 
 def main():
@@ -148,7 +149,7 @@ def main():
     service.register()
 
     def poll():
-        global charging_start_time, last_current_set_time
+        global charging_start_time, last_current_set_time, session_start_energy_kwh
         try:
             if not client.is_socket_open():
                 logger.info("Modbus connection is closed. Attempting to reconnect...")
@@ -248,13 +249,35 @@ def main():
 
             old_victron_status = service["/Status"]
             service["/Status"] = new_victron_status
+
+            # Get total energy before checking for session start
+            rr_e = client.read_holding_registers(REG_ENERGY, 4, slave=SOCKET_SLAVE_ID)
+            total_energy_kwh = (
+                BinaryPayloadDecoder.fromRegisters(
+                    rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+                ).decode_64bit_float()
+                / 1000.0
+            )
+
             if new_victron_status == 2 and old_victron_status != 2:
                 charging_start_time = time.time()
+                session_start_energy_kwh = total_energy_kwh
             elif new_victron_status != 2:
                 charging_start_time = 0
+                session_start_energy_kwh = 0  # Reset on disconnect
+
             service["/ChargingTime"] = (
                 time.time() - charging_start_time if charging_start_time > 0 else 0
             )
+
+            # Calculate and publish session energy
+            if session_start_energy_kwh > 0:
+                session_energy = total_energy_kwh - session_start_energy_kwh
+                service["/Ac/Energy/Forward"] = round(
+                    session_energy if not math.isnan(session_energy) else 0, 3
+                )
+            else:
+                service["/Ac/Energy/Forward"] = 0.0
 
             # Read and update MaxCurrent
             try:
@@ -313,16 +336,6 @@ def main():
                 rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             ).decode_32bit_float()
             service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
-            rr_e = client.read_holding_registers(REG_ENERGY, 4, slave=SOCKET_SLAVE_ID)
-            energy = (
-                BinaryPayloadDecoder.fromRegisters(
-                    rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-                ).decode_64bit_float()
-                / 1000.0
-            )
-            service["/Ac/Energy/Forward"] = round(
-                energy if not math.isnan(energy) else 0, 3
-            )
             rr_sc = client.read_holding_registers(
                 REG_AMPS_CONFIG, 2, slave=SOCKET_SLAVE_ID
             )
