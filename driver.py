@@ -690,7 +690,7 @@ def main():
     service.register()
 
     def poll():
-        global charging_start_time, last_current_set_time, session_start_energy_kwh, last_sent_current, low_soc_active
+        global charging_start_time, last_current_set_time, session_start_energy_kwh, last_sent_current, low_soc_active, intended_set_current, station_max_current
         try:
             if not client.is_socket_open():
                 logger.info("Modbus connection is closed. Attempting to reconnect...")
