@@ -60,7 +60,8 @@ REG_MANUFACTURER = 117
 REG_MANUFACTURER_COUNT = 5
 REG_PLATFORM_TYPE = 140
 REG_PLATFORM_TYPE_COUNT = 17
-REG_MAX_CURRENT_APPLIED = 1206
+# Station Active Max Current (FLOAT32, read-only)
+REG_STATION_MAX_CURRENT = 1100
 
 
 # --- Globals ---
@@ -88,6 +89,9 @@ low_soc_active = False
 battery_soc = None
 _dbus_bus = None
 _dbus_soc_obj = None
+
+# Station Active Max Current (as reported by Alfen). Used to clamp our writes
+station_max_current = 32.0
 
 
 def main():
@@ -841,17 +845,17 @@ def main():
             # Read and update MaxCurrent
             try:
                 rr_max_c = client.read_holding_registers(
-                    REG_MAX_CURRENT_APPLIED, 2, slave=SOCKET_SLAVE_ID
+                    REG_STATION_MAX_CURRENT, 2, slave=STATION_SLAVE_ID
                 )
                 if not rr_max_c.isError():
                     max_current = BinaryPayloadDecoder.fromRegisters(
                         rr_max_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
                     ).decode_32bit_float()
-                    service["/MaxCurrent"] = round(
-                        max_current if not math.isnan(max_current) else 0, 1
-                    )
+                    if not math.isnan(max_current) and max_current > 0:
+                        station_max_current = float(max_current)
+                    service["/MaxCurrent"] = round(station_max_current, 1)
             except Exception as e:
-                logger.debug(f"MaxCurrent read failed: {e}")
+                logger.debug(f"Station MaxCurrent read failed: {e}")
 
             # (Voltage, Current, Power reading logic is unchanged)
             rr_v = client.read_holding_registers(REG_VOLTAGES, 6, slave=SOCKET_SLAVE_ID)
@@ -919,6 +923,12 @@ def main():
                 and current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
             ):
                 effective_current = 0.0
+
+            # Clamp to station's maximum current and non-negative
+            if effective_current < 0:
+                effective_current = 0.0
+            if effective_current > station_max_current:
+                effective_current = station_max_current
 
             # Write if changed or watchdog
             current_time = time.time()
