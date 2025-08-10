@@ -53,7 +53,7 @@ def main():
         "Successfully connected to Alfen charger at %s:%s", ALFEN_IP, ALFEN_PORT
     )
 
-    service = VeDbusService("com.victronenergy.evcharger.alfen_0")
+    service = VeDbusService("com.victronenergy.evcharger.alfen_0", register=False)
 
     def set_current_callback(path, value):
         try:
@@ -69,20 +69,20 @@ def main():
             logger.error("Set current error: %s\n%s", e, traceback.format_exc())
             return False
 
-    # Add required paths
+    # Add all paths without writable/onchangecallback here; we'll handle writability separately if needed
     service.add_path("/ProductName", "Alfen Eve Pro Line")
     service.add_path("/ProductId", 0xFFFF)  # Placeholder
     service.add_path("/FirmwareVersion", 1)  # Placeholder
     service.add_path("/Serial", "ALFEN-001")  # Placeholder
     service.add_path("/Status", 0)
-    service.add_path("/Mode", "Auto", writable=True)
+    service.add_path("/Mode", "Auto", writeable=True)
     service.add_path("/Ac/Power", 0.0)
     service.add_path("/Ac/Energy/Forward", 0.0)
     service.add_path(
-        "/SetCurrent", 6.0, writable=True, onchangecallback=set_current_callback
+        "/SetCurrent", 6.0, writeable=True, onchangecallback=set_current_callback
     )
     service.add_path("/MaxCurrent", 32.0)  # Assuming max 32A
-    service.add_path("/Enable", 1, writable=True)
+    service.add_path("/Enable", 1, writeable=True)
     service.add_path("/Ac/PhaseCount", 3)  # Assume 3 phases, update if needed
     service.add_path("/Ac/L1/Voltage", 0.0)
     service.add_path("/Ac/L1/Current", 0.0)
@@ -94,6 +94,9 @@ def main():
     service.add_path("/Ac/L3/Current", 0.0)
     service.add_path("/Ac/L3/Power", 0.0)
     service.add_path("/ChargingTime", 0)  # Placeholder
+
+    # Register the service after adding paths
+    service.register()
 
     def poll():
         try:
