@@ -67,6 +67,11 @@ current_mode = EVC_MODE.AUTO
 start_stop = EVC_CHARGE.DISABLED
 auto_start = 1
 last_sent_current = -1.0
+schedule_enabled = 0
+# Bit mask for days: 0=Sun,1=Mon,...,6=Sat
+schedule_days_mask = 0
+schedule_start = "00:00"  # HH:MM
+schedule_end = "00:00"  # HH:MM
 
 
 def main():
@@ -85,6 +90,39 @@ def main():
     client = ModbusTcpClient(host=ALFEN_IP, port=ALFEN_PORT)
     service_name = f"com.victronenergy.evcharger.alfen_{DEVICE_INSTANCE}"
     service = VeDbusService(service_name, register=False)
+
+    def _parse_hhmm_to_minutes(timestr: str) -> int:
+        try:
+            parts = timestr.strip().split(":")
+            if len(parts) != 2:
+                return 0
+            hours = int(parts[0]) % 24
+            minutes = int(parts[1]) % 60
+            return hours * 60 + minutes
+        except Exception:
+            return 0
+
+    def _is_within_schedule(now: float) -> bool:
+        try:
+            if schedule_enabled == 0:
+                return False
+            tm = time.localtime(now)
+            weekday = tm.tm_wday  # Mon=0..Sun=6
+            # Convert to mask index Sun=0..Sat=6
+            sun_based_index = (weekday + 1) % 7
+            if (schedule_days_mask & (1 << sun_based_index)) == 0:
+                return False
+            minutes_now = tm.tm_hour * 60 + tm.tm_min
+            start_min = _parse_hhmm_to_minutes(schedule_start)
+            end_min = _parse_hhmm_to_minutes(schedule_end)
+            if start_min == end_min:
+                return False
+            if start_min < end_min:
+                return start_min <= minutes_now < end_min
+            # Overnight window
+            return minutes_now >= start_min or minutes_now < end_min
+        except Exception:
+            return False
 
     def _write_current_with_verification(target_amps: float) -> bool:
         """Write float32 to REG_AMPS_CONFIG and verify by reading back.
@@ -147,6 +185,41 @@ def main():
         auto_start = int(value)
         return True
 
+    def schedule_enabled_callback(path, value):
+        global schedule_enabled
+        try:
+            schedule_enabled = int(value)
+            return True
+        except Exception:
+            return False
+
+    def schedule_days_callback(path, value):
+        global schedule_days_mask
+        try:
+            schedule_days_mask = int(value) & 0x7F
+            return True
+        except Exception:
+            return False
+
+    def schedule_start_callback(path, value):
+        global schedule_start
+        try:
+            # Basic validation; fallback to previous on bad input
+            _ = _parse_hhmm_to_minutes(str(value))
+            schedule_start = str(value)
+            return True
+        except Exception:
+            return False
+
+    def schedule_end_callback(path, value):
+        global schedule_end
+        try:
+            _ = _parse_hhmm_to_minutes(str(value))
+            schedule_end = str(value)
+            return True
+        except Exception:
+            return False
+
     # --- D-Bus Path Definitions ---
     service.add_path("/Mgmt/ProcessName", __file__)
     service.add_path("/Mgmt/ProcessVersion", "1.4")
@@ -194,6 +267,32 @@ def main():
     service.add_path("/Ac/L3/Voltage", 0.0)
     service.add_path("/Ac/L3/Current", 0.0)
     service.add_path("/Ac/L3/Power", 0.0)
+
+    # Simple schedule configuration
+    service.add_path(
+        "/Schedule/Enabled",
+        schedule_enabled,
+        writeable=True,
+        onchangecallback=schedule_enabled_callback,
+    )
+    service.add_path(
+        "/Schedule/Days",
+        schedule_days_mask,
+        writeable=True,
+        onchangecallback=schedule_days_callback,
+    )
+    service.add_path(
+        "/Schedule/Start",
+        schedule_start,
+        writeable=True,
+        onchangecallback=schedule_start_callback,
+    )
+    service.add_path(
+        "/Schedule/End",
+        schedule_end,
+        writeable=True,
+        onchangecallback=schedule_end_callback,
+    )
 
     service.register()
 
@@ -301,6 +400,7 @@ def main():
             charging = raw_status == 2
 
             new_victron_status = raw_status
+            # Manual mode gating => WAIT_START when connected and autostart is disabled and StartStop is disabled
             if (
                 current_mode == EVC_MODE.MANUAL
                 and connected
@@ -308,6 +408,14 @@ def main():
                 and auto_start == 0
             ):
                 new_victron_status = 6  # WAIT_START
+            # AUTO: show WAIT_SUN when connected but effective setpoint is zero
+            if current_mode == EVC_MODE.AUTO and connected:
+                if intended_set_current <= 0.1:
+                    new_victron_status = 4  # WAIT_SUN
+            # SCHEDULED: outside window show WAIT_START
+            if current_mode == EVC_MODE.SCHEDULED and connected:
+                if not _is_within_schedule(time.time()):
+                    new_victron_status = 6  # WAIT_START
 
             service["/Status"] = new_victron_status
 
@@ -402,8 +510,14 @@ def main():
                         effective_current = intended_set_current
                     else:
                         effective_current = 0.0
-                else:  # AUTO or SCHEDULED
+                elif current_mode == EVC_MODE.AUTO:
+                    # In AUTO, we pass through intended_set_current (expected to be managed by GX/EMS)
                     effective_current = intended_set_current
+                elif current_mode == EVC_MODE.SCHEDULED:
+                    if _is_within_schedule(time.time()):
+                        effective_current = intended_set_current
+                    else:
+                        effective_current = 0.0
 
             # Write if changed or watchdog
             current_time = time.time()
@@ -413,6 +527,7 @@ def main():
                 ok = _write_current_with_verification(effective_current)
                 if ok:
                     last_current_set_time = current_time
+                    last_sent_current = effective_current
                     logger.info(
                         "Set effective current to %.2f A (mode: %s, intended: %.2f)",
                         effective_current,
