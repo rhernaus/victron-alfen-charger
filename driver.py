@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import enum
+import json
 import logging
 import math
 import os
@@ -118,6 +119,7 @@ def main():
         except Exception:
             return None
 
+    existing_service_found = False
     if dbus is not None:
         try:
             bus = dbus.SystemBus()
@@ -128,6 +130,7 @@ def main():
                     "Existing D-Bus service %s found. Loading initial values from it.",
                     service_name,
                 )
+                existing_service_found = True
                 v = _get_busitem_value(bus, service_name, "/Mode")
                 if v is not None:
                     try:
@@ -228,6 +231,100 @@ def main():
                 "Failed to inspect existing D-Bus service state; using defaults."
             )
 
+    # If no existing D-Bus service, try to load persisted configuration from disk
+    CONFIG_FILE_PATH = f"/data/evcharger_alfen_{DEVICE_INSTANCE}.json"
+
+    def _persist_config_to_disk():
+        try:
+            cfg = {
+                "Mode": int(current_mode),
+                "StartStop": int(start_stop),
+                "AutoStart": int(auto_start),
+                "SetCurrent": float(intended_set_current),
+                "Schedule": {
+                    "Enabled": int(schedule_enabled),
+                    "Days": int(schedule_days_mask),
+                    "Start": str(schedule_start),
+                    "End": str(schedule_end),
+                },
+                "LowSoc": {
+                    "Enabled": int(low_soc_enabled),
+                    "Threshold": float(low_soc_threshold),
+                    "Hysteresis": float(low_soc_hysteresis),
+                },
+            }
+            os.makedirs(os.path.dirname(CONFIG_FILE_PATH), exist_ok=True)
+            with open(CONFIG_FILE_PATH, "w", encoding="utf-8") as f:
+                json.dump(cfg, f)
+        except Exception as e:
+            logger.warning("Failed to persist config: %s", e)
+
+    def _load_config_from_disk():
+        try:
+            if not os.path.exists(CONFIG_FILE_PATH):
+                return None
+            with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning("Failed to load persisted config: %s", e)
+            return None
+
+    if not existing_service_found:
+        data = _load_config_from_disk()
+        if data is not None:
+            try:
+                mv = int(data.get("Mode", int(current_mode)))
+                if mv in (0, 1, 2):
+                    current_mode = EVC_MODE(mv)
+            except Exception:
+                pass
+            try:
+                sv = int(data.get("StartStop", int(start_stop)))
+                if sv in (0, 1):
+                    start_stop = EVC_CHARGE(sv)
+            except Exception:
+                pass
+            try:
+                auto_start = int(data.get("AutoStart", auto_start))
+            except Exception:
+                pass
+            try:
+                intended_set_current = float(
+                    data.get("SetCurrent", intended_set_current)
+                )
+            except Exception:
+                pass
+            sched = data.get("Schedule") or {}
+            try:
+                schedule_enabled = int(sched.get("Enabled", schedule_enabled))
+            except Exception:
+                pass
+            try:
+                schedule_days_mask = int(sched.get("Days", schedule_days_mask)) & 0x7F
+            except Exception:
+                pass
+            try:
+                schedule_start = str(sched.get("Start", schedule_start))
+            except Exception:
+                pass
+            try:
+                schedule_end = str(sched.get("End", schedule_end))
+            except Exception:
+                pass
+            lowsoc = data.get("LowSoc") or {}
+            try:
+                low_soc_enabled = int(lowsoc.get("Enabled", low_soc_enabled))
+            except Exception:
+                pass
+            try:
+                low_soc_threshold = float(lowsoc.get("Threshold", low_soc_threshold))
+            except Exception:
+                pass
+            try:
+                low_soc_hysteresis = float(lowsoc.get("Hysteresis", low_soc_hysteresis))
+            except Exception:
+                pass
+
     service = VeDbusService(service_name, register=False)
 
     def _parse_hhmm_to_minutes(timestr: str) -> int:
@@ -325,6 +422,7 @@ def main():
             logger.info(
                 "GUI request to set intended current to %.2f A", intended_set_current
             )
+            _persist_config_to_disk()
             return True
         except Exception as e:
             logger.error("Set current error: %s\n%s", e, traceback.format_exc())
@@ -334,6 +432,7 @@ def main():
         global current_mode
         try:
             current_mode = EVC_MODE(int(value))
+            _persist_config_to_disk()
             return True
         except ValueError:
             return False
@@ -342,6 +441,7 @@ def main():
         global start_stop, last_current_set_time, last_sent_current
         try:
             start_stop = EVC_CHARGE(int(value))
+            _persist_config_to_disk()
             # Apply immediately in MANUAL mode
             if current_mode == EVC_MODE.MANUAL:
                 try:
@@ -367,12 +467,14 @@ def main():
     def autostart_callback(path, value):
         global auto_start
         auto_start = int(value)
+        _persist_config_to_disk()
         return True
 
     def schedule_enabled_callback(path, value):
         global schedule_enabled
         try:
             schedule_enabled = int(value)
+            _persist_config_to_disk()
             return True
         except Exception:
             return False
@@ -381,6 +483,7 @@ def main():
         global schedule_days_mask
         try:
             schedule_days_mask = int(value) & 0x7F
+            _persist_config_to_disk()
             return True
         except Exception:
             return False
@@ -391,6 +494,7 @@ def main():
             # Basic validation; fallback to previous on bad input
             _ = _parse_hhmm_to_minutes(str(value))
             schedule_start = str(value)
+            _persist_config_to_disk()
             return True
         except Exception:
             return False
@@ -400,6 +504,7 @@ def main():
         try:
             _ = _parse_hhmm_to_minutes(str(value))
             schedule_end = str(value)
+            _persist_config_to_disk()
             return True
         except Exception:
             return False
@@ -408,6 +513,7 @@ def main():
         global low_soc_enabled
         try:
             low_soc_enabled = int(value)
+            _persist_config_to_disk()
             return True
         except Exception:
             return False
@@ -416,6 +522,7 @@ def main():
         global low_soc_threshold
         try:
             low_soc_threshold = float(value)
+            _persist_config_to_disk()
             return True
         except Exception:
             return False
@@ -424,6 +531,7 @@ def main():
         global low_soc_hysteresis
         try:
             low_soc_hysteresis = max(0.0, float(value))
+            _persist_config_to_disk()
             return True
         except Exception:
             return False
