@@ -69,9 +69,19 @@ def main():
             client.write_register(
                 REG_SET_CURRENT_VALID_SECS, int(valid_seconds), slave=ALFEN_SLAVE_ID
             )
-            logger.info("Prepared validity window: 1211=%s seconds", valid_seconds)
+            rr_valid = client.read_holding_registers(
+                REG_SET_CURRENT_VALID_SECS, 1, slave=ALFEN_SLAVE_ID
+            )
+            read_valid = (
+                rr_valid.registers[0] if hasattr(rr_valid, "registers") else None
+            )
+            logger.info(
+                "Prepared validity window: 1211=%s seconds (read-back=%s)",
+                valid_seconds,
+                read_valid,
+            )
         except Exception as e:
-            logger.warning("Unable to write validity window (1211): %s", e)
+            logger.warning("Unable to write/read validity window (1211): %s", e)
 
         # Try 1: BIG/BIG (then BIG/LITTLE)
         for attempt, wordorder in enumerate((Endian.BIG, Endian.LITTLE), start=1):
