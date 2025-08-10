@@ -32,7 +32,6 @@ REG_ENERGY = 374
 REG_STATUS = 1201
 REG_AMPS_CONFIG = 1210
 REG_PHASES = 1215
-REG_SET_CURRENT_VALID_SECS = 1211
 
 # --- Globals ---
 charging_start_time = 0
@@ -63,63 +62,23 @@ def main():
         Tries BIG/BIG first (matching the rest of our map). If the read-back does
         not match within tolerance, tries BIG bytes + LITTLE word order.
         """
-        # Step 0: ensure validity window is set so charger accepts the new value
+        # Single BIG/BIG write + read-back verification
         try:
-            valid_seconds = 120
-            client.write_register(
-                REG_SET_CURRENT_VALID_SECS, int(valid_seconds), slave=ALFEN_SLAVE_ID
-            )
-            rr_valid = client.read_holding_registers(
-                REG_SET_CURRENT_VALID_SECS, 1, slave=ALFEN_SLAVE_ID
-            )
-            read_valid = (
-                rr_valid.registers[0] if hasattr(rr_valid, "registers") else None
-            )
-            logger.info(
-                "Prepared validity window: 1211=%s seconds (read-back=%s)",
-                valid_seconds,
-                read_valid,
-            )
+            builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
+            builder.add_32bit_float(float(target_amps))
+            payload = builder.to_registers()
+            client.write_registers(REG_AMPS_CONFIG, payload, slave=ALFEN_SLAVE_ID)
+            rr = client.read_holding_registers(REG_AMPS_CONFIG, 2, slave=ALFEN_SLAVE_ID)
+            regs = rr.registers if hasattr(rr, "registers") else []
+            if len(regs) == 2:
+                dec = BinaryPayloadDecoder.fromRegisters(
+                    regs, byteorder=Endian.BIG, wordorder=Endian.BIG
+                ).decode_32bit_float()
+                logger.info("SetCurrent write: raw=%s, dec=%.3f", regs, dec)
+                if abs(dec - float(target_amps)) < 0.25:
+                    return True
         except Exception as e:
-            logger.warning("Unable to write/read validity window (1211): %s", e)
-
-        # Try 1: BIG/BIG (then BIG/LITTLE)
-        for attempt, wordorder in enumerate((Endian.BIG, Endian.LITTLE), start=1):
-            try:
-                builder = BinaryPayloadBuilder(
-                    byteorder=Endian.BIG, wordorder=wordorder
-                )
-                builder.add_32bit_float(float(target_amps))
-                payload = builder.to_registers()
-                client.write_registers(REG_AMPS_CONFIG, payload, slave=ALFEN_SLAVE_ID)
-
-                # Read-back and validate using both decoders to be safe
-                rr = client.read_holding_registers(
-                    REG_AMPS_CONFIG, 2, slave=ALFEN_SLAVE_ID
-                )
-                regs = rr.registers if hasattr(rr, "registers") else []
-                if len(regs) == 2:
-                    dec_bb = BinaryPayloadDecoder.fromRegisters(
-                        regs, byteorder=Endian.BIG, wordorder=Endian.BIG
-                    ).decode_32bit_float()
-                    dec_bl = BinaryPayloadDecoder.fromRegisters(
-                        regs, byteorder=Endian.BIG, wordorder=Endian.LITTLE
-                    ).decode_32bit_float()
-                    logger.info(
-                        "SetCurrent write attempt %s (wordorder=%s): raw=%s, dec_bb=%.3f, dec_bl=%.3f",
-                        attempt,
-                        "BIG" if wordorder == Endian.BIG else "LITTLE",
-                        regs,
-                        dec_bb,
-                        dec_bl,
-                    )
-                    if (
-                        abs(dec_bb - float(target_amps)) < 0.25
-                        or abs(dec_bl - float(target_amps)) < 0.25
-                    ):
-                        return True
-            except Exception as e:
-                logger.error("SetCurrent write attempt %s failed: %s", attempt, e)
+            logger.error("SetCurrent write failed: %s", e)
         return False
 
     def set_current_callback(path, value):
