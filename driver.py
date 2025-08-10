@@ -32,6 +32,10 @@ REG_ENERGY = 374
 REG_STATUS = 1201
 REG_AMPS_CONFIG = 1210
 REG_PHASES = 1215
+REG_FIRMWARE_VERSION = 123  # Registers 123-139: firmware version ASCII string
+REG_FIRMWARE_VERSION_COUNT = 17
+REG_STATION_SERIAL = 157  # Registers 157-167: station serial ASCII string
+REG_STATION_SERIAL_COUNT = 11
 
 # --- Globals ---
 charging_start_time = 0
@@ -146,6 +150,30 @@ def main():
                     service["/Connected"] = 0
                     return True
                 logger.info("Modbus connection re-established.")
+                # Read firmware version
+                try:
+                    rr_fw = client.read_holding_registers(
+                        REG_FIRMWARE_VERSION,
+                        REG_FIRMWARE_VERSION_COUNT,
+                        slave=ALFEN_SLAVE_ID,
+                    )
+                    fw_regs = rr_fw.registers if hasattr(rr_fw, "registers") else []
+                    fw_str = "".join(chr(r & 0xFF) for r in fw_regs).strip("\x00 ")
+                    service["/FirmwareVersion"] = fw_str
+                except Exception as e:
+                    logger.debug("FirmwareVersion read failed: %s", e)
+                # Read station serial number
+                try:
+                    rr_sn = client.read_holding_registers(
+                        REG_STATION_SERIAL,
+                        REG_STATION_SERIAL_COUNT,
+                        slave=ALFEN_SLAVE_ID,
+                    )
+                    sn_regs = rr_sn.registers if hasattr(rr_sn, "registers") else []
+                    sn_str = "".join(chr(r & 0xFF) for r in sn_regs).strip("\x00 ")
+                    service["/Serial"] = sn_str
+                except Exception as e:
+                    logger.debug("Serial read failed: %s", e)
 
             # --- The rest of the polling logic ---
             # (This part remains the same, reading status, power, etc.)
