@@ -419,9 +419,27 @@ def main():
         return False
 
     def set_current_callback(path, value):
-        global intended_set_current, station_max_current, current_mode
+        global intended_set_current, station_max_current, current_mode, last_current_set_time, last_sent_current, start_stop
         try:
             requested = max(0.0, min(64.0, float(value)))
+            # If in MANUAL, refresh station max immediately from Modbus to clamp accurately
+            if current_mode == EVC_MODE.MANUAL:
+                try:
+                    rr_max_c = client.read_holding_registers(
+                        REG_STATION_MAX_CURRENT, 2, slave=STATION_SLAVE_ID
+                    )
+                    if not rr_max_c.isError():
+                        max_current = BinaryPayloadDecoder.fromRegisters(
+                            rr_max_c.registers,
+                            byteorder=Endian.BIG,
+                            wordorder=Endian.BIG,
+                        ).decode_32bit_float()
+                        if not math.isnan(max_current) and max_current > 0:
+                            station_max_current = float(max_current)
+                            service["/MaxCurrent"] = round(station_max_current, 1)
+                except Exception:
+                    pass
+
             # Clamp to station max in MANUAL mode; otherwise accept requested and rely on clamping before write
             if current_mode == EVC_MODE.MANUAL:
                 max_allowed = max(0.0, float(station_max_current))
@@ -433,6 +451,27 @@ def main():
                 "GUI request to set intended current to %.2f A", intended_set_current
             )
             _persist_config_to_disk()
+
+            # Optionally apply immediately (especially useful in MANUAL)
+            try:
+                if current_mode == EVC_MODE.MANUAL:
+                    target = (
+                        intended_set_current
+                        if start_stop == EVC_CHARGE.ENABLED
+                        else 0.0
+                    )
+                    # Final clamp to station max before write
+                    if target > station_max_current:
+                        target = station_max_current
+                    if _write_current_with_verification(target):
+                        last_current_set_time = time.time()
+                        last_sent_current = target
+                        logger.info(
+                            "Immediate SetCurrent applied: %.2f A (MANUAL)",
+                            target,
+                        )
+            except Exception as e:
+                logger.debug(f"Immediate SetCurrent write failed: {e}")
             return True
         except Exception as e:
             logger.error("Set current error: %s\n%s", e, traceback.format_exc())
