@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import traceback
+from typing import Any, Dict, Optional
 
 sys.path.insert(
     1, os.path.join(os.path.dirname(__file__), "/opt/victronenergy/dbus-modbus-client")
@@ -22,7 +23,7 @@ from vedbus import VeDbusService
 
 try:
     import dbus
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     dbus = None
 
 
@@ -38,30 +39,30 @@ class EVC_CHARGE(enum.IntEnum):
 
 
 # --- Configuration ---
-ALFEN_IP = "10.128.0.64"
-ALFEN_PORT = 502
-SOCKET_SLAVE_ID = 1
-STATION_SLAVE_ID = 200
-DEVICE_INSTANCE = 0
+ALFEN_IP: str = "10.128.0.64"
+ALFEN_PORT: int = 502
+SOCKET_SLAVE_ID: int = 1
+STATION_SLAVE_ID: int = 200
+DEVICE_INSTANCE: int = 0
 
 # --- Modbus Registers ---
-REG_VOLTAGES = 306
-REG_CURRENTS = 320
-REG_POWER = 344
-REG_ENERGY = 374
-REG_STATUS = 1201
-REG_AMPS_CONFIG = 1210
-REG_PHASES = 1215
-REG_FIRMWARE_VERSION = 123  # Registers 123-139: firmware version ASCII string
-REG_FIRMWARE_VERSION_COUNT = 17
-REG_STATION_SERIAL = 157  # Registers 157-167: station serial ASCII string
-REG_STATION_SERIAL_COUNT = 11
-REG_MANUFACTURER = 117
-REG_MANUFACTURER_COUNT = 5
-REG_PLATFORM_TYPE = 140
-REG_PLATFORM_TYPE_COUNT = 17
+REG_VOLTAGES: int = 306
+REG_CURRENTS: int = 320
+REG_POWER: int = 344
+REG_ENERGY: int = 374
+REG_STATUS: int = 1201
+REG_AMPS_CONFIG: int = 1210
+REG_PHASES: int = 1215
+REG_FIRMWARE_VERSION: int = 123
+REG_FIRMWARE_VERSION_COUNT: int = 17
+REG_STATION_SERIAL: int = 157
+REG_STATION_SERIAL_COUNT: int = 11
+REG_MANUFACTURER: int = 117
+REG_MANUFACTURER_COUNT: int = 5
+REG_PLATFORM_TYPE: int = 140
+REG_PLATFORM_TYPE_COUNT: int = 17
 # Station Active Max Current (FLOAT32, read-only)
-REG_STATION_MAX_CURRENT = 1100
+REG_STATION_MAX_CURRENT: int = 1100
 
 
 # --- Globals ---
@@ -79,7 +80,7 @@ schedule_enabled = 0
 schedule_days_mask = 0
 schedule_start = "00:00"  # HH:MM
 schedule_end = "00:00"  # HH:MM
-WATCHDOG_INTERVAL_SECONDS = 30
+WATCHDOG_INTERVAL_SECONDS: int = 30
 
 # Low SoC controls
 low_soc_enabled = 0
@@ -94,244 +95,259 @@ _dbus_soc_obj = None
 station_max_current = 32.0
 
 
-def main():
-    DBusGMainLoop(set_as_default=True)
+class AlfenDriver:
+    def __init__(self):
+        """Initialize the AlfenDriver with default values and setup."""
+        self.charging_start_time: float = 0
+        self.last_current_set_time: float = 0
+        self.session_start_energy_kwh: float = 0
+        self.intended_set_current: float = 6.0
+        self.current_mode: EVC_MODE = EVC_MODE.AUTO
+        self.start_stop: EVC_CHARGE = EVC_CHARGE.DISABLED
+        self.auto_start: int = 1
+        self.last_sent_current: float = -1.0
+        self.schedule_enabled: int = 0
+        self.schedule_days_mask: int = 0
+        self.schedule_start: str = "00:00"
+        self.schedule_end: str = "00:00"
+        self.low_soc_enabled: int = 0
+        self.low_soc_threshold: float = 20.0
+        self.low_soc_hysteresis: float = 2.0
+        self.low_soc_active: bool = False
+        self.battery_soc: Optional[float] = None
+        self.dbus_bus: Optional[Any] = None
+        self.dbus_soc_obj: Optional[Any] = None
+        self.station_max_current: float = 32.0
+        self.client: ModbusTcpClient = ModbusTcpClient(host=ALFEN_IP, port=ALFEN_PORT)
+        self.service_name: str = f"com.victronenergy.evcharger.alfen_{DEVICE_INSTANCE}"
+        self.service: VeDbusService = VeDbusService(self.service_name, register=False)
+        self.logger: logging.Logger = logging.getLogger("alfen_driver")
+        self.config_file_path: str = f"/data/evcharger_alfen_{DEVICE_INSTANCE}.json"
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler("/var/log/alfen_driver.log"),
-            logging.StreamHandler(sys.stdout),
-        ],
-    )
-    logger = logging.getLogger("alfen_driver")
+        self._load_initial_config()
 
-    client = ModbusTcpClient(host=ALFEN_IP, port=ALFEN_PORT)
-    service_name = f"com.victronenergy.evcharger.alfen_{DEVICE_INSTANCE}"
+        self.service.add_path("/Mgmt/ProcessName", __file__)
+        self.service.add_path("/Mgmt/ProcessVersion", "1.4")
+        self.service.add_path("/Mgmt/Connection", f"Modbus TCP at {ALFEN_IP}")
+        self.service.add_path("/DeviceInstance", DEVICE_INSTANCE)
+        self.service.add_path("/Connected", 0)
+        self.service.add_path("/ProductName", "Alfen EV Charger")
+        self.service.add_path("/ProductId", 0xA142)
+        self.service.add_path("/FirmwareVersion", "N/A")
+        self.service.add_path("/Serial", "ALFEN-001")
+        self.service.add_path("/Status", 0)
+        self.service.add_path(
+            "/Mode",
+            self.current_mode.value,
+            writeable=True,
+            onchangecallback=self.mode_callback,
+        )
+        self.service.add_path(
+            "/StartStop",
+            self.start_stop.value,
+            writeable=True,
+            onchangecallback=self.startstop_callback,
+        )
+        self.service.add_path(
+            "/SetCurrent",
+            self.intended_set_current,
+            writeable=True,
+            onchangecallback=self.set_current_callback,
+        )
+        self.service.add_path("/MaxCurrent", 32.0)
+        self.service.add_path(
+            "/AutoStart",
+            self.auto_start,
+            writeable=True,
+            onchangecallback=self.autostart_callback,
+        )
+        self.service.add_path("/ChargingTime", 0)
+        self.service.add_path("/Current", 0.0)
+        self.service.add_path("/Ac/Current", 0.0)
+        self.service.add_path("/Ac/Power", 0.0)
+        self.service.add_path("/Ac/Energy/Forward", 0.0)
+        self.service.add_path("/Ac/PhaseCount", 0)
+        self.service.add_path("/Position", 0, writeable=True)
+        self.service.add_path("/Ac/L1/Voltage", 0.0)
+        self.service.add_path("/Ac/L1/Current", 0.0)
+        self.service.add_path("/Ac/L1/Power", 0.0)
+        self.service.add_path("/Ac/L2/Voltage", 0.0)
+        self.service.add_path("/Ac/L2/Current", 0.0)
+        self.service.add_path("/Ac/L2/Power", 0.0)
+        self.service.add_path("/Ac/L3/Voltage", 0.0)
+        self.service.add_path("/Ac/L3/Current", 0.0)
+        self.service.add_path("/Ac/L3/Power", 0.0)
+        self.service.add_path(
+            "/Schedule/Enabled",
+            self.schedule_enabled,
+            writeable=True,
+            onchangecallback=self.schedule_enabled_callback,
+        )
+        self.service.add_path(
+            "/Schedule/Days",
+            self.schedule_days_mask,
+            writeable=True,
+            onchangecallback=self.schedule_days_callback,
+        )
+        self.service.add_path(
+            "/Schedule/Start",
+            self.schedule_start,
+            writeable=True,
+            onchangecallback=self.schedule_start_callback,
+        )
+        self.service.add_path(
+            "/Schedule/End",
+            self.schedule_end,
+            writeable=True,
+            onchangecallback=self.schedule_end_callback,
+        )
+        self.service.add_path(
+            "/LowSoc/Enabled",
+            self.low_soc_enabled,
+            writeable=True,
+            onchangecallback=self.low_soc_enabled_callback,
+        )
+        self.service.add_path(
+            "/LowSoc/Threshold",
+            self.low_soc_threshold,
+            writeable=True,
+            onchangecallback=self.low_soc_threshold_callback,
+        )
+        self.service.add_path(
+            "/LowSoc/Hysteresis",
+            self.low_soc_hysteresis,
+            writeable=True,
+            onchangecallback=self.low_soc_hysteresis_callback,
+        )
+        self.service.add_path("/LowSoc/Value", 0.0)
 
-    # We will potentially update global configuration defaults from existing D-Bus values
-    global current_mode, start_stop, auto_start, intended_set_current
-    global schedule_enabled, schedule_days_mask, schedule_start, schedule_end
-    global low_soc_enabled, low_soc_threshold, low_soc_hysteresis
+        self.service.register()
 
-    # Try to load existing values from an already-registered service with the same name
-    def _get_busitem_value(bus, svc: str, path: str):
+    def _load_initial_config(self) -> None:
+        """Load initial configuration from D-Bus or disk."""
+        existing_service_found = False
+        if dbus is not None:
+            try:
+                bus = dbus.SystemBus()
+                dbus_proxy = bus.get_object(
+                    "org.freedesktop.DBus", "/org/freedesktop/DBus"
+                )
+                dbus_iface = dbus.Interface(dbus_proxy, "org.freedesktop.DBus")
+                if dbus_iface.NameHasOwner(self.service_name):
+                    self.logger.info(
+                        "Existing D-Bus service %s found. Loading initial values from it.",
+                        self.service_name,
+                    )
+                    existing_service_found = True
+                    self._load_from_dbus(bus)
+            except Exception:
+                self.logger.warning(
+                    "Failed to inspect existing D-Bus service state; using defaults."
+                )
+
+        if not existing_service_found:
+            data = self._load_config_from_disk()
+            if data is not None:
+                self._apply_config(data)
+
+    def _load_from_dbus(self, bus: Any) -> None:
+        paths = {
+            "/Mode": lambda v: setattr(self, "current_mode", EVC_MODE(int(v))),
+            "/StartStop": lambda v: setattr(self, "start_stop", EVC_CHARGE(int(v))),
+            "/AutoStart": lambda v: setattr(self, "auto_start", int(v)),
+            "/SetCurrent": lambda v: setattr(self, "intended_set_current", float(v)),
+            "/Schedule/Enabled": lambda v: setattr(self, "schedule_enabled", int(v)),
+            "/Schedule/Days": lambda v: setattr(
+                self, "schedule_days_mask", int(v) & 0x7F
+            ),
+            "/Schedule/Start": lambda v: setattr(self, "schedule_start", str(v)),
+            "/Schedule/End": lambda v: setattr(self, "schedule_end", str(v)),
+            "/LowSoc/Enabled": lambda v: setattr(self, "low_soc_enabled", int(v)),
+            "/LowSoc/Threshold": lambda v: setattr(self, "low_soc_threshold", float(v)),
+            "/LowSoc/Hysteresis": lambda v: setattr(
+                self, "low_soc_hysteresis", float(v)
+            ),
+        }
+        for path, setter in paths.items():
+            v = self._get_busitem_value(bus, path)
+            if v is not None:
+                try:
+                    setter(v)
+                except Exception as e:
+                    self.logger.warning(
+                        "Failed to parse existing %s: %r (%s)", path, v, e
+                    )
+
+    def _get_busitem_value(self, bus: Any, path: str) -> Optional[Any]:
         try:
-            obj = bus.get_object(svc, path)
+            obj = bus.get_object(self.service_name, path)
             return obj.GetValue(dbus_interface="com.victronenergy.BusItem")
         except Exception:
             return None
 
-    existing_service_found = False
-    if dbus is not None:
+    def _persist_config_to_disk(self) -> None:
         try:
-            bus = dbus.SystemBus()
-            dbus_proxy = bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus")
-            dbus_iface = dbus.Interface(dbus_proxy, "org.freedesktop.DBus")
-            if dbus_iface.NameHasOwner(service_name):
-                logger.info(
-                    "Existing D-Bus service %s found. Loading initial values from it.",
-                    service_name,
-                )
-                existing_service_found = True
-                v = _get_busitem_value(bus, service_name, "/Mode")
-                if v is not None:
-                    try:
-                        mode_val = int(v)
-                        if mode_val in (0, 1, 2):
-                            current_mode = EVC_MODE(mode_val)
-                        else:
-                            logger.warning("Existing /Mode out of range: %r", v)
-                    except Exception as e:
-                        logger.warning("Failed to parse existing /Mode: %r (%s)", v, e)
-                v = _get_busitem_value(bus, service_name, "/StartStop")
-                if v is not None:
-                    try:
-                        ss_val = int(v)
-                        if ss_val in (0, 1):
-                            start_stop = EVC_CHARGE(ss_val)
-                        else:
-                            logger.warning("Existing /StartStop out of range: %r", v)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /StartStop: %r (%s)", v, e
-                        )
-                v = _get_busitem_value(bus, service_name, "/AutoStart")
-                if v is not None:
-                    try:
-                        auto_start = int(v)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /AutoStart: %r (%s)", v, e
-                        )
-                v = _get_busitem_value(bus, service_name, "/SetCurrent")
-                if v is not None:
-                    try:
-                        intended_set_current = float(v)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /SetCurrent: %r (%s)", v, e
-                        )
-                v = _get_busitem_value(bus, service_name, "/Schedule/Enabled")
-                if v is not None:
-                    try:
-                        schedule_enabled = int(v)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /Schedule/Enabled: %r (%s)", v, e
-                        )
-                v = _get_busitem_value(bus, service_name, "/Schedule/Days")
-                if v is not None:
-                    try:
-                        schedule_days_mask = int(v) & 0x7F
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /Schedule/Days: %r (%s)", v, e
-                        )
-                v = _get_busitem_value(bus, service_name, "/Schedule/Start")
-                if v is not None:
-                    try:
-                        schedule_start = str(v)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /Schedule/Start: %r (%s)", v, e
-                        )
-                v = _get_busitem_value(bus, service_name, "/Schedule/End")
-                if v is not None:
-                    try:
-                        schedule_end = str(v)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /Schedule/End: %r (%s)", v, e
-                        )
-                v = _get_busitem_value(bus, service_name, "/LowSoc/Enabled")
-                if v is not None:
-                    try:
-                        low_soc_enabled = int(v)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /LowSoc/Enabled: %r (%s)", v, e
-                        )
-                v = _get_busitem_value(bus, service_name, "/LowSoc/Threshold")
-                if v is not None:
-                    try:
-                        low_soc_threshold = float(v)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /LowSoc/Threshold: %r (%s)", v, e
-                        )
-                v = _get_busitem_value(bus, service_name, "/LowSoc/Hysteresis")
-                if v is not None:
-                    try:
-                        low_soc_hysteresis = float(v)
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to parse existing /LowSoc/Hysteresis: %r (%s)", v, e
-                        )
-        except Exception:
-            # Ignore D-Bus inspection failures; fall back to script defaults
-            logger.warning(
-                "Failed to inspect existing D-Bus service state; using defaults."
-            )
-
-    # If no existing D-Bus service, try to load persisted configuration from disk
-    CONFIG_FILE_PATH = f"/data/evcharger_alfen_{DEVICE_INSTANCE}.json"
-
-    def _persist_config_to_disk():
-        try:
-            cfg = {
-                "Mode": int(current_mode),
-                "StartStop": int(start_stop),
-                "AutoStart": int(auto_start),
-                "SetCurrent": float(intended_set_current),
+            cfg: Dict[str, Any] = {
+                "Mode": int(self.current_mode),
+                "StartStop": int(self.start_stop),
+                "AutoStart": int(self.auto_start),
+                "SetCurrent": float(self.intended_set_current),
                 "Schedule": {
-                    "Enabled": int(schedule_enabled),
-                    "Days": int(schedule_days_mask),
-                    "Start": str(schedule_start),
-                    "End": str(schedule_end),
+                    "Enabled": int(self.schedule_enabled),
+                    "Days": int(self.schedule_days_mask),
+                    "Start": str(self.schedule_start),
+                    "End": str(self.schedule_end),
                 },
                 "LowSoc": {
-                    "Enabled": int(low_soc_enabled),
-                    "Threshold": float(low_soc_threshold),
-                    "Hysteresis": float(low_soc_hysteresis),
+                    "Enabled": int(self.low_soc_enabled),
+                    "Threshold": float(self.low_soc_threshold),
+                    "Hysteresis": float(self.low_soc_hysteresis),
                 },
             }
-            os.makedirs(os.path.dirname(CONFIG_FILE_PATH), exist_ok=True)
-            with open(CONFIG_FILE_PATH, "w", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(self.config_file_path), exist_ok=True)
+            with open(self.config_file_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f)
         except Exception as e:
-            logger.warning("Failed to persist config: %s", e)
+            self.logger.warning("Failed to persist config: %s", e)
 
-    def _load_config_from_disk():
+    def _load_config_from_disk(self) -> Optional[Dict[str, Any]]:
         try:
-            if not os.path.exists(CONFIG_FILE_PATH):
+            if not os.path.exists(self.config_file_path):
                 return None
-            with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
+            with open(self.config_file_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            logger.warning("Failed to load persisted config: %s", e)
+            self.logger.warning("Failed to load persisted config: %s", e)
             return None
 
-    if not existing_service_found:
-        data = _load_config_from_disk()
-        if data is not None:
-            try:
-                mv = int(data.get("Mode", int(current_mode)))
-                if mv in (0, 1, 2):
-                    current_mode = EVC_MODE(mv)
-            except Exception:
-                pass
-            try:
-                sv = int(data.get("StartStop", int(start_stop)))
-                if sv in (0, 1):
-                    start_stop = EVC_CHARGE(sv)
-            except Exception:
-                pass
-            try:
-                auto_start = int(data.get("AutoStart", auto_start))
-            except Exception:
-                pass
-            try:
-                intended_set_current = float(
-                    data.get("SetCurrent", intended_set_current)
-                )
-            except Exception:
-                pass
-            sched = data.get("Schedule") or {}
-            try:
-                schedule_enabled = int(sched.get("Enabled", schedule_enabled))
-            except Exception:
-                pass
-            try:
-                schedule_days_mask = int(sched.get("Days", schedule_days_mask)) & 0x7F
-            except Exception:
-                pass
-            try:
-                schedule_start = str(sched.get("Start", schedule_start))
-            except Exception:
-                pass
-            try:
-                schedule_end = str(sched.get("End", schedule_end))
-            except Exception:
-                pass
-            lowsoc = data.get("LowSoc") or {}
-            try:
-                low_soc_enabled = int(lowsoc.get("Enabled", low_soc_enabled))
-            except Exception:
-                pass
-            try:
-                low_soc_threshold = float(lowsoc.get("Threshold", low_soc_threshold))
-            except Exception:
-                pass
-            try:
-                low_soc_hysteresis = float(lowsoc.get("Hysteresis", low_soc_hysteresis))
-            except Exception:
-                pass
+    def _apply_config(self, data: Dict[str, Any]) -> None:
+        try:
+            self.current_mode = EVC_MODE(int(data.get("Mode", int(self.current_mode))))
+        except ValueError:
+            pass
+        try:
+            self.start_stop = EVC_CHARGE(
+                int(data.get("StartStop", int(self.start_stop)))
+            )
+        except ValueError:
+            pass
+        self.auto_start = int(data.get("AutoStart", self.auto_start))
+        self.intended_set_current = float(
+            data.get("SetCurrent", self.intended_set_current)
+        )
+        sched = data.get("Schedule", {})
+        self.schedule_enabled = int(sched.get("Enabled", self.schedule_enabled))
+        self.schedule_days_mask = int(sched.get("Days", self.schedule_days_mask)) & 0x7F
+        self.schedule_start = str(sched.get("Start", self.schedule_start))
+        self.schedule_end = str(sched.get("End", self.schedule_end))
+        lowsoc = data.get("LowSoc", {})
+        self.low_soc_enabled = int(lowsoc.get("Enabled", self.low_soc_enabled))
+        self.low_soc_threshold = float(lowsoc.get("Threshold", self.low_soc_threshold))
+        self.low_soc_hysteresis = float(
+            lowsoc.get("Hysteresis", self.low_soc_hysteresis)
+        )
 
-    service = VeDbusService(service_name, register=False)
-
-    def _parse_hhmm_to_minutes(timestr: str) -> int:
+    def _parse_hhmm_to_minutes(self, timestr: str) -> int:
         try:
             parts = timestr.strip().split(":")
             if len(parts) != 2:
@@ -339,71 +355,59 @@ def main():
             hours = int(parts[0]) % 24
             minutes = int(parts[1]) % 60
             return hours * 60 + minutes
-        except Exception:
+        except ValueError:
             return 0
 
-    def _is_within_schedule(now: float) -> bool:
-        try:
-            if schedule_enabled == 0:
-                return False
-            tm = time.localtime(now)
-            weekday = tm.tm_wday  # Mon=0..Sun=6
-            # Convert to mask index Sun=0..Sat=6
-            sun_based_index = (weekday + 1) % 7
-            if (schedule_days_mask & (1 << sun_based_index)) == 0:
-                return False
-            minutes_now = tm.tm_hour * 60 + tm.tm_min
-            start_min = _parse_hhmm_to_minutes(schedule_start)
-            end_min = _parse_hhmm_to_minutes(schedule_end)
-            if start_min == end_min:
-                return False
-            if start_min < end_min:
-                return start_min <= minutes_now < end_min
-            # Overnight window
-            return minutes_now >= start_min or minutes_now < end_min
-        except Exception:
+    def _is_within_schedule(self, now: float) -> bool:
+        if self.schedule_enabled == 0:
             return False
+        tm = time.localtime(now)
+        weekday = tm.tm_wday  # Mon=0..Sun=6
+        sun_based_index = (weekday + 1) % 7
+        if (self.schedule_days_mask & (1 << sun_based_index)) == 0:
+            return False
+        minutes_now = tm.tm_hour * 60 + tm.tm_min
+        start_min = self._parse_hhmm_to_minutes(self.schedule_start)
+        end_min = self._parse_hhmm_to_minutes(self.schedule_end)
+        if start_min == end_min:
+            return False
+        if start_min < end_min:
+            return start_min <= minutes_now < end_min
+        return minutes_now >= start_min or minutes_now < end_min
 
-    def _ensure_soc_proxy():
-        global _dbus_bus, _dbus_soc_obj
+    def _ensure_soc_proxy(self) -> bool:
         if dbus is None:
             return False
         try:
-            if _dbus_bus is None:
-                _dbus_bus = dbus.SystemBus()
-            if _dbus_soc_obj is None:
-                _dbus_soc_obj = _dbus_bus.get_object(
+            if self.dbus_bus is None:
+                self.dbus_bus = dbus.SystemBus()
+            if self.dbus_soc_obj is None:
+                self.dbus_soc_obj = self.dbus_bus.get_object(
                     "com.victronenergy.system", "/Dc/Battery/Soc"
                 )
             return True
         except Exception:
-            _dbus_soc_obj = None
+            self.dbus_soc_obj = None
             return False
 
-    def _read_battery_soc():
+    def _read_battery_soc(self) -> Optional[float]:
         try:
-            if not _ensure_soc_proxy():
+            if not self._ensure_soc_proxy():
                 return None
-            val = _dbus_soc_obj.GetValue(dbus_interface="com.victronenergy.BusItem")
+            val = self.dbus_soc_obj.GetValue(dbus_interface="com.victronenergy.BusItem")
             if val is None:
                 return None
             return float(val)
         except Exception:
             return None
 
-    def _write_current_with_verification(target_amps: float) -> bool:
-        """Write float32 to REG_AMPS_CONFIG and verify by reading back.
-
-        Tries BIG/BIG first (matching the rest of our map). If the read-back does
-        not match within tolerance, tries BIG bytes + LITTLE word order.
-        """
-        # Single BIG/BIG write + read-back verification
+    def _write_current_with_verification(self, target_amps: float) -> bool:
         try:
             builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
             builder.add_32bit_float(float(target_amps))
             payload = builder.to_registers()
-            client.write_registers(REG_AMPS_CONFIG, payload, slave=SOCKET_SLAVE_ID)
-            rr = client.read_holding_registers(
+            self.client.write_registers(REG_AMPS_CONFIG, payload, slave=SOCKET_SLAVE_ID)
+            rr = self.client.read_holding_registers(
                 REG_AMPS_CONFIG, 2, slave=SOCKET_SLAVE_ID
             )
             regs = rr.registers if hasattr(rr, "registers") else []
@@ -411,21 +415,19 @@ def main():
                 dec = BinaryPayloadDecoder.fromRegisters(
                     regs, byteorder=Endian.BIG, wordorder=Endian.BIG
                 ).decode_32bit_float()
-                logger.info("SetCurrent write: raw=%s, dec=%.3f", regs, dec)
+                self.logger.info("SetCurrent write: raw=%s, dec=%.3f", regs, dec)
                 if abs(dec - float(target_amps)) < 0.25:
                     return True
         except Exception as e:
-            logger.error("SetCurrent write failed: %s", e)
+            self.logger.error("SetCurrent write failed: %s", e)
         return False
 
-    def set_current_callback(path, value):
-        global intended_set_current, station_max_current, current_mode, last_current_set_time, last_sent_current, start_stop
+    def set_current_callback(self, path: str, value: Any) -> bool:
         try:
             requested = max(0.0, min(64.0, float(value)))
-            # If in MANUAL, refresh station max immediately from Modbus to clamp accurately
-            if current_mode == EVC_MODE.MANUAL:
+            if self.current_mode == EVC_MODE.MANUAL:
                 try:
-                    rr_max_c = client.read_holding_registers(
+                    rr_max_c = self.client.read_holding_registers(
                         REG_STATION_MAX_CURRENT, 2, slave=STATION_SLAVE_ID
                     )
                     if not rr_max_c.isError():
@@ -435,377 +437,198 @@ def main():
                             wordorder=Endian.BIG,
                         ).decode_32bit_float()
                         if not math.isnan(max_current) and max_current > 0:
-                            station_max_current = float(max_current)
-                            service["/MaxCurrent"] = round(station_max_current, 1)
+                            self.station_max_current = float(max_current)
+                            self.service["/MaxCurrent"] = round(
+                                self.station_max_current, 1
+                            )
                 except Exception:
                     pass
 
-            # Clamp to station max in MANUAL mode; otherwise accept requested and rely on clamping before write
-            if current_mode == EVC_MODE.MANUAL:
-                max_allowed = max(0.0, float(station_max_current))
-                intended_set_current = min(requested, max_allowed)
+            if self.current_mode == EVC_MODE.MANUAL:
+                max_allowed = max(0.0, float(self.station_max_current))
+                self.intended_set_current = min(requested, max_allowed)
             else:
-                intended_set_current = requested
-            service["/SetCurrent"] = round(intended_set_current, 1)
-            logger.info(
-                "GUI request to set intended current to %.2f A", intended_set_current
+                self.intended_set_current = requested
+            self.service["/SetCurrent"] = round(self.intended_set_current, 1)
+            self.logger.info(
+                "GUI request to set intended current to %.2f A",
+                self.intended_set_current,
             )
-            _persist_config_to_disk()
+            self._persist_config_to_disk()
 
-            # Optionally apply immediately (especially useful in MANUAL)
-            try:
-                if current_mode == EVC_MODE.MANUAL:
-                    target = (
-                        intended_set_current
-                        if start_stop == EVC_CHARGE.ENABLED
-                        else 0.0
+            if self.current_mode == EVC_MODE.MANUAL:
+                target = (
+                    self.intended_set_current
+                    if self.start_stop == EVC_CHARGE.ENABLED
+                    else 0.0
+                )
+                if target > self.station_max_current:
+                    target = self.station_max_current
+                if self._write_current_with_verification(target):
+                    self.last_current_set_time = time.time()
+                    self.last_sent_current = target
+                    self.logger.info(
+                        "Immediate SetCurrent applied: %.2f A (MANUAL)",
+                        target,
                     )
-                    # Final clamp to station max before write
-                    if target > station_max_current:
-                        target = station_max_current
-                    if _write_current_with_verification(target):
-                        last_current_set_time = time.time()
-                        last_sent_current = target
-                        logger.info(
-                            "Immediate SetCurrent applied: %.2f A (MANUAL)",
-                            target,
-                        )
-            except Exception as e:
-                logger.debug(f"Immediate SetCurrent write failed: {e}")
             return True
         except Exception as e:
-            logger.error("Set current error: %s\n%s", e, traceback.format_exc())
+            self.logger.error("Set current error: %s\n%s", e, traceback.format_exc())
             return False
 
-    def mode_callback(path, value):
-        global current_mode, last_current_set_time, last_sent_current, intended_set_current
+    def mode_callback(self, path: str, value: Any) -> bool:
         try:
-            current_mode = EVC_MODE(int(value))
-            _persist_config_to_disk()
-            # Apply effective current immediately when mode changes
+            self.current_mode = EVC_MODE(int(value))
+            self._persist_config_to_disk()
             now = time.time()
             effective_current = 0.0
-            if current_mode == EVC_MODE.MANUAL:
-                # Clamp intended setpoint to station max on entering MANUAL
-                try:
-                    if intended_set_current > station_max_current:
-                        intended_set_current = station_max_current
-                        service["/SetCurrent"] = round(intended_set_current, 1)
-                        _persist_config_to_disk()
-                        logger.info(
-                            "Clamped /SetCurrent to station max: %.1f A (on MANUAL mode)",
-                            intended_set_current,
-                        )
-                except Exception:
-                    pass
+            if self.current_mode == EVC_MODE.MANUAL:
+                if self.intended_set_current > self.station_max_current:
+                    self.intended_set_current = self.station_max_current
+                    self.service["/SetCurrent"] = round(self.intended_set_current, 1)
+                    self._persist_config_to_disk()
+                    self.logger.info(
+                        "Clamped /SetCurrent to station max: %.1f A (on MANUAL mode)",
+                        self.intended_set_current,
+                    )
                 effective_current = (
-                    intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+                    self.intended_set_current
+                    if self.start_stop == EVC_CHARGE.ENABLED
+                    else 0.0
                 )
-            elif current_mode == EVC_MODE.AUTO:
+            elif self.current_mode == EVC_MODE.AUTO:
                 effective_current = (
-                    intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+                    self.intended_set_current
+                    if self.start_stop == EVC_CHARGE.ENABLED
+                    else 0.0
                 )
-            elif current_mode == EVC_MODE.SCHEDULED:
+            elif self.current_mode == EVC_MODE.SCHEDULED:
                 effective_current = (
-                    intended_set_current if _is_within_schedule(now) else 0.0
+                    self.intended_set_current if self._is_within_schedule(now) else 0.0
                 )
-            # Low SoC gating for AUTO/SCHEDULED
             if (
-                low_soc_enabled
-                and low_soc_active
-                and current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
+                self.low_soc_enabled
+                and self.low_soc_active
+                and self.current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
             ):
                 effective_current = 0.0
 
-            try:
-                if _write_current_with_verification(effective_current):
-                    last_current_set_time = now
-                    last_sent_current = effective_current
-                    logger.info(
-                        "Immediate Mode change applied current: %.2f A (mode=%s)",
-                        effective_current,
-                        current_mode.name,
-                    )
-            except Exception as e:
-                logger.error("Immediate Mode apply failed: %s", e)
+            if self._write_current_with_verification(effective_current):
+                self.last_current_set_time = now
+                self.last_sent_current = effective_current
+                self.logger.info(
+                    "Immediate Mode change applied current: %.2f A (mode=%s)",
+                    effective_current,
+                    self.current_mode.name,
+                )
             return True
         except ValueError:
             return False
 
-    def startstop_callback(path, value):
-        global start_stop, last_current_set_time, last_sent_current
+    def startstop_callback(self, path: str, value: Any) -> bool:
         try:
-            start_stop = EVC_CHARGE(int(value))
-            _persist_config_to_disk()
-            # Apply immediately in MANUAL mode
-            if current_mode == EVC_MODE.MANUAL:
-                try:
-                    target = (
-                        intended_set_current
-                        if start_stop == EVC_CHARGE.ENABLED
-                        else 0.0
+            self.start_stop = EVC_CHARGE(int(value))
+            self._persist_config_to_disk()
+            if self.current_mode == EVC_MODE.MANUAL:
+                target = (
+                    self.intended_set_current
+                    if self.start_stop == EVC_CHARGE.ENABLED
+                    else 0.0
+                )
+                if self._write_current_with_verification(target):
+                    self.last_current_set_time = time.time()
+                    self.last_sent_current = target
+                    self.logger.info(
+                        "Immediate StartStop change applied: %.2f A (StartStop=%s)",
+                        target,
+                        self.start_stop.name,
                     )
-                    if _write_current_with_verification(target):
-                        last_current_set_time = time.time()
-                        last_sent_current = target
-                        logger.info(
-                            "Immediate StartStop change applied: %.2f A (StartStop=%s)",
-                            target,
-                            start_stop.name,
-                        )
-                except Exception as e:
-                    logger.error("Immediate StartStop apply failed: %s", e)
             return True
         except ValueError:
             return False
 
-    def autostart_callback(path, value):
-        global auto_start
-        auto_start = int(value)
-        _persist_config_to_disk()
+    def autostart_callback(self, path: str, value: Any) -> bool:
+        self.auto_start = int(value)
+        self._persist_config_to_disk()
         return True
 
-    def schedule_enabled_callback(path, value):
-        global schedule_enabled
+    def schedule_enabled_callback(self, path: str, value: Any) -> bool:
         try:
-            schedule_enabled = int(value)
-            _persist_config_to_disk()
+            self.schedule_enabled = int(value)
+            self._persist_config_to_disk()
             return True
-        except Exception:
+        except ValueError:
             return False
 
-    def schedule_days_callback(path, value):
-        global schedule_days_mask
+    def schedule_days_callback(self, path: str, value: Any) -> bool:
         try:
-            schedule_days_mask = int(value) & 0x7F
-            _persist_config_to_disk()
+            self.schedule_days_mask = int(value) & 0x7F
+            self._persist_config_to_disk()
             return True
-        except Exception:
+        except ValueError:
             return False
 
-    def schedule_start_callback(path, value):
-        global schedule_start
+    def schedule_start_callback(self, path: str, value: Any) -> bool:
         try:
-            # Basic validation; fallback to previous on bad input
-            _ = _parse_hhmm_to_minutes(str(value))
-            schedule_start = str(value)
-            _persist_config_to_disk()
+            _ = self._parse_hhmm_to_minutes(str(value))
+            self.schedule_start = str(value)
+            self._persist_config_to_disk()
             return True
-        except Exception:
+        except ValueError:
             return False
 
-    def schedule_end_callback(path, value):
-        global schedule_end
+    def schedule_end_callback(self, path: str, value: Any) -> bool:
         try:
-            _ = _parse_hhmm_to_minutes(str(value))
-            schedule_end = str(value)
-            _persist_config_to_disk()
+            _ = self._parse_hhmm_to_minutes(str(value))
+            self.schedule_end = str(value)
+            self._persist_config_to_disk()
             return True
-        except Exception:
+        except ValueError:
             return False
 
-    def low_soc_enabled_callback(path, value):
-        global low_soc_enabled
+    def low_soc_enabled_callback(self, path: str, value: Any) -> bool:
         try:
-            low_soc_enabled = int(value)
-            _persist_config_to_disk()
+            self.low_soc_enabled = int(value)
+            self._persist_config_to_disk()
             return True
-        except Exception:
+        except ValueError:
             return False
 
-    def low_soc_threshold_callback(path, value):
-        global low_soc_threshold
+    def low_soc_threshold_callback(self, path: str, value: Any) -> bool:
         try:
-            low_soc_threshold = float(value)
-            _persist_config_to_disk()
+            self.low_soc_threshold = float(value)
+            self._persist_config_to_disk()
             return True
-        except Exception:
+        except ValueError:
             return False
 
-    def low_soc_hysteresis_callback(path, value):
-        global low_soc_hysteresis
+    def low_soc_hysteresis_callback(self, path: str, value: Any) -> bool:
         try:
-            low_soc_hysteresis = max(0.0, float(value))
-            _persist_config_to_disk()
+            self.low_soc_hysteresis = max(0.0, float(value))
+            self._persist_config_to_disk()
             return True
-        except Exception:
+        except ValueError:
             return False
 
-    # --- D-Bus Path Definitions ---
-    service.add_path("/Mgmt/ProcessName", __file__)
-    service.add_path("/Mgmt/ProcessVersion", "1.4")
-    service.add_path("/Mgmt/Connection", f"Modbus TCP at {ALFEN_IP}")
-    service.add_path("/DeviceInstance", DEVICE_INSTANCE)
-    service.add_path("/Connected", 0)
-    service.add_path("/ProductName", "Alfen EV Charger")
-    service.add_path("/ProductId", 0xA142)
-    service.add_path("/FirmwareVersion", "N/A")
-    service.add_path("/Serial", "ALFEN-001")
-    service.add_path("/Status", 0)
-    service.add_path(
-        "/Mode", current_mode.value, writeable=True, onchangecallback=mode_callback
-    )
-    service.add_path(
-        "/StartStop",
-        start_stop.value,
-        writeable=True,
-        onchangecallback=startstop_callback,
-    )
-    service.add_path(
-        "/SetCurrent",
-        intended_set_current,
-        writeable=True,
-        onchangecallback=set_current_callback,
-    )
-    service.add_path("/MaxCurrent", 32.0)
-    service.add_path(
-        "/AutoStart", auto_start, writeable=True, onchangecallback=autostart_callback
-    )
-    service.add_path("/ChargingTime", 0)
-    # EVCS UI expects both "/Current" and "/Ac/Current"; publish both
-    service.add_path("/Current", 0.0)
-    service.add_path("/Ac/Current", 0.0)
-    service.add_path("/Ac/Power", 0.0)
-    service.add_path("/Ac/Energy/Forward", 0.0)
-    service.add_path("/Ac/PhaseCount", 0)
-    service.add_path("/Position", 0, writeable=True)  # 0=AC Output, 1=AC Input
-    service.add_path("/Ac/L1/Voltage", 0.0)
-    service.add_path("/Ac/L1/Current", 0.0)
-    service.add_path("/Ac/L1/Power", 0.0)
-    service.add_path("/Ac/L2/Voltage", 0.0)
-    service.add_path("/Ac/L2/Current", 0.0)
-    service.add_path("/Ac/L2/Power", 0.0)
-    service.add_path("/Ac/L3/Voltage", 0.0)
-    service.add_path("/Ac/L3/Current", 0.0)
-    service.add_path("/Ac/L3/Power", 0.0)
-
-    # Simple schedule configuration
-    service.add_path(
-        "/Schedule/Enabled",
-        schedule_enabled,
-        writeable=True,
-        onchangecallback=schedule_enabled_callback,
-    )
-    service.add_path(
-        "/Schedule/Days",
-        schedule_days_mask,
-        writeable=True,
-        onchangecallback=schedule_days_callback,
-    )
-    service.add_path(
-        "/Schedule/Start",
-        schedule_start,
-        writeable=True,
-        onchangecallback=schedule_start_callback,
-    )
-    service.add_path(
-        "/Schedule/End",
-        schedule_end,
-        writeable=True,
-        onchangecallback=schedule_end_callback,
-    )
-
-    # Low SoC configuration and telemetry
-    service.add_path(
-        "/LowSoc/Enabled",
-        low_soc_enabled,
-        writeable=True,
-        onchangecallback=low_soc_enabled_callback,
-    )
-    service.add_path(
-        "/LowSoc/Threshold",
-        low_soc_threshold,
-        writeable=True,
-        onchangecallback=low_soc_threshold_callback,
-    )
-    service.add_path(
-        "/LowSoc/Hysteresis",
-        low_soc_hysteresis,
-        writeable=True,
-        onchangecallback=low_soc_hysteresis_callback,
-    )
-    service.add_path("/LowSoc/Value", 0.0)
-
-    service.register()
-
-    def poll():
-        global charging_start_time, last_current_set_time, session_start_energy_kwh, last_sent_current, low_soc_active, intended_set_current, station_max_current
+    def poll(self) -> bool:
+        """Poll the Modbus device for updates and apply logic."""
         try:
-            if not client.is_socket_open():
-                logger.info("Modbus connection is closed. Attempting to reconnect...")
-                if not client.connect():
-                    logger.error(
+            if not self.client.is_socket_open():
+                self.logger.info(
+                    "Modbus connection is closed. Attempting to reconnect..."
+                )
+                if not self.client.connect():
+                    self.logger.error(
                         "Failed to reconnect to Alfen. Will retry on next poll."
                     )
-                    service["/Connected"] = 0
+                    self.service["/Connected"] = 0
                     return True
-                logger.info("Modbus connection re-established.")
-                # Read firmware version
-                try:
-                    rr_fw = client.read_holding_registers(
-                        REG_FIRMWARE_VERSION,
-                        REG_FIRMWARE_VERSION_COUNT,
-                        slave=STATION_SLAVE_ID,
-                    )
-                    fw_regs = rr_fw.registers if hasattr(rr_fw, "registers") else []
-                    bytes_fw = []
-                    for reg in fw_regs:
-                        bytes_fw.append((reg >> 8) & 0xFF)
-                        bytes_fw.append(reg & 0xFF)
-                    fw_str = "".join(chr(b) for b in bytes_fw).strip("\x00 ")
-                    service["/FirmwareVersion"] = fw_str
-                except Exception as e:
-                    logger.debug("FirmwareVersion read failed: %s", e)
-                # Read station serial number
-                try:
-                    rr_sn = client.read_holding_registers(
-                        REG_STATION_SERIAL,
-                        REG_STATION_SERIAL_COUNT,
-                        slave=STATION_SLAVE_ID,
-                    )
-                    sn_regs = rr_sn.registers if hasattr(rr_sn, "registers") else []
-                    bytes_sn = []
-                    for reg in sn_regs:
-                        bytes_sn.append((reg >> 8) & 0xFF)
-                        bytes_sn.append(reg & 0xFF)
-                    sn_str = "".join(chr(b) for b in bytes_sn).strip("\x00 ")
-                    service["/Serial"] = sn_str
-                except Exception as e:
-                    logger.debug("Serial read failed: %s", e)
-                # Read manufacturer and platform type to build ProductName
-                try:
-                    # Read Manufacturer
-                    rr_mfg = client.read_holding_registers(
-                        REG_MANUFACTURER, REG_MANUFACTURER_COUNT, slave=STATION_SLAVE_ID
-                    )
-                    mfg_regs = rr_mfg.registers if hasattr(rr_mfg, "registers") else []
-                    bytes_mfg = []
-                    for reg in mfg_regs:
-                        bytes_mfg.append((reg >> 8) & 0xFF)
-                        bytes_mfg.append(reg & 0xFF)
-                    mfg_str = "".join(chr(b) for b in bytes_mfg).strip("\x00 ")
+                self.logger.info("Modbus connection re-established.")
+                self._read_firmware_version()
+                self._read_station_serial()
+                self._read_product_name()
 
-                    # Read Platform Type
-                    rr_pt = client.read_holding_registers(
-                        REG_PLATFORM_TYPE,
-                        REG_PLATFORM_TYPE_COUNT,
-                        slave=STATION_SLAVE_ID,
-                    )
-                    pt_regs = rr_pt.registers if hasattr(rr_pt, "registers") else []
-                    bytes_pt = []
-                    for reg in pt_regs:
-                        bytes_pt.append((reg >> 8) & 0xFF)
-                        bytes_pt.append(reg & 0xFF)
-                    pt_str = "".join(chr(b) for b in bytes_pt).strip("\x00 ")
-
-                    service["/ProductName"] = f"{mfg_str} {pt_str}"
-                except Exception as e:
-                    logger.debug("ProductName creation failed: %s", e)
-
-            # --- The rest of the polling logic ---
-            # (This part remains the same, reading status, power, etc.)
-            # Alfen exposes status as ASCII in multiple registers (e.g. "0", "1", "2").
-            rr_status = client.read_holding_registers(
+            rr_status = self.client.read_holding_registers(
                 REG_STATUS, 5, slave=SOCKET_SLAVE_ID
             )
             if rr_status.isError():
@@ -818,60 +641,58 @@ def main():
                 .upper()
             )
 
-            # Map Alfen Mode 3 state to Victron EVCS status
             if status_str in ("C2", "D2"):
-                raw_status = 2  # Charging
+                raw_status = 2
             elif status_str in ("B1", "B2", "C1", "D1"):
-                raw_status = 1  # Connected, not charging
-            else:  # A, E, F, and others
-                raw_status = 0  # Disconnected
+                raw_status = 1
+            else:
+                raw_status = 0
 
-            old_victron_status = service["/Status"]
+            old_victron_status = self.service["/Status"]
 
             connected = raw_status >= 1
 
             new_victron_status = raw_status
-            # Manual mode gating => WAIT_START when connected and autostart is disabled and StartStop is disabled
             if (
-                current_mode == EVC_MODE.MANUAL
+                self.current_mode == EVC_MODE.MANUAL
                 and connected
-                and start_stop == EVC_CHARGE.DISABLED
+                and self.auto_start == 0
+                and self.start_stop == EVC_CHARGE.DISABLED
             ):
-                new_victron_status = 6  # WAIT_START
-            # AUTO: respect StartStop; show WAIT_START when disabled; otherwise WAIT_SUN when setpoint is zero
-            if current_mode == EVC_MODE.AUTO and connected:
-                if start_stop == EVC_CHARGE.DISABLED:
-                    new_victron_status = 6  # WAIT_START
-                elif intended_set_current <= 0.1:
-                    new_victron_status = 4  # WAIT_SUN
-            # SCHEDULED: outside window show WAIT_START
-            if current_mode == EVC_MODE.SCHEDULED and connected:
-                if not _is_within_schedule(time.time()):
-                    new_victron_status = 6  # WAIT_START
+                new_victron_status = 6
+            if self.current_mode == EVC_MODE.AUTO and connected:
+                if self.start_stop == EVC_CHARGE.DISABLED:
+                    new_victron_status = 6
+                elif self.intended_set_current <= 0.1:
+                    new_victron_status = 4
+            if self.current_mode == EVC_MODE.SCHEDULED and connected:
+                if not self._is_within_schedule(time.time()):
+                    new_victron_status = 6
 
-            # Read battery SoC and apply Low SoC logic
-            battery_soc_value = _read_battery_soc()
+            battery_soc_value = self._read_battery_soc()
             if battery_soc_value is not None and not math.isnan(battery_soc_value):
                 battery_soc_value = float(battery_soc_value)
-                service["/LowSoc/Value"] = round(battery_soc_value, 1)
+                self.service["/LowSoc/Value"] = round(battery_soc_value, 1)
             else:
                 battery_soc_value = None
 
-            if low_soc_enabled and battery_soc_value is not None:
-                # Hysteresis
-                if low_soc_active:
-                    if battery_soc_value >= (low_soc_threshold + low_soc_hysteresis):
-                        low_soc_active = False
+            if self.low_soc_enabled and battery_soc_value is not None:
+                if self.low_soc_active:
+                    if battery_soc_value >= (
+                        self.low_soc_threshold + self.low_soc_hysteresis
+                    ):
+                        self.low_soc_active = False
                 else:
-                    if battery_soc_value <= low_soc_threshold:
-                        low_soc_active = True
-                if low_soc_active and connected:
-                    new_victron_status = 7  # LOW_SOC
+                    if battery_soc_value <= self.low_soc_threshold:
+                        self.low_soc_active = True
+                if self.low_soc_active and connected:
+                    new_victron_status = 7
 
-            service["/Status"] = new_victron_status
+            self.service["/Status"] = new_victron_status
 
-            # Get total energy before checking for session start
-            rr_e = client.read_holding_registers(REG_ENERGY, 4, slave=SOCKET_SLAVE_ID)
+            rr_e = self.client.read_holding_registers(
+                REG_ENERGY, 4, slave=SOCKET_SLAVE_ID
+            )
             total_energy_kwh = (
                 BinaryPayloadDecoder.fromRegisters(
                     rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
@@ -880,28 +701,28 @@ def main():
             )
 
             if new_victron_status == 2 and old_victron_status != 2:
-                charging_start_time = time.time()
-                session_start_energy_kwh = total_energy_kwh
+                self.charging_start_time = time.time()
+                self.session_start_energy_kwh = total_energy_kwh
             elif new_victron_status != 2:
-                charging_start_time = 0
-                session_start_energy_kwh = 0  # Reset on disconnect
+                self.charging_start_time = 0
+                self.session_start_energy_kwh = 0
 
-            service["/ChargingTime"] = (
-                time.time() - charging_start_time if charging_start_time > 0 else 0
+            self.service["/ChargingTime"] = (
+                time.time() - self.charging_start_time
+                if self.charging_start_time > 0
+                else 0
             )
 
-            # Calculate and publish session energy
-            if session_start_energy_kwh > 0:
-                session_energy = total_energy_kwh - session_start_energy_kwh
-                service["/Ac/Energy/Forward"] = round(
+            if self.session_start_energy_kwh > 0:
+                session_energy = total_energy_kwh - self.session_start_energy_kwh
+                self.service["/Ac/Energy/Forward"] = round(
                     session_energy if not math.isnan(session_energy) else 0, 3
                 )
             else:
-                service["/Ac/Energy/Forward"] = 0.0
+                self.service["/Ac/Energy/Forward"] = 0.0
 
-            # Read and update MaxCurrent
             try:
-                rr_max_c = client.read_holding_registers(
+                rr_max_c = self.client.read_holding_registers(
                     REG_STATION_MAX_CURRENT, 2, slave=STATION_SLAVE_ID
                 )
                 if not rr_max_c.isError():
@@ -909,28 +730,25 @@ def main():
                         rr_max_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
                     ).decode_32bit_float()
                     if not math.isnan(max_current) and max_current > 0:
-                        station_max_current = float(max_current)
-                    service["/MaxCurrent"] = round(station_max_current, 1)
+                        self.station_max_current = float(max_current)
+                    self.service["/MaxCurrent"] = round(self.station_max_current, 1)
             except Exception as e:
-                logger.debug(f"Station MaxCurrent read failed: {e}")
+                self.logger.debug(f"Station MaxCurrent read failed: {e}")
 
-            # Ensure DBus /SetCurrent never exceeds station max in MANUAL mode
-            if current_mode == EVC_MODE.MANUAL:
-                try:
-                    max_allowed = max(0.0, float(station_max_current))
-                    if intended_set_current > max_allowed + 1e-6:
-                        intended_set_current = max_allowed
-                        service["/SetCurrent"] = round(intended_set_current, 1)
-                        _persist_config_to_disk()
-                        logger.info(
-                            "Clamped DBus /SetCurrent to station max: %.1f A (MANUAL mode)",
-                            intended_set_current,
-                        )
-                except Exception as e:
-                    logger.debug(f"Failed to clamp DBus /SetCurrent: {e}")
+            if self.current_mode == EVC_MODE.MANUAL:
+                max_allowed = max(0.0, float(self.station_max_current))
+                if self.intended_set_current > max_allowed + 1e-6:
+                    self.intended_set_current = max_allowed
+                    self.service["/SetCurrent"] = round(self.intended_set_current, 1)
+                    self._persist_config_to_disk()
+                    self.logger.info(
+                        "Clamped DBus /SetCurrent to station max: %.1f A (MANUAL mode)",
+                        self.intended_set_current,
+                    )
 
-            # (Voltage, Current, Power reading logic is unchanged)
-            rr_v = client.read_holding_registers(REG_VOLTAGES, 6, slave=SOCKET_SLAVE_ID)
+            rr_v = self.client.read_holding_registers(
+                REG_VOLTAGES, 6, slave=SOCKET_SLAVE_ID
+            )
             decoder_v = BinaryPayloadDecoder.fromRegisters(
                 rr_v.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             )
@@ -939,10 +757,13 @@ def main():
                 decoder_v.decode_32bit_float(),
                 decoder_v.decode_32bit_float(),
             )
-            service["/Ac/L1/Voltage"] = round(v1 if not math.isnan(v1) else 0, 2)
-            service["/Ac/L2/Voltage"] = round(v2 if not math.isnan(v2) else 0, 2)
-            service["/Ac/L3/Voltage"] = round(v3 if not math.isnan(v3) else 0, 2)
-            rr_c = client.read_holding_registers(REG_CURRENTS, 6, slave=SOCKET_SLAVE_ID)
+            self.service["/Ac/L1/Voltage"] = round(v1 if not math.isnan(v1) else 0, 2)
+            self.service["/Ac/L2/Voltage"] = round(v2 if not math.isnan(v2) else 0, 2)
+            self.service["/Ac/L3/Voltage"] = round(v3 if not math.isnan(v3) else 0, 2)
+
+            rr_c = self.client.read_holding_registers(
+                REG_CURRENTS, 6, slave=SOCKET_SLAVE_ID
+            )
             decoder_c = BinaryPayloadDecoder.fromRegisters(
                 rr_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             )
@@ -951,85 +772,164 @@ def main():
                 decoder_c.decode_32bit_float(),
                 decoder_c.decode_32bit_float(),
             )
-            service["/Ac/L1/Current"] = round(i1 if not math.isnan(i1) else 0, 2)
-            service["/Ac/L2/Current"] = round(i2 if not math.isnan(i2) else 0, 2)
-            service["/Ac/L3/Current"] = round(i3 if not math.isnan(i3) else 0, 2)
+            self.service["/Ac/L1/Current"] = round(i1 if not math.isnan(i1) else 0, 2)
+            self.service["/Ac/L2/Current"] = round(i2 if not math.isnan(i2) else 0, 2)
+            self.service["/Ac/L3/Current"] = round(i3 if not math.isnan(i3) else 0, 2)
             current_a = round(max(i1, i2, i3), 2)
-            service["/Ac/Current"] = current_a
-            service["/Current"] = current_a
-            service["/Ac/L1/Power"] = round(v1 * i1, 2)
-            service["/Ac/L2/Power"] = round(v2 * i2, 2)
-            service["/Ac/L3/Power"] = round(v3 * i3, 2)
-            rr_p = client.read_holding_registers(REG_POWER, 2, slave=SOCKET_SLAVE_ID)
+            self.service["/Ac/Current"] = current_a
+            self.service["/Current"] = current_a
+            self.service["/Ac/L1/Power"] = round(v1 * i1, 2)
+            self.service["/Ac/L2/Power"] = round(v2 * i2, 2)
+            self.service["/Ac/L3/Power"] = round(v3 * i3, 2)
+
+            rr_p = self.client.read_holding_registers(
+                REG_POWER, 2, slave=SOCKET_SLAVE_ID
+            )
             power = BinaryPayloadDecoder.fromRegisters(
                 rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             ).decode_32bit_float()
-            service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
-            rr_ph = client.read_holding_registers(REG_PHASES, 1, slave=SOCKET_SLAVE_ID)
-            service["/Ac/PhaseCount"] = rr_ph.registers[0]
+            self.service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
 
-            # Compute effective current (always, to keep Alfen setpoint alive)
+            rr_ph = self.client.read_holding_registers(
+                REG_PHASES, 1, slave=SOCKET_SLAVE_ID
+            )
+            self.service["/Ac/PhaseCount"] = rr_ph.registers[0]
+
             effective_current = 0.0
-            if current_mode == EVC_MODE.MANUAL:
-                # In MANUAL mode, only apply setpoint when StartStop is ENABLED
-                if start_stop == EVC_CHARGE.ENABLED:
-                    effective_current = intended_set_current
+            if self.current_mode == EVC_MODE.MANUAL:
+                if self.start_stop == EVC_CHARGE.ENABLED:
+                    effective_current = self.intended_set_current
                 else:
-                    # Keep writing 0.0 to prevent Alfen falling back to its safe current
                     effective_current = 0.0
-            elif current_mode == EVC_MODE.AUTO:
-                # In AUTO, respect StartStop: disabled -> 0 A
+            elif self.current_mode == EVC_MODE.AUTO:
                 effective_current = (
-                    intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+                    self.intended_set_current
+                    if self.start_stop == EVC_CHARGE.ENABLED
+                    else 0.0
                 )
-            elif current_mode == EVC_MODE.SCHEDULED:
-                if _is_within_schedule(time.time()):
-                    effective_current = intended_set_current
+            elif self.current_mode == EVC_MODE.SCHEDULED:
+                if self._is_within_schedule(time.time()):
+                    effective_current = self.intended_set_current
                 else:
                     effective_current = 0.0
 
-            # Low SoC gating for AUTO/SCHEDULED
             if (
-                low_soc_enabled
-                and low_soc_active
-                and current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
+                self.low_soc_enabled
+                and self.low_soc_active
+                and self.current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
             ):
                 effective_current = 0.0
 
-            # Clamp to station's maximum current and non-negative
             if effective_current < 0:
                 effective_current = 0.0
-            if effective_current > station_max_current:
-                effective_current = station_max_current
+            if effective_current > self.station_max_current:
+                effective_current = self.station_max_current
 
-            # Write if changed or watchdog
             current_time = time.time()
-            if abs(effective_current - last_sent_current) > 0.1 or (
-                current_time - last_current_set_time > WATCHDOG_INTERVAL_SECONDS
+            if abs(effective_current - self.last_sent_current) > 0.1 or (
+                current_time - self.last_current_set_time
+                > self.WATCHDOG_INTERVAL_SECONDS
             ):
-                ok = _write_current_with_verification(effective_current)
+                ok = self._write_current_with_verification(effective_current)
                 if ok:
-                    last_current_set_time = current_time
-                    last_sent_current = effective_current
-                    logger.info(
+                    self.last_current_set_time = current_time
+                    self.last_sent_current = effective_current
+                    self.logger.info(
                         "Set effective current to %.2f A (mode: %s, intended: %.2f)",
                         effective_current,
-                        current_mode.name,
-                        intended_set_current,
+                        self.current_mode.name,
+                        self.intended_set_current,
                     )
 
-            service["/Connected"] = 1
-            logger.debug("Poll completed successfully")
+            self.service["/Connected"] = 1
+            self.logger.debug("Poll completed successfully")
 
         except Exception as e:
-            logger.error(f"Poll error: {e}. The connection will be retried.")
-            client.close()
-            service["/Connected"] = 0
+            self.logger.error(f"Poll error: {e}. The connection will be retried.")
+            self.client.close()
+            self.service["/Connected"] = 0
         return True
 
-    GLib.timeout_add(1000, poll)  # Poll every 1 second
-    mainloop = GLib.MainLoop()
-    mainloop.run()
+    def _read_firmware_version(self) -> None:
+        try:
+            rr_fw = self.client.read_holding_registers(
+                REG_FIRMWARE_VERSION,
+                REG_FIRMWARE_VERSION_COUNT,
+                slave=STATION_SLAVE_ID,
+            )
+            fw_regs = rr_fw.registers if hasattr(rr_fw, "registers") else []
+            bytes_fw = []
+            for reg in fw_regs:
+                bytes_fw.append((reg >> 8) & 0xFF)
+                bytes_fw.append(reg & 0xFF)
+            fw_str = "".join(chr(b) for b in bytes_fw).strip("\x00 ")
+            self.service["/FirmwareVersion"] = fw_str
+        except Exception as e:
+            self.logger.debug("FirmwareVersion read failed: %s", e)
+
+    def _read_station_serial(self) -> None:
+        try:
+            rr_sn = self.client.read_holding_registers(
+                REG_STATION_SERIAL,
+                REG_STATION_SERIAL_COUNT,
+                slave=STATION_SLAVE_ID,
+            )
+            sn_regs = rr_sn.registers if hasattr(rr_sn, "registers") else []
+            bytes_sn = []
+            for reg in sn_regs:
+                bytes_sn.append((reg >> 8) & 0xFF)
+                bytes_sn.append(reg & 0xFF)
+            sn_str = "".join(chr(b) for b in bytes_sn).strip("\x00 ")
+            self.service["/Serial"] = sn_str
+        except Exception as e:
+            self.logger.debug("Serial read failed: %s", e)
+
+    def _read_product_name(self) -> None:
+        try:
+            rr_mfg = self.client.read_holding_registers(
+                REG_MANUFACTURER, REG_MANUFACTURER_COUNT, slave=STATION_SLAVE_ID
+            )
+            mfg_regs = rr_mfg.registers if hasattr(rr_mfg, "registers") else []
+            bytes_mfg = []
+            for reg in mfg_regs:
+                bytes_mfg.append((reg >> 8) & 0xFF)
+                bytes_mfg.append(reg & 0xFF)
+            mfg_str = "".join(chr(b) for b in bytes_mfg).strip("\x00 ")
+
+            rr_pt = self.client.read_holding_registers(
+                REG_PLATFORM_TYPE,
+                REG_PLATFORM_TYPE_COUNT,
+                slave=STATION_SLAVE_ID,
+            )
+            pt_regs = rr_pt.registers if hasattr(rr_pt, "registers") else []
+            bytes_pt = []
+            for reg in pt_regs:
+                bytes_pt.append((reg >> 8) & 0xFF)
+                bytes_pt.append(reg & 0xFF)
+            pt_str = "".join(chr(b) for b in bytes_pt).strip("\x00 ")
+
+            self.service["/ProductName"] = f"{mfg_str} {pt_str}"
+        except Exception as e:
+            self.logger.debug("ProductName creation failed: %s", e)
+
+    def run(self) -> None:
+        GLib.timeout_add(1000, self.poll)
+        mainloop = GLib.MainLoop()
+        mainloop.run()
+
+
+def main() -> None:
+    DBusGMainLoop(set_as_default=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler("/var/log/alfen_driver.log"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+    driver = AlfenDriver()
+    driver.run()
 
 
 if __name__ == "__main__":
