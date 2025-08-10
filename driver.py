@@ -560,23 +560,50 @@ class AlfenDriver:
         except ValueError:
             return False
 
+    def _compute_effective_current(self, now: float) -> float:
+        """Calculate the effective charging current based on mode, schedule, and low SoC conditions."""
+        effective = 0.0
+        if self.current_mode == EVC_MODE.MANUAL:
+            effective = (
+                self.intended_set_current
+                if self.start_stop == EVC_CHARGE.ENABLED
+                else 0.0
+            )
+        elif self.current_mode == EVC_MODE.AUTO:
+            effective = (
+                self.intended_set_current
+                if self.start_stop == EVC_CHARGE.ENABLED
+                else 0.0
+            )
+        elif self.current_mode == EVC_MODE.SCHEDULED:
+            effective = (
+                self.intended_set_current if self._is_within_schedule(now) else 0.0
+            )
+        if (
+            self.low_soc_enabled
+            and self.low_soc_active
+            and self.current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
+        ):
+            effective = 0.0
+        return max(0.0, min(effective, self.station_max_current))
+
     def _update_station_max_current(self) -> bool:
+        """Update the station max current from Modbus and return True if successful."""
         try:
-            rr_max_current = self.client.read_holding_registers(
-                REG_STATION_MAX_CURRENT, 1, slave=STATION_SLAVE_ID
+            rr_max_c = self.client.read_holding_registers(
+                REG_STATION_MAX_CURRENT, 2, slave=STATION_SLAVE_ID
             )
-            if rr_max_current.isError():
-                raise ConnectionError("Modbus error reading station max current")
-            self.station_max_current = BinaryPayloadDecoder.fromRegisters(
-                rr_max_current.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-            ).decode_32bit_float()
-            self.service["/MaxCurrent"] = round(self.station_max_current, 1)
-            self.logger.info(
-                f"Station Max Current updated: {self.station_max_current:.1f} A"
-            )
-            return True
+            if not rr_max_c.isError():
+                max_current = BinaryPayloadDecoder.fromRegisters(
+                    rr_max_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+                ).decode_32bit_float()
+                if not math.isnan(max_current) and max_current > 0:
+                    self.station_max_current = float(max_current)
+                    self.service["/MaxCurrent"] = round(self.station_max_current, 1)
+                    return True
+            return False
         except Exception as e:
-            self.logger.error(f"Failed to update station max current: {e}")
+            self.logger.debug(f"Station MaxCurrent read failed: {e}")
             return False
 
     def _update_ac_measurements(self) -> None:
