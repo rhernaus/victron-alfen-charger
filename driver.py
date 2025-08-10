@@ -90,6 +90,8 @@ def main():
     service.add_path("/MaxCurrent", 32.0)
     service.add_path("/Enable", 1, writeable=True)
     service.add_path("/ChargingTime", 0)
+    # EVCS UI expects both "/Current" and "/Ac/Current"; publish both
+    service.add_path("/Current", 0.0)
     service.add_path("/Ac/Current", 0.0)
     service.add_path("/Ac/Power", 0.0)
     service.add_path("/Ac/Energy/Forward", 0.0)
@@ -121,12 +123,26 @@ def main():
 
             # --- The rest of the polling logic ---
             # (This part remains the same, reading status, power, etc.)
+            # Alfen exposes status as ASCII in multiple registers (e.g. "0", "1", "2").
             rr_status = client.read_holding_registers(
-                REG_STATUS, 1, slave=ALFEN_SLAVE_ID
+                REG_STATUS, 5, slave=ALFEN_SLAVE_ID
             )
             if rr_status.isError():
                 raise ConnectionError("Modbus error reading status")
-            new_victron_status = 2 if rr_status.registers[0] == 2 else 1
+            status_str = "".join(chr(r & 0xFF) for r in rr_status.registers).strip(
+                "\x00 "
+            )
+            # Map Alfen values to Victron EVCS status: 0=disconnected, 1=connected, 2=charging
+            try:
+                status_code = int(status_str[:1]) if status_str else 0
+            except Exception:
+                status_code = 0
+            if status_code >= 2:
+                new_victron_status = 2
+            elif status_code == 1:
+                new_victron_status = 1
+            else:
+                new_victron_status = 0
             old_victron_status = service["/Status"]
             service["/Status"] = new_victron_status
             if new_victron_status == 2 and old_victron_status != 2:
@@ -162,7 +178,9 @@ def main():
             service["/Ac/L1/Current"] = round(i1 if not math.isnan(i1) else 0, 2)
             service["/Ac/L2/Current"] = round(i2 if not math.isnan(i2) else 0, 2)
             service["/Ac/L3/Current"] = round(i3 if not math.isnan(i3) else 0, 2)
-            service["/Ac/Current"] = round(max(i1, i2, i3), 2)
+            current_a = round(max(i1, i2, i3), 2)
+            service["/Ac/Current"] = current_a
+            service["/Current"] = current_a
             service["/Ac/L1/Power"] = (
                 service["/Ac/L1/Voltage"] * service["/Ac/L1/Current"]
             )
