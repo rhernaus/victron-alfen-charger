@@ -798,20 +798,21 @@ class AlfenDriver:
                         f"Set effective current to {effective_current:.2f} A (mode: {self.current_mode.name}, intended: {self.intended_set_current:.2f})"
                     )
 
-            # Auto-start logic: if just connected in MANUAL mode and auto_start enabled, enable StartStop
+            # Auto-start logic: if just connected in ANY mode and auto_start enabled, enable StartStop
             if (
-                self.current_mode == EVC_MODE.MANUAL
-                and now_connected
+                now_connected
                 and was_disconnected
                 and self.auto_start == 1
+                and self.start_stop
+                == EVC_CHARGE.DISABLED  # Avoid re-triggering if already enabled
             ):
                 self.start_stop = EVC_CHARGE.ENABLED
                 self._persist_config_to_disk()
-                self.logger.info("Auto-start triggered: Set StartStop to ENABLED")
+                self.logger.info(
+                    f"Auto-start triggered: Set StartStop to ENABLED (mode: {self.current_mode.name})"
+                )
                 # Apply the current immediately
-                target = self.intended_set_current
-                if target > self.station_max_current:
-                    target = self.station_max_current
+                target = self._compute_effective_current(time.time())
                 if self._write_current_with_verification(target):
                     self.last_current_set_time = time.time()
                     self.last_sent_current = target
