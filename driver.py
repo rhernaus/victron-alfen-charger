@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
+import logging
 import math
 import sys
+import traceback
 
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
@@ -28,23 +30,41 @@ REG_PHASES = 1215  # 1 word (uint16, writable)
 def main():
     DBusGMainLoop(set_as_default=True)
 
+    # Set up logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler("/var/log/alfen_driver.log"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+    logger = logging.getLogger("alfen_driver")
+
     client = ModbusTcpClient(host=ALFEN_IP, port=ALFEN_PORT)
     if not client.connect():
-        print("Failed to connect to Alfen charger")
+        logger.error(
+            "Failed to connect to Alfen charger at %s:%s", ALFEN_IP, ALFEN_PORT
+        )
         sys.exit(1)
+    logger.info(
+        "Successfully connected to Alfen charger at %s:%s", ALFEN_IP, ALFEN_PORT
+    )
 
     service = VeDbusService("com.victronenergy.evcharger.alfen_0")
 
     def set_current_callback(path, value):
         try:
+            logger.info("Setting current to %s", value)
             builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
             builder.add_32bit_float(float(value))
             payload = builder.to_registers()
             client.write_registers(REG_AMPS_CONFIG, payload, slave=ALFEN_SLAVE_ID)
             service["/SetCurrent"] = value
+            logger.debug("Successfully set current to %s", value)
             return True
         except Exception as e:
-            print(f"Set current error: {e}")
+            logger.error("Set current error: %s\n%s", e, traceback.format_exc())
             return False
 
     # Add required paths
@@ -75,6 +95,7 @@ def main():
 
     def poll():
         try:
+            logger.debug("Starting poll")
             # Read status
             rr = client.read_holding_registers(REG_STATUS, 5, slave=ALFEN_SLAVE_ID)
             status_bytes = [r for r in rr.registers]
@@ -147,9 +168,9 @@ def main():
             rr = client.read_holding_registers(REG_PHASES, 1, slave=ALFEN_SLAVE_ID)
             phases = rr.registers[0]
             service["/Ac/PhaseCount"] = phases
-
+            logger.debug("Poll completed successfully")
         except Exception as e:
-            print(f"Poll error: {e}")
+            logger.error("Poll error: %s\n%s", e, traceback.format_exc())
 
         return True
 

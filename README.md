@@ -52,11 +52,91 @@ It will poll and print charger data every 5 seconds.
 
 ### Running on Victron GX
 
-1. Transfer `driver.py` to your Victron GX device (e.g., via SSH to `/data/`).
-2. Install dependencies on the GX (Venus OS supports opkg; install python3, pip, and pymodbus).
-3. Make executable: `chmod +x driver.py`.
-4. Run as a service (e.g., add to `/data/rc.local` or create a systemd unit).
-5. Restart the device or service to see the charger in the Victron interface.
+Victron GX devices run Venus OS, a Linux-based system. You'll need SSH access enabled on the GX (via Settings > Services > SSH).
+
+1. SSH into your Victron GX device (default username: root, set password in Venus OS settings).
+
+2. Update package list and install required tools (git, python3, pip):
+
+   ```bash
+   opkg update
+   opkg install git
+   opkg install python3
+   opkg install python3-pip
+   ```
+
+3. Clone the repository:
+
+   ```bash
+   cd /data
+   git clone https://github.com/rhernaus/victron-alfen-charger.git
+   cd victron-alfen-charger
+   ```
+
+4. Install pymodbus:
+
+   ```bash
+   pip install pymodbus==3.6.4
+   ```
+
+5. Configure the script:
+   - Edit `driver.py` with a text editor (e.g., vi or nano; install nano if needed with `opkg install nano`).
+   - Update `ALFEN_IP` to your charger's IP address.
+   - Adjust other settings like slave ID or registers if necessary.
+
+6. Make the script executable:
+
+   ```bash
+   chmod +x driver.py
+   ```
+
+7. Test the script manually:
+
+   ```bash
+   ./driver.py
+   ```
+
+   Check for errors and ensure it connects to the charger and publishes to DBus.
+
+8. Set up as a persistent service:
+   - Option 1: Add to `/data/rc.local` (create if it doesn't exist):
+     ```bash
+     echo '/data/victron-alfen-charger/driver.py &' >> /data/rc.local
+     chmod +x /data/rc.local
+     ```
+   - Option 2: Create a systemd service (advanced):
+     Create `/etc/systemd/system/alfen-driver.service`:
+
+     ```ini
+     [Unit]
+     Description=Alfen EV Charger Driver
+     After=multi-user.target
+
+     [Service]
+     ExecStart=/data/victron-alfen-charger/driver.py
+     Restart=always
+
+     [Install]
+     WantedBy=multi-user.target
+     ```
+
+     Then:
+
+     ```bash
+     systemctl daemon-reload
+     systemctl enable alfen-driver.service
+     systemctl start alfen-driver.service
+     ```
+
+9. Reboot the GX device:
+
+   ```bash
+   reboot
+   ```
+
+10. Verify in the Victron interface: The charger should appear under Devices as "Alfen Eve Pro Line".
+
+If issues arise, check logs with `systemctl status alfen-driver` (if using systemd) or debug manually.
 
 ## Notes
 
