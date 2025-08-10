@@ -53,7 +53,7 @@ def main():
         "Successfully connected to Alfen charger at %s:%s", ALFEN_IP, ALFEN_PORT
     )
 
-    service = VeDbusService("com.victronenergy.evcharger.alfen_0", register=False)
+    service = VeDbusService("com.victronenergy.evcharger.id_0", register=False)
 
     def set_current_callback(path, value):
         try:
@@ -95,8 +95,16 @@ def main():
     service.add_path("/Ac/L3/Power", 0.0)
     service.add_path("/ChargingTime", 0)  # Placeholder
 
+    # Add these paths before service.register()
+    service.add_path("/CustomName", "Alfen Eve Pro Line Charger")
+    service.add_path("/DeviceInstance", 0)  # Unique instance ID
+    service.add_path("/ErrorCode", 0)  # 0 = No error
+    service.add_path("/Position", 1)  # 0=AC Input, 1=AC Output
+    service.add_path("/Connected", 1)  # 1 = Connected
+
     # Register the service after adding paths
     service.register()
+    logger.info("Registered DBus service as %s", service._service_name)
 
     def poll():
         try:
