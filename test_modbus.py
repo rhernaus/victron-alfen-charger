@@ -90,16 +90,21 @@ def main():
                 phases = rr.registers[0]
                 print(f"Phases: {phases}")
 
-                # Read current config
+                # Read current config with diagnostics
                 rr = client.read_holding_registers(
                     REG_AMPS_CONFIG, 2, slave=ALFEN_SLAVE_ID
                 )
-                decoder = BinaryPayloadDecoder.fromRegisters(
-                    rr.registers, byteorder=">", wordorder=">"
+                regs = rr.registers
+                dec_bb = BinaryPayloadDecoder.fromRegisters(
+                    regs, byteorder=">", wordorder=">"
                 )
-                curr_config = decoder.decode_32bit_float()
+                curr_bb = dec_bb.decode_32bit_float()
+                dec_bl = BinaryPayloadDecoder.fromRegisters(
+                    regs, byteorder=">", wordorder="<"
+                )
+                curr_bl = dec_bl.decode_32bit_float()
                 print(
-                    f"Configured Current: {curr_config if not math.isnan(curr_config) else 0:.2f}A"
+                    f"Configured Current raw={regs} dec_bb={curr_bb if not math.isnan(curr_bb) else 0:.2f}A dec_bl={curr_bl if not math.isnan(curr_bl) else 0:.2f}A"
                 )
 
                 print("---")

@@ -56,18 +56,64 @@ def main():
     service_name = f"com.victronenergy.evcharger.alfen_{DEVICE_INSTANCE}"
     service = VeDbusService(service_name, register=False)
 
+    def _write_current_with_verification(target_amps: float) -> bool:
+        """Write float32 to REG_AMPS_CONFIG and verify by reading back.
+
+        Tries BIG/BIG first (matching the rest of our map). If the read-back does
+        not match within tolerance, tries BIG bytes + LITTLE word order.
+        """
+        # Try 1: BIG/BIG
+        for attempt, wordorder in enumerate((Endian.BIG, Endian.LITTLE), start=1):
+            try:
+                builder = BinaryPayloadBuilder(
+                    byteorder=Endian.BIG, wordorder=wordorder
+                )
+                builder.add_32bit_float(float(target_amps))
+                payload = builder.to_registers()
+                client.write_registers(REG_AMPS_CONFIG, payload, slave=ALFEN_SLAVE_ID)
+
+                # Read-back and validate using both decoders to be safe
+                rr = client.read_holding_registers(
+                    REG_AMPS_CONFIG, 2, slave=ALFEN_SLAVE_ID
+                )
+                regs = rr.registers if hasattr(rr, "registers") else []
+                if len(regs) == 2:
+                    dec_bb = BinaryPayloadDecoder.fromRegisters(
+                        regs, byteorder=Endian.BIG, wordorder=Endian.BIG
+                    ).decode_32bit_float()
+                    dec_bl = BinaryPayloadDecoder.fromRegisters(
+                        regs, byteorder=Endian.BIG, wordorder=Endian.LITTLE
+                    ).decode_32bit_float()
+                    logger.info(
+                        "SetCurrent write attempt %s (wordorder=%s): raw=%s, dec_bb=%.3f, dec_bl=%.3f",
+                        attempt,
+                        "BIG" if wordorder == Endian.BIG else "LITTLE",
+                        regs,
+                        dec_bb,
+                        dec_bl,
+                    )
+                    if (
+                        abs(dec_bb - float(target_amps)) < 0.25
+                        or abs(dec_bl - float(target_amps)) < 0.25
+                    ):
+                        return True
+            except Exception as e:
+                logger.error("SetCurrent write attempt %s failed: %s", attempt, e)
+        return False
+
     def set_current_callback(path, value):
         global last_current_set_time
         try:
-            logger.info("GUI request to set current to %s A", value)
-            builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
-            builder.add_32bit_float(float(value))
-            payload = builder.to_registers()
-            client.write_registers(REG_AMPS_CONFIG, payload, slave=ALFEN_SLAVE_ID)
-            logger.info("Successfully sent new current setpoint to Alfen.")
-            # NEW: Reset watchdog timer after a successful manual set
-            last_current_set_time = time.time()
-            return True
+            # Clamp within sensible bounds (6..32 A typical for AC per phase)
+            target = max(0.0, min(64.0, float(value)))
+            logger.info("GUI request to set current to %.2f A", target)
+            ok = _write_current_with_verification(target)
+            if ok:
+                logger.info("Successfully set current setpoint to %.2f A.", target)
+                last_current_set_time = time.time()
+                return True
+            logger.error("Failed to verify current setpoint write")
+            return False
         except Exception as e:
             logger.error("Set current error: %s\n%s", e, traceback.format_exc())
             return False
