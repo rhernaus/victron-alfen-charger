@@ -2,10 +2,15 @@
 
 import logging
 import math
+import os  # Import os for path joining
 import sys
 import traceback
 
-sys.path.insert(0, "/opt/victronenergy/dbus-modbus-client")
+# Add this to make sure the script can be started from anywhere, including the Victron run scripts
+sys.path.insert(
+    1, os.path.join(os.path.dirname(__file__), "/opt/victronenergy/dbus-modbus-client")
+)
+
 
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
@@ -18,6 +23,7 @@ from vedbus import VeDbusService
 ALFEN_IP = "10.128.0.64"  # Change this to the actual IP
 ALFEN_PORT = 502
 ALFEN_SLAVE_ID = 1
+DEVICE_INSTANCE = 0  # Match this to the instance number in your service name
 
 # Modbus registers from Alfen
 REG_VOLTAGES = 306  # 6 words (3 floats)
@@ -53,83 +59,109 @@ def main():
         "Successfully connected to Alfen charger at %s:%s", ALFEN_IP, ALFEN_PORT
     )
 
-    service = VeDbusService("com.victronenergy.evcharger.id_0", register=False)
+    # Correct service name with the instance
+    service_name = f"com.victronenergy.evcharger.alfen_{DEVICE_INSTANCE}"
+    service = VeDbusService(service_name, register=False)
 
     def set_current_callback(path, value):
         try:
-            logger.info("Setting current to %s", value)
+            logger.info("Setting current to %s A", value)
             builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
             builder.add_32bit_float(float(value))
             payload = builder.to_registers()
             client.write_registers(REG_AMPS_CONFIG, payload, slave=ALFEN_SLAVE_ID)
-            service["/SetCurrent"] = value
-            logger.debug("Successfully set current to %s", value)
+            # The service path will be updated in the next poll loop
+            logger.debug("Successfully set current to %s A", value)
             return True
         except Exception as e:
             logger.error("Set current error: %s\n%s", e, traceback.format_exc())
             return False
 
-    # Add all paths without writable/onchangecallback here; we'll handle writability separately if needed
+    # === Add mandatory paths for GX/VRM visibility ===
+    service.add_path("/Mgmt/ProcessName", __file__)
+    service.add_path("/Mgmt/ProcessVersion", "1.0")
+    service.add_path(
+        "/Mgmt/Connection", f"Modbus TCP at {ALFEN_IP}"
+    )  # CHANGED: More descriptive
+    service.add_path("/DeviceInstance", DEVICE_INSTANCE)  # ADDED
+    service.add_path("/Connected", 0)  # ADDED: Crucial for visibility
+
+    # Add device information
     service.add_path("/ProductName", "Alfen Eve Pro Line")
-    service.add_path("/ProductId", 0xFFFF)  # Placeholder
-    service.add_path("/FirmwareVersion", 1)  # Placeholder
+    service.add_path(
+        "/ProductId", 0xA142
+    )  # CHANGED: Use correct ID for generic EV Charger
+    service.add_path(
+        "/FirmwareVersion", "N/A"
+    )  # Placeholder, can be read from device if available
     service.add_path("/Serial", "ALFEN-001")  # Placeholder
-    service.add_path("/Status", 0)
-    service.add_path("/Mode", "Auto", writeable=True)
-    service.add_path("/Ac/Power", 0.0)
-    service.add_path("/Ac/Energy/Forward", 0.0)
+
+    # Add EV Charger specific paths
+    service.add_path(
+        "/Status", 0
+    )  # 0: Disconnected; 1: Connected; 2: Charging; 3: Charged; 4: Waiting for start; 5: Error
+    service.add_path("/Mode", "Auto", writeable=True)  # Manual, Auto, Scheduled
     service.add_path(
         "/SetCurrent", 6.0, writeable=True, onchangecallback=set_current_callback
     )
     service.add_path("/MaxCurrent", 32.0)  # Assuming max 32A
-    service.add_path("/Enable", 1, writeable=True)
-    service.add_path("/Ac/PhaseCount", 3)  # Assume 3 phases, update if needed
-    service.add_path("/Ac/L1/Voltage", 0.0)
-    service.add_path("/Ac/L1/Current", 0.0)
-    service.add_path("/Ac/L1/Power", 0.0)
-    service.add_path("/Ac/L2/Voltage", 0.0)
-    service.add_path("/Ac/L2/Current", 0.0)
-    service.add_path("/Ac/L2/Power", 0.0)
-    service.add_path("/Ac/L3/Voltage", 0.0)
-    service.add_path("/Ac/L3/Current", 0.0)
-    service.add_path("/Ac/L3/Power", 0.0)
-    service.add_path("/ChargingTime", 0)  # Placeholder
+    service.add_path("/Enable", 1, writeable=True)  # For start/stop charging
+    service.add_path("/ChargingTime", 0)
 
-    # Add these paths before service.register()
-    service.add_path("/CustomName", "Alfen Eve Pro Line Charger")
-    service.add_path("/DeviceInstance", 0)  # Unique instance ID
-    service.add_path("/ErrorCode", 0)  # 0 = No error
-    service.add_path("/Position", 1)  # 0=AC Input, 1=AC Output
-    service.add_path("/Connected", 1)  # 1 = Connected
+    # Add AC paths
+    service.add_path("/Ac/Power", 0.0, gettext=lambda p, v: f"{v:.0f}W")
+    service.add_path("/Ac/Energy/Forward", 0.0, gettext=lambda p, v: f"{v:.2f}kWh")
+    service.add_path("/Ac/PhaseCount", 0)
+    service.add_path("/Ac/L1/Voltage", 0.0, gettext=lambda p, v: f"{v:.1f}V")
+    service.add_path("/Ac/L1/Current", 0.0, gettext=lambda p, v: f"{v:.1f}A")
+    service.add_path("/Ac/L1/Power", 0.0, gettext=lambda p, v: f"{v:.0f}W")
+    service.add_path("/Ac/L2/Voltage", 0.0, gettext=lambda p, v: f"{v:.1f}V")
+    service.add_path("/Ac/L2/Current", 0.0, gettext=lambda p, v: f"{v:.1f}A")
+    service.add_path("/Ac/L2/Power", 0.0, gettext=lambda p, v: f"{v:.0f}W")
+    service.add_path("/Ac/L3/Voltage", 0.0, gettext=lambda p, v: f"{v:.1f}V")
+    service.add_path("/Ac/L3/Current", 0.0, gettext=lambda p, v: f"{v:.1f}A")
+    service.add_path("/Ac/L3/Power", 0.0, gettext=lambda p, v: f"{v:.0f}W")
 
-    # Register the service after adding paths
+    # Register the service after adding all paths
     service.register()
-    logger.info("Registered DBus service as %s", service._service_name)
 
     def poll():
         try:
-            logger.debug("Starting poll")
             # Read status
-            rr = client.read_holding_registers(REG_STATUS, 5, slave=ALFEN_SLAVE_ID)
-            status_bytes = [r for r in rr.registers]
-            status_str = "".join(chr(b & 0xFF) for b in status_bytes).strip("\x00")
-            # Map to Victron status codes (approximate)
-            if status_str.startswith("A"):
-                status = 0  # Disconnected
-            elif status_str.startswith("B"):
+            rr_status = client.read_holding_registers(
+                REG_STATUS, 5, slave=ALFEN_SLAVE_ID
+            )
+            if rr_status.isError():
+                raise Exception("Modbus error reading status")
+
+            status_bytes = [r for r in rr_status.registers]
+            # Decode the string from registers, handling potential high/low byte order issues
+            status_str_raw = b"".join([reg.to_bytes(2, "big") for reg in status_bytes])
+            status_str = (
+                status_str_raw.decode("ascii", errors="ignore").strip("\x00").strip()
+            )
+
+            logger.debug(
+                f"Raw status string from Alfen: '{status_str}'"
+            )  # ADDED: Debugging for status
+
+            # Map to Victron status codes
+            if status_str.startswith(
+                "Available"
+            ):  # Example, adjust to actual Alfen status strings
                 status = 1  # Connected
-            elif status_str.startswith("C"):
+            elif status_str.startswith("Charge"):
                 status = 2  # Charging
-            elif status_str.startswith("D"):
-                status = 3  # Charged
-            else:
-                status = 99  # Error
+            elif status_str.startswith("Vehicle connected"):
+                status = 1  # Connected
+            else:  # Fallback for other states like 'Ready', 'Finishing'
+                status = 1  # Consider them as 'Connected' unless it's an error
             service["/Status"] = status
 
             # Read voltages
-            rr = client.read_holding_registers(REG_VOLTAGES, 6, slave=ALFEN_SLAVE_ID)
+            rr_v = client.read_holding_registers(REG_VOLTAGES, 6, slave=ALFEN_SLAVE_ID)
             decoder = BinaryPayloadDecoder.fromRegisters(
-                rr.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+                rr_v.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             )
             v1 = decoder.decode_32bit_float()
             v2 = decoder.decode_32bit_float()
@@ -139,9 +171,9 @@ def main():
             service["/Ac/L3/Voltage"] = v3 if not math.isnan(v3) else 0
 
             # Read currents
-            rr = client.read_holding_registers(REG_CURRENTS, 6, slave=ALFEN_SLAVE_ID)
+            rr_c = client.read_holding_registers(REG_CURRENTS, 6, slave=ALFEN_SLAVE_ID)
             decoder = BinaryPayloadDecoder.fromRegisters(
-                rr.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+                rr_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             )
             i1 = decoder.decode_32bit_float()
             i2 = decoder.decode_32bit_float()
@@ -150,7 +182,7 @@ def main():
             service["/Ac/L2/Current"] = i2 if not math.isnan(i2) else 0
             service["/Ac/L3/Current"] = i3 if not math.isnan(i3) else 0
 
-            # Calculate powers (P = V * I)
+            # Calculate powers per phase (P = V * I)
             service["/Ac/L1/Power"] = (
                 service["/Ac/L1/Voltage"] * service["/Ac/L1/Current"]
             )
@@ -161,35 +193,39 @@ def main():
                 service["/Ac/L3/Voltage"] * service["/Ac/L3/Current"]
             )
 
-            # Read power
-            rr = client.read_holding_registers(REG_POWER, 2, slave=ALFEN_SLAVE_ID)
+            # Read total power
+            rr_p = client.read_holding_registers(REG_POWER, 2, slave=ALFEN_SLAVE_ID)
             decoder = BinaryPayloadDecoder.fromRegisters(
-                rr.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+                rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             )
             power = decoder.decode_32bit_float()
             service["/Ac/Power"] = power if not math.isnan(power) else 0
 
-            # Read energy
-            rr = client.read_holding_registers(REG_ENERGY, 4, slave=ALFEN_SLAVE_ID)
+            # Read total energy
+            rr_e = client.read_holding_registers(REG_ENERGY, 4, slave=ALFEN_SLAVE_ID)
             decoder = BinaryPayloadDecoder.fromRegisters(
-                rr.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+                rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             )
             energy = decoder.decode_64bit_float() / 1000.0  # to kWh
             service["/Ac/Energy/Forward"] = energy if not math.isnan(energy) else 0
 
             # Read phases
-            rr = client.read_holding_registers(REG_PHASES, 1, slave=ALFEN_SLAVE_ID)
-            phases = rr.registers[0]
+            rr_ph = client.read_holding_registers(REG_PHASES, 1, slave=ALFEN_SLAVE_ID)
+            phases = rr_ph.registers[0]
             service["/Ac/PhaseCount"] = phases
+
+            # If we get here, all polls were successful
+            service["/Connected"] = 1  # ADDED: Set to connected
             logger.debug("Poll completed successfully")
+
         except Exception as e:
             logger.error("Poll error: %s\n%s", e, traceback.format_exc())
+            service["/Connected"] = 0  # ADDED: Set to disconnected on error
 
-        return True
+        return True  # Keep the timer running
 
-    # Add more callbacks if needed, e.g. for Mode, Enable, Phases
-
-    GLib.timeout_add(1000, poll)  # Poll every second
+    # Poll every second
+    GLib.timeout_add(1000, poll)
 
     mainloop = GLib.MainLoop()
     mainloop.run()
