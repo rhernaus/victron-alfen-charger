@@ -104,6 +104,99 @@ def main():
 
     client = ModbusTcpClient(host=ALFEN_IP, port=ALFEN_PORT)
     service_name = f"com.victronenergy.evcharger.alfen_{DEVICE_INSTANCE}"
+
+    # Try to load existing values from an already-registered service with the same name
+    def _get_busitem_value(bus, svc: str, path: str):
+        try:
+            obj = bus.get_object(svc, path)
+            return obj.GetValue(dbus_interface="com.victronenergy.BusItem")
+        except Exception:
+            return None
+
+    if dbus is not None:
+        try:
+            bus = dbus.SystemBus()
+            dbus_proxy = bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus")
+            dbus_iface = dbus.Interface(dbus_proxy, "org.freedesktop.DBus")
+            if dbus_iface.NameHasOwner(service_name):
+                logger.info(
+                    "Existing D-Bus service %s found. Loading initial values from it.",
+                    service_name,
+                )
+                v = _get_busitem_value(bus, service_name, "/Mode")
+                if v is not None:
+                    try:
+                        mode_val = int(v)
+                        if mode_val in (0, 1, 2):
+                            current_mode = EVC_MODE(mode_val)
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/StartStop")
+                if v is not None:
+                    try:
+                        ss_val = int(v)
+                        if ss_val in (0, 1):
+                            start_stop = EVC_CHARGE(ss_val)
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/AutoStart")
+                if v is not None:
+                    try:
+                        auto_start = int(v)
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/SetCurrent")
+                if v is not None:
+                    try:
+                        intended_set_current = float(v)
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/Schedule/Enabled")
+                if v is not None:
+                    try:
+                        schedule_enabled = int(v)
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/Schedule/Days")
+                if v is not None:
+                    try:
+                        schedule_days_mask = int(v) & 0x7F
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/Schedule/Start")
+                if v is not None:
+                    try:
+                        schedule_start = str(v)
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/Schedule/End")
+                if v is not None:
+                    try:
+                        schedule_end = str(v)
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/LowSoc/Enabled")
+                if v is not None:
+                    try:
+                        low_soc_enabled = int(v)
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/LowSoc/Threshold")
+                if v is not None:
+                    try:
+                        low_soc_threshold = float(v)
+                    except Exception:
+                        pass
+                v = _get_busitem_value(bus, service_name, "/LowSoc/Hysteresis")
+                if v is not None:
+                    try:
+                        low_soc_hysteresis = float(v)
+                    except Exception:
+                        pass
+        except Exception:
+            # Ignore D-Bus inspection failures; fall back to script defaults
+            pass
+
     service = VeDbusService(service_name, register=False)
 
     def _parse_hhmm_to_minutes(timestr: str) -> int:
