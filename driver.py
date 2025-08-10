@@ -421,17 +421,13 @@ def main():
     def set_current_callback(path, value):
         global intended_set_current, station_max_current, current_mode
         try:
-            intended_set_current = max(0.0, min(64.0, float(value)))
-            # If in MANUAL mode, clamp the requested setpoint to station max and reflect back on D-Bus
+            requested = max(0.0, min(64.0, float(value)))
+            # Clamp to station max in MANUAL mode; otherwise accept requested and rely on clamping before write
             if current_mode == EVC_MODE.MANUAL:
                 max_allowed = max(0.0, float(station_max_current))
-                if intended_set_current > max_allowed:
-                    logger.info(
-                        "Requested SetCurrent %.1f A exceeds station max %.1f A; clamping (MANUAL mode)",
-                        intended_set_current,
-                        max_allowed,
-                    )
-                    intended_set_current = max_allowed
+                intended_set_current = min(requested, max_allowed)
+            else:
+                intended_set_current = requested
             service["/SetCurrent"] = round(intended_set_current, 1)
             logger.info(
                 "GUI request to set intended current to %.2f A", intended_set_current
@@ -878,6 +874,21 @@ def main():
                     service["/MaxCurrent"] = round(station_max_current, 1)
             except Exception as e:
                 logger.debug(f"Station MaxCurrent read failed: {e}")
+
+            # Ensure DBus /SetCurrent never exceeds station max in MANUAL mode
+            if current_mode == EVC_MODE.MANUAL:
+                try:
+                    max_allowed = max(0.0, float(station_max_current))
+                    if intended_set_current > max_allowed + 1e-6:
+                        intended_set_current = max_allowed
+                        service["/SetCurrent"] = round(intended_set_current, 1)
+                        _persist_config_to_disk()
+                        logger.info(
+                            "Clamped DBus /SetCurrent to station max: %.1f A (MANUAL mode)",
+                            intended_set_current,
+                        )
+                except Exception as e:
+                    logger.debug(f"Failed to clamp DBus /SetCurrent: {e}")
 
             # (Voltage, Current, Power reading logic is unchanged)
             rr_v = client.read_holding_registers(REG_VOLTAGES, 6, slave=SOCKET_SLAVE_ID)
