@@ -527,6 +527,7 @@ class AlfenDriver:
     def autostart_callback(self, path: str, value: Any) -> bool:
         self.auto_start = int(value)
         self._persist_config_to_disk()
+        self.logger.info("AutoStart changed to %d", self.auto_start)
         return True
 
     def schedule_enabled_callback(self, path: str, value: Any) -> bool:
@@ -628,6 +629,10 @@ class AlfenDriver:
             old_victron_status = self.service["/Status"]
 
             connected = raw_status >= 1
+
+            # Detect connection event
+            was_disconnected = old_victron_status == 0
+            now_connected = connected
 
             new_victron_status = raw_status
             if (
@@ -817,6 +822,25 @@ class AlfenDriver:
                         self.current_mode.name,
                         self.intended_set_current,
                     )
+
+            # Auto-start logic: if just connected in MANUAL mode and auto_start enabled, enable StartStop
+            if (
+                self.current_mode == EVC_MODE.MANUAL
+                and now_connected
+                and was_disconnected
+                and self.auto_start == 1
+            ):
+                self.start_stop = EVC_CHARGE.ENABLED
+                self._persist_config_to_disk()
+                self.logger.info("Auto-start triggered: Set StartStop to ENABLED")
+                # Apply the current immediately
+                target = self.intended_set_current
+                if target > self.station_max_current:
+                    target = self.station_max_current
+                if self._write_current_with_verification(target):
+                    self.last_current_set_time = time.time()
+                    self.last_sent_current = target
+                    self.logger.info("Auto-start applied current: %.2f A", target)
 
             self.service["/Connected"] = 1
             self.logger.debug("Poll completed successfully")
