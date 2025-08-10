@@ -66,6 +66,8 @@ REG_STATION_MAX_CURRENT: int = 1100
 
 
 class AlfenDriver:
+    WATCHDOG_INTERVAL_SECONDS: int = 30
+
     def __init__(self):
         """Initialize the AlfenDriver with default values and setup."""
         self.charging_start_time: float = 0
