@@ -443,7 +443,7 @@ def main():
             return False
 
     def mode_callback(path, value):
-        global current_mode, last_current_set_time, last_sent_current
+        global current_mode, last_current_set_time, last_sent_current, intended_set_current
         try:
             current_mode = EVC_MODE(int(value))
             _persist_config_to_disk()
@@ -451,6 +451,18 @@ def main():
             now = time.time()
             effective_current = 0.0
             if current_mode == EVC_MODE.MANUAL:
+                # Clamp intended setpoint to station max on entering MANUAL
+                try:
+                    if intended_set_current > station_max_current:
+                        intended_set_current = station_max_current
+                        service["/SetCurrent"] = round(intended_set_current, 1)
+                        _persist_config_to_disk()
+                        logger.info(
+                            "Clamped /SetCurrent to station max: %.1f A (on MANUAL mode)",
+                            intended_set_current,
+                        )
+                except Exception:
+                    pass
                 effective_current = (
                     intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
                 )
