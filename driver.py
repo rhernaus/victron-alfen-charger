@@ -266,17 +266,12 @@ def main():
             # === NEW: WATCHDOG HANDLING LOGIC ===
             # If charging, and it's been 60 seconds since last set, re-send the current.
             if service["/Status"] == 2 and (time.time() - last_current_set_time > 60):
-                current_setpoint = service["/SetCurrent"]
+                current_setpoint = float(service["/SetCurrent"])
                 logger.info(
                     f"Watchdog: Re-sending current setpoint of {current_setpoint} A to Alfen."
                 )
-                builder = BinaryPayloadBuilder(
-                    byteorder=Endian.BIG, wordorder=Endian.BIG
-                )
-                builder.add_32bit_float(float(current_setpoint))
-                payload = builder.to_registers()
-                client.write_registers(REG_AMPS_CONFIG, payload, slave=ALFEN_SLAVE_ID)
-                last_current_set_time = time.time()  # Reset the timer
+                if _write_current_with_verification(current_setpoint):
+                    last_current_set_time = time.time()
 
             service["/Connected"] = 1
             logger.debug("Poll completed successfully")
