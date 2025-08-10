@@ -32,6 +32,7 @@ REG_ENERGY = 374
 REG_STATUS = 1201
 REG_AMPS_CONFIG = 1210
 REG_PHASES = 1215
+REG_SET_CURRENT_VALID_SECS = 1211
 
 # --- Globals ---
 charging_start_time = 0
@@ -62,7 +63,17 @@ def main():
         Tries BIG/BIG first (matching the rest of our map). If the read-back does
         not match within tolerance, tries BIG bytes + LITTLE word order.
         """
-        # Try 1: BIG/BIG
+        # Step 0: ensure validity window is set so charger accepts the new value
+        try:
+            valid_seconds = 120
+            client.write_register(
+                REG_SET_CURRENT_VALID_SECS, int(valid_seconds), slave=ALFEN_SLAVE_ID
+            )
+            logger.info("Prepared validity window: 1211=%s seconds", valid_seconds)
+        except Exception as e:
+            logger.warning("Unable to write validity window (1211): %s", e)
+
+        # Try 1: BIG/BIG (then BIG/LITTLE)
         for attempt, wordorder in enumerate((Endian.BIG, Endian.LITTLE), start=1):
             try:
                 builder = BinaryPayloadBuilder(
