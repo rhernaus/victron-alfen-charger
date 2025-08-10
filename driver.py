@@ -136,7 +136,12 @@ def main():
     service.add_path("/Ac/Power", 0.0)
     service.add_path("/Ac/Energy/Forward", 0.0)
     service.add_path("/Ac/PhaseCount", 0)
-    service.add_path("/Position", 0, writeable=True)  # 0=AC Output, 1=AC Input
+    service.add_path(
+        "/Position",
+        0,
+        writeable=True,
+        options={0: "AC Output", 1: "AC Input"},
+    )  # 0=AC Output, 1=AC Input
     service.add_path("/Ac/L1/Voltage", 0.0)
     service.add_path("/Ac/L1/Current", 0.0)
     service.add_path("/Ac/L1/Power", 0.0)
