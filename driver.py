@@ -5,6 +5,8 @@ import math
 import sys
 import traceback
 
+sys.path.insert(0, "/opt/victronenergy/dbus-modbus-client")
+
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 from pymodbus.client import ModbusTcpClient
