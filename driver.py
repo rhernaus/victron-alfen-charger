@@ -491,7 +491,6 @@ def main():
                 current_mode == EVC_MODE.MANUAL
                 and connected
                 and start_stop == EVC_CHARGE.DISABLED
-                and auto_start == 0
             ):
                 new_victron_status = 6  # WAIT_START
             # AUTO: show WAIT_SUN when connected but effective setpoint is zero
@@ -610,9 +609,11 @@ def main():
             # Compute effective current (always, to keep Alfen setpoint alive)
             effective_current = 0.0
             if current_mode == EVC_MODE.MANUAL:
-                if start_stop == EVC_CHARGE.ENABLED or auto_start == 1:
+                # In MANUAL mode, only apply setpoint when StartStop is ENABLED
+                if start_stop == EVC_CHARGE.ENABLED:
                     effective_current = intended_set_current
                 else:
+                    # Keep writing 0.0 to prevent Alfen falling back to its safe current
                     effective_current = 0.0
             elif current_mode == EVC_MODE.AUTO:
                 # In AUTO, we pass through intended_set_current (expected to be managed by GX/EMS)
