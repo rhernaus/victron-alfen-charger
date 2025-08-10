@@ -76,7 +76,7 @@ Victron GX devices run Venus OS, a Linux-based system. You'll need SSH access en
 4. Install pymodbus:
 
    ```bash
-   pip install pymodbus==3.6.4
+   pip3 install pymodbus==3.6.4
    ```
 
 5. Configure the script:
