@@ -215,9 +215,27 @@ def main():
             return False
 
     def startstop_callback(path, value):
-        global start_stop
+        global start_stop, last_current_set_time, last_sent_current
         try:
             start_stop = EVC_CHARGE(int(value))
+            # Apply immediately in MANUAL mode
+            if current_mode == EVC_MODE.MANUAL:
+                try:
+                    target = (
+                        intended_set_current
+                        if start_stop == EVC_CHARGE.ENABLED
+                        else 0.0
+                    )
+                    if _write_current_with_verification(target):
+                        last_current_set_time = time.time()
+                        last_sent_current = target
+                        logger.info(
+                            "Immediate StartStop change applied: %.2f A (StartStop=%s)",
+                            target,
+                            start_stop.name,
+                        )
+                except Exception as e:
+                    logger.error("Immediate StartStop apply failed: %s", e)
             return True
         except ValueError:
             return False
