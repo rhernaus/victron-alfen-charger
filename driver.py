@@ -65,36 +65,6 @@ REG_PLATFORM_TYPE_COUNT: int = 17
 REG_STATION_MAX_CURRENT: int = 1100
 
 
-# --- Globals ---
-charging_start_time = 0
-# NEW: Global for watchdog timer
-last_current_set_time = 0
-session_start_energy_kwh = 0
-intended_set_current = 6.0
-current_mode = EVC_MODE.AUTO
-start_stop = EVC_CHARGE.DISABLED
-auto_start = 1
-last_sent_current = -1.0
-schedule_enabled = 0
-# Bit mask for days: 0=Sun,1=Mon,...,6=Sat
-schedule_days_mask = 0
-schedule_start = "00:00"  # HH:MM
-schedule_end = "00:00"  # HH:MM
-WATCHDOG_INTERVAL_SECONDS: int = 30
-
-# Low SoC controls
-low_soc_enabled = 0
-low_soc_threshold = 20.0
-low_soc_hysteresis = 2.0
-low_soc_active = False
-battery_soc = None
-_dbus_bus = None
-_dbus_soc_obj = None
-
-# Station Active Max Current (as reported by Alfen). Used to clamp our writes
-station_max_current = 32.0
-
-
 class AlfenDriver:
     def __init__(self):
         """Initialize the AlfenDriver with default values and setup."""
@@ -423,6 +393,7 @@ class AlfenDriver:
         return False
 
     def set_current_callback(self, path: str, value: Any) -> bool:
+        """Handle changes to the set current value from D-Bus."""
         try:
             requested = max(0.0, min(64.0, float(value)))
             if self.current_mode == EVC_MODE.MANUAL:
@@ -477,6 +448,7 @@ class AlfenDriver:
             return False
 
     def mode_callback(self, path: str, value: Any) -> bool:
+        """Handle changes to the mode from D-Bus."""
         try:
             self.current_mode = EVC_MODE(int(value))
             self._persist_config_to_disk()
@@ -659,7 +631,7 @@ class AlfenDriver:
                 and self.auto_start == 0
                 and self.start_stop == EVC_CHARGE.DISABLED
             ):
-                new_victron_status = 6
+                new_victron_status = 6  # WAIT_START
             if self.current_mode == EVC_MODE.AUTO and connected:
                 if self.start_stop == EVC_CHARGE.DISABLED:
                     new_victron_status = 6
