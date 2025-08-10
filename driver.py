@@ -231,21 +231,20 @@ def main():
             if rr_status.isError():
                 raise ConnectionError("Modbus error reading status")
             status_str = (
-                "".join(chr(r & 0xFF) for r in rr_status.registers)
+                "".join(
+                    [chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in rr_status.registers]
+                )
                 .strip("\x00 ")
                 .upper()
             )
 
             # Map Alfen Mode 3 state to Victron EVCS status
-            # (0=disconnected, 1=connected, 2=charging)
-            if "A" in status_str:
-                new_victron_status = 0  # Disconnected
-            elif "B" in status_str or "C" in status_str:
-                new_victron_status = 1  # Connected, not charging
-            elif "D" in status_str:
+            if status_str in ("C2", "D2"):
                 new_victron_status = 2  # Charging
-            else:
-                new_victron_status = 0  # Default to disconnected for unknown states
+            elif status_str in ("B1", "B2", "C1", "D1"):
+                new_victron_status = 1  # Connected, not charging
+            else:  # A, E, F, and others
+                new_victron_status = 0  # Disconnected
 
             old_victron_status = service["/Status"]
             service["/Status"] = new_victron_status
@@ -322,9 +321,9 @@ def main():
             current_a = round(max(i1, i2, i3), 2)
             service["/Ac/Current"] = current_a
             service["/Current"] = current_a
-            service["/Ac/L1/Power"] = round(service["/Ac/L1/Voltage"] * i1, 2)
-            service["/Ac/L2/Power"] = round(service["/Ac/L2/Voltage"] * i2, 2)
-            service["/Ac/L3/Power"] = round(service["/Ac/L3/Voltage"] * i3, 2)
+            service["/Ac/L1/Power"] = round(v1 * i1, 2)
+            service["/Ac/L2/Power"] = round(v2 * i2, 2)
+            service["/Ac/L3/Power"] = round(v3 * i3, 2)
             rr_p = client.read_holding_registers(REG_POWER, 2, slave=SOCKET_SLAVE_ID)
             power = BinaryPayloadDecoder.fromRegisters(
                 rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
