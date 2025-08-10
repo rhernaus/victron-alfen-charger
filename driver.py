@@ -37,6 +37,10 @@ REG_FIRMWARE_VERSION = 123  # Registers 123-139: firmware version ASCII string
 REG_FIRMWARE_VERSION_COUNT = 17
 REG_STATION_SERIAL = 157  # Registers 157-167: station serial ASCII string
 REG_STATION_SERIAL_COUNT = 11
+REG_MANUFACTURER = 117
+REG_MANUFACTURER_COUNT = 5
+REG_PLATFORM_TYPE = 140
+REG_PLATFORM_TYPE_COUNT = 17
 
 # --- Globals ---
 charging_start_time = 0
@@ -111,7 +115,7 @@ def main():
     service.add_path("/Mgmt/Connection", f"Modbus TCP at {ALFEN_IP}")
     service.add_path("/DeviceInstance", DEVICE_INSTANCE)
     service.add_path("/Connected", 0)
-    service.add_path("/ProductName", "Alfen Eve Pro Line")
+    service.add_path("/ProductName", "Alfen EV Charger")
     service.add_path("/ProductId", 0xA142)
     service.add_path("/FirmwareVersion", "N/A")
     service.add_path("/Serial", "ALFEN-001")
@@ -185,6 +189,35 @@ def main():
                     service["/Serial"] = sn_str
                 except Exception as e:
                     logger.debug("Serial read failed: %s", e)
+                # Read manufacturer and platform type to build ProductName
+                try:
+                    # Read Manufacturer
+                    rr_mfg = client.read_holding_registers(
+                        REG_MANUFACTURER, REG_MANUFACTURER_COUNT, slave=STATION_SLAVE_ID
+                    )
+                    mfg_regs = rr_mfg.registers if hasattr(rr_mfg, "registers") else []
+                    bytes_mfg = []
+                    for reg in mfg_regs:
+                        bytes_mfg.append((reg >> 8) & 0xFF)
+                        bytes_mfg.append(reg & 0xFF)
+                    mfg_str = "".join(chr(b) for b in bytes_mfg).strip("\x00 ")
+
+                    # Read Platform Type
+                    rr_pt = client.read_holding_registers(
+                        REG_PLATFORM_TYPE,
+                        REG_PLATFORM_TYPE_COUNT,
+                        slave=STATION_SLAVE_ID,
+                    )
+                    pt_regs = rr_pt.registers if hasattr(rr_pt, "registers") else []
+                    bytes_pt = []
+                    for reg in pt_regs:
+                        bytes_pt.append((reg >> 8) & 0xFF)
+                        bytes_pt.append(reg & 0xFF)
+                    pt_str = "".join(chr(b) for b in bytes_pt).strip("\x00 ")
+
+                    service["/ProductName"] = f"{mfg_str} {pt_str}"
+                except Exception as e:
+                    logger.debug("ProductName creation failed: %s", e)
 
             # --- The rest of the polling logic ---
             # (This part remains the same, reading status, power, etc.)
