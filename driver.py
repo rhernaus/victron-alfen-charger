@@ -158,7 +158,11 @@ def main():
                         slave=ALFEN_SLAVE_ID,
                     )
                     fw_regs = rr_fw.registers if hasattr(rr_fw, "registers") else []
-                    fw_str = "".join(chr(r & 0xFF) for r in fw_regs).strip("\x00 ")
+                    bytes_fw = []
+                    for reg in fw_regs:
+                        bytes_fw.append((reg >> 8) & 0xFF)
+                        bytes_fw.append(reg & 0xFF)
+                    fw_str = "".join(chr(b) for b in bytes_fw).strip("\x00 ")
                     service["/FirmwareVersion"] = fw_str
                 except Exception as e:
                     logger.debug("FirmwareVersion read failed: %s", e)
@@ -170,7 +174,11 @@ def main():
                         slave=ALFEN_SLAVE_ID,
                     )
                     sn_regs = rr_sn.registers if hasattr(rr_sn, "registers") else []
-                    sn_str = "".join(chr(r & 0xFF) for r in sn_regs).strip("\x00 ")
+                    bytes_sn = []
+                    for reg in sn_regs:
+                        bytes_sn.append((reg >> 8) & 0xFF)
+                        bytes_sn.append(reg & 0xFF)
+                    sn_str = "".join(chr(b) for b in bytes_sn).strip("\x00 ")
                     service["/Serial"] = sn_str
                 except Exception as e:
                     logger.debug("Serial read failed: %s", e)
