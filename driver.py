@@ -419,9 +419,19 @@ def main():
         return False
 
     def set_current_callback(path, value):
-        global intended_set_current
+        global intended_set_current, station_max_current, current_mode
         try:
             intended_set_current = max(0.0, min(64.0, float(value)))
+            # If in MANUAL mode, clamp the requested setpoint to station max and reflect back on D-Bus
+            if current_mode == EVC_MODE.MANUAL:
+                max_allowed = max(0.0, float(station_max_current))
+                if intended_set_current > max_allowed:
+                    logger.info(
+                        "Requested SetCurrent %.1f A exceeds station max %.1f A; clamping (MANUAL mode)",
+                        intended_set_current,
+                        max_allowed,
+                    )
+                    intended_set_current = max_allowed
             service["/SetCurrent"] = round(intended_set_current, 1)
             logger.info(
                 "GUI request to set intended current to %.2f A", intended_set_current
