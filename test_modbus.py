@@ -109,16 +109,6 @@ def main():
                     f"Configured Current raw={regs} dec_bb={curr_bb if not math.isnan(curr_bb) else 0:.2f}A dec_bl={curr_bl if not math.isnan(curr_bl) else 0:.2f}A"
                 )
 
-                # Probe validity seconds (if implemented by charger)
-                try:
-                    rr = client.read_holding_registers(
-                        REG_SET_CURRENT_VALID_SECS, 1, slave=ALFEN_SLAVE_ID
-                    )
-                    valid_secs = rr.registers[0]
-                    print(f"SetCurrent valid time (1211): {valid_secs} s")
-                except Exception:
-                    pass
-
                 print("---")
 
             except Exception as e:

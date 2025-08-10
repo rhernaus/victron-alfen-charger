@@ -21,7 +21,8 @@ from vedbus import VeDbusService
 # --- Configuration ---
 ALFEN_IP = "10.128.0.64"
 ALFEN_PORT = 502
-ALFEN_SLAVE_ID = 1
+SOCKET_SLAVE_ID = 1
+STATION_SLAVE_ID = 200
 DEVICE_INSTANCE = 0
 
 # --- Modbus Registers ---
@@ -71,8 +72,10 @@ def main():
             builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
             builder.add_32bit_float(float(target_amps))
             payload = builder.to_registers()
-            client.write_registers(REG_AMPS_CONFIG, payload, slave=ALFEN_SLAVE_ID)
-            rr = client.read_holding_registers(REG_AMPS_CONFIG, 2, slave=ALFEN_SLAVE_ID)
+            client.write_registers(REG_AMPS_CONFIG, payload, slave=SOCKET_SLAVE_ID)
+            rr = client.read_holding_registers(
+                REG_AMPS_CONFIG, 2, slave=SOCKET_SLAVE_ID
+            )
             regs = rr.registers if hasattr(rr, "registers") else []
             if len(regs) == 2:
                 dec = BinaryPayloadDecoder.fromRegisters(
@@ -155,7 +158,7 @@ def main():
                     rr_fw = client.read_holding_registers(
                         REG_FIRMWARE_VERSION,
                         REG_FIRMWARE_VERSION_COUNT,
-                        slave=ALFEN_SLAVE_ID,
+                        slave=STATION_SLAVE_ID,
                     )
                     fw_regs = rr_fw.registers if hasattr(rr_fw, "registers") else []
                     bytes_fw = []
@@ -171,7 +174,7 @@ def main():
                     rr_sn = client.read_holding_registers(
                         REG_STATION_SERIAL,
                         REG_STATION_SERIAL_COUNT,
-                        slave=ALFEN_SLAVE_ID,
+                        slave=STATION_SLAVE_ID,
                     )
                     sn_regs = rr_sn.registers if hasattr(rr_sn, "registers") else []
                     bytes_sn = []
@@ -187,7 +190,7 @@ def main():
             # (This part remains the same, reading status, power, etc.)
             # Alfen exposes status as ASCII in multiple registers (e.g. "0", "1", "2").
             rr_status = client.read_holding_registers(
-                REG_STATUS, 5, slave=ALFEN_SLAVE_ID
+                REG_STATUS, 5, slave=SOCKET_SLAVE_ID
             )
             if rr_status.isError():
                 raise ConnectionError("Modbus error reading status")
@@ -216,7 +219,7 @@ def main():
             )
 
             # (Voltage, Current, Power reading logic is unchanged)
-            rr_v = client.read_holding_registers(REG_VOLTAGES, 6, slave=ALFEN_SLAVE_ID)
+            rr_v = client.read_holding_registers(REG_VOLTAGES, 6, slave=SOCKET_SLAVE_ID)
             decoder_v = BinaryPayloadDecoder.fromRegisters(
                 rr_v.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             )
@@ -228,7 +231,7 @@ def main():
             service["/Ac/L1/Voltage"] = round(v1 if not math.isnan(v1) else 0, 2)
             service["/Ac/L2/Voltage"] = round(v2 if not math.isnan(v2) else 0, 2)
             service["/Ac/L3/Voltage"] = round(v3 if not math.isnan(v3) else 0, 2)
-            rr_c = client.read_holding_registers(REG_CURRENTS, 6, slave=ALFEN_SLAVE_ID)
+            rr_c = client.read_holding_registers(REG_CURRENTS, 6, slave=SOCKET_SLAVE_ID)
             decoder_c = BinaryPayloadDecoder.fromRegisters(
                 rr_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             )
@@ -252,12 +255,12 @@ def main():
             service["/Ac/L3/Power"] = (
                 service["/Ac/L3/Voltage"] * service["/Ac/L3/Current"]
             )
-            rr_p = client.read_holding_registers(REG_POWER, 2, slave=ALFEN_SLAVE_ID)
+            rr_p = client.read_holding_registers(REG_POWER, 2, slave=SOCKET_SLAVE_ID)
             power = BinaryPayloadDecoder.fromRegisters(
                 rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
             ).decode_32bit_float()
             service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
-            rr_e = client.read_holding_registers(REG_ENERGY, 4, slave=ALFEN_SLAVE_ID)
+            rr_e = client.read_holding_registers(REG_ENERGY, 4, slave=SOCKET_SLAVE_ID)
             energy = (
                 BinaryPayloadDecoder.fromRegisters(
                     rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
@@ -268,7 +271,7 @@ def main():
                 energy if not math.isnan(energy) else 0, 3
             )
             rr_sc = client.read_holding_registers(
-                REG_AMPS_CONFIG, 2, slave=ALFEN_SLAVE_ID
+                REG_AMPS_CONFIG, 2, slave=SOCKET_SLAVE_ID
             )
             set_current = BinaryPayloadDecoder.fromRegisters(
                 rr_sc.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
@@ -276,7 +279,7 @@ def main():
             service["/SetCurrent"] = round(
                 set_current if not math.isnan(set_current) else 0, 1
             )
-            rr_ph = client.read_holding_registers(REG_PHASES, 1, slave=ALFEN_SLAVE_ID)
+            rr_ph = client.read_holding_registers(REG_PHASES, 1, slave=SOCKET_SLAVE_ID)
             service["/Ac/PhaseCount"] = rr_ph.registers[0]
 
             # === NEW: WATCHDOG HANDLING LOGIC ===
