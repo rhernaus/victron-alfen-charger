@@ -1,7 +1,6 @@
 import logging
-import math
 import time
-from typing import Any, Dict
+from typing import Any
 
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
 from .dbus_utils import EVC_CHARGE, EVC_MODE
@@ -54,8 +53,6 @@ def compute_effective_current(
     station_max_current: float,
     now: float,
     schedules: list[ScheduleItem],
-    low_soc_enabled: int = 0,
-    low_soc_active: bool = False,
 ) -> float:
     """
     Calculate the effective charging current based on mode, schedule, and low SoC conditions.
@@ -75,12 +72,6 @@ def compute_effective_current(
         effective = (
             intended_set_current if is_within_any_schedule(schedules, now) else 0.0
         )
-    if (
-        low_soc_enabled
-        and low_soc_active
-        and current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
-    ):
-        effective = 0.0
     return max(0.0, min(effective, station_max_current))
 
 
@@ -105,30 +96,6 @@ def map_alfen_status(client: Any, config: Config) -> int:
         return 0  # Disconnected
 
 
-def handle_low_soc(
-    low_soc_enabled: int,
-    low_soc_threshold: float,
-    low_soc_hysteresis: float,
-    low_soc_active: bool,
-    read_battery_soc: callable,
-) -> bool:
-    """Update low_soc_active based on battery SOC with hysteresis."""
-    battery_soc_value = read_battery_soc()
-    if battery_soc_value is not None and not math.isnan(battery_soc_value):
-        battery_soc_value = float(battery_soc_value)
-    else:
-        battery_soc_value = None
-
-    if low_soc_enabled and battery_soc_value is not None:
-        if low_soc_active:
-            if battery_soc_value >= (low_soc_threshold + low_soc_hysteresis):
-                low_soc_active = False
-        else:
-            if battery_soc_value <= low_soc_threshold:
-                low_soc_active = True
-    return low_soc_active
-
-
 def apply_mode_specific_status(
     current_mode: EVC_MODE,
     connected: bool,
@@ -137,8 +104,6 @@ def apply_mode_specific_status(
     intended_set_current: float,
     schedules: list[ScheduleItem],
     new_victron_status: int,
-    low_soc_enabled: int = 0,
-    low_soc_active: bool = False,
 ) -> int:
     """Adjust Victron status based on mode, auto-start, schedule, and low SOC."""
     if (
@@ -157,9 +122,6 @@ def apply_mode_specific_status(
         if not is_within_any_schedule(schedules, time.time()):
             new_victron_status = 6
 
-    if low_soc_enabled and low_soc_active and connected:
-        new_victron_status = 7  # Low SOC pause
-
     return new_victron_status
 
 
@@ -175,8 +137,6 @@ def apply_auto_start(
     set_current: callable,
     persist_config_to_disk: callable,
     logger: logging.Logger,
-    low_soc_enabled: int = 0,
-    low_soc_active: bool = False,
 ) -> EVC_CHARGE:
     """Apply auto-start logic if vehicle connects and conditions are met."""
     if (
@@ -197,8 +157,6 @@ def apply_auto_start(
             station_max_current,
             time.time(),
             schedules,
-            low_soc_enabled,
-            low_soc_active,
         )
         if set_current(target, force_verify=True):
             logger.info(f"Auto-start applied current: {target:.2f} A")
@@ -245,7 +203,7 @@ def calculate_session_energy_and_time(
 
 def process_status_and_energy(
     client: Any,
-    config: Dict[str, Any],
+    config: Config,
     service: Any,
     current_mode: EVC_MODE,
     start_stop: EVC_CHARGE,
@@ -257,13 +215,8 @@ def process_status_and_energy(
     session_start_energy_kwh: float,
     set_current: callable,
     persist_config_to_disk: callable,
-    read_battery_soc: callable,
     logger: logging.Logger,
-    low_soc_enabled: int = 0,
-    low_soc_threshold: float = 0.0,
-    low_soc_hysteresis: float = 0.0,
-    low_soc_active: bool = False,
-) -> tuple[bool, float, float]:
+) -> tuple[float, float]:
     raw_status = map_alfen_status(client, config)
 
     old_victron_status = service["/Status"]
@@ -273,14 +226,6 @@ def process_status_and_energy(
 
     new_victron_status = raw_status
 
-    low_soc_active = handle_low_soc(
-        low_soc_enabled,
-        low_soc_threshold,
-        low_soc_hysteresis,
-        low_soc_active,
-        read_battery_soc,
-    )
-
     new_victron_status = apply_mode_specific_status(
         current_mode,
         connected,
@@ -289,12 +234,7 @@ def process_status_and_energy(
         intended_set_current,
         schedules,
         new_victron_status,
-        low_soc_enabled,
-        low_soc_active,
     )
-
-    if low_soc_active and connected:
-        new_victron_status = 7
 
     service["/Status"] = new_victron_status
 
@@ -310,8 +250,6 @@ def process_status_and_energy(
         set_current,
         persist_config_to_disk,
         logger,
-        low_soc_enabled,
-        low_soc_active,
     )
 
     charging_start_time, session_start_energy_kwh = calculate_session_energy_and_time(
@@ -324,4 +262,4 @@ def process_status_and_energy(
         session_start_energy_kwh,
     )
 
-    return low_soc_active, charging_start_time, session_start_energy_kwh
+    return charging_start_time, session_start_energy_kwh

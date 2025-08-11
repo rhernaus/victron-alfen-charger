@@ -81,7 +81,7 @@ def set_current(
 
 def set_effective_current(
     client: Any,
-    config: dict,
+    config: Config,
     current_mode: Any,
     start_stop: Any,
     intended_set_current: float,
@@ -90,8 +90,6 @@ def set_effective_current(
     last_current_set_time: float,
     schedules: list[ScheduleItem],
     logger: logging.Logger,
-    low_soc_enabled: int = 0,
-    low_soc_active: bool = False,
     force: bool = False,
 ) -> tuple[float, float]:
     """
@@ -108,8 +106,6 @@ def set_effective_current(
         station_max_current,
         now,
         schedules,
-        low_soc_enabled,
-        low_soc_active,
     )
     if effective_current < 0:
         effective_current = 0.0

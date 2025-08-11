@@ -86,7 +86,6 @@ class AlfenDriver:
         )
         self.last_sent_current = -1.0
         self.schedules = self.config.schedule.items
-        self.low_soc_active = False
         self.station_max_current = self.config.defaults.station_max_current
         self.max_current_update_counter = 0
         modbus_config = self.config.modbus
@@ -264,8 +263,6 @@ class AlfenDriver:
                 self.current_mode.value,
                 self.start_stop.value,
                 self.intended_set_current.value,
-                0,
-                False,
                 self.station_max_current,
                 now,
                 self.schedules,
@@ -456,7 +453,7 @@ class AlfenDriver:
         """
         Process business logic including status, energy, max current, and clamping.
         """
-        self.low_soc_active, self.charging_start_time, self.session_start_energy_kwh = (
+        self.charging_start_time, self.session_start_energy_kwh = (
             process_status_and_energy(
                 self.client,
                 self.config,
@@ -465,10 +462,6 @@ class AlfenDriver:
                 self.start_stop.value,
                 self.auto_start.value,
                 self.intended_set_current.value,
-                0,
-                0.0,
-                0.0,
-                self.low_soc_active,
                 self.schedules,
                 self.station_max_current,
                 self.charging_start_time,
@@ -481,7 +474,6 @@ class AlfenDriver:
                     force_verify,
                 ),
                 lambda: self._persist_config(),
-                self._read_battery_soc,
                 self.logger,
             )
         )
@@ -545,8 +537,6 @@ class AlfenDriver:
             self.current_mode.value,
             self.start_stop.value,
             self.intended_set_current.value,
-            0,
-            False,
             self.station_max_current,
             self.last_sent_current,
             self.last_current_set_time,
