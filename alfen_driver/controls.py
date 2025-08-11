@@ -60,9 +60,6 @@ def set_current(
                 dec = BinaryPayloadDecoder.fromRegisters(
                     regs, byteorder=Endian.BIG, wordorder=Endian.BIG
                 ).decode_32bit_float()
-                logging.getLogger("alfen_driver").info(
-                    f"SetCurrent write: raw={regs}, dec={dec:.3f}"
-                )
                 if math.isclose(
                     dec, float(target_amps), abs_tol=config.controls.current_tolerance
                 ):
