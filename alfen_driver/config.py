@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import logging
 import os
@@ -5,50 +6,144 @@ from typing import Any, Dict, Optional
 
 import dbus
 
-DEFAULT_CONFIG: Dict[str, Any] = {
-    "modbus": {
-        "ip": "10.128.0.64",
-        "port": 502,
-        "socket_slave_id": 1,
-        "station_slave_id": 200,
-    },
-    "device_instance": 0,
-    "registers": {
-        "voltages": 306,
-        "currents": 320,
-        "power": 344,
-        "energy": 374,
-        "status": 1201,
-        "amps_config": 1210,
-        "phases": 1215,
-        "firmware_version": 123,
-        "firmware_version_count": 17,
-        "station_serial": 157,
-        "station_serial_count": 11,
-        "manufacturer": 117,
-        "manufacturer_count": 5,
-        "platform_type": 140,
-        "platform_type_count": 17,
-        "station_max_current": 1100,
-    },
-    "defaults": {"intended_set_current": 6.0, "station_max_current": 32.0},
-    "logging": {"level": "INFO", "file": "/var/log/alfen_driver.log"},
-    "schedule": {"enabled": 0, "days_mask": 0, "start": "00:00", "end": "00:00"},
-    "low_soc": {
-        "enabled": 0,
-        "threshold": 20.0,
-        "hysteresis": 2.0,
-        "battery_soc_dbus_path": "/Dc/Battery/Soc",
-    },
-    "poll_interval_ms": 1000,
-}
+
+@dataclasses.dataclass
+class ModbusConfig:
+    ip: str
+    port: int
+    socket_slave_id: int
+    station_slave_id: int
+
+
+@dataclasses.dataclass
+class RegistersConfig:
+    voltages: int
+    currents: int
+    power: int
+    energy: int
+    status: int
+    amps_config: int
+    phases: int
+    firmware_version: int
+    firmware_version_count: int
+    station_serial: int
+    station_serial_count: int
+    manufacturer: int
+    manufacturer_count: int
+    platform_type: int
+    platform_type_count: int
+    station_max_current: int
+
+
+@dataclasses.dataclass
+class DefaultsConfig:
+    intended_set_current: float
+    station_max_current: float
+
+
+@dataclasses.dataclass
+class LoggingConfig:
+    level: str
+    file: str
+
+
+@dataclasses.dataclass
+class ScheduleConfig:
+    enabled: int
+    days_mask: int
+    start: str
+    end: str
+
+
+@dataclasses.dataclass
+class LowSocConfig:
+    enabled: int
+    threshold: float
+    hysteresis: float
+    battery_soc_dbus_path: str
+
+
+@dataclasses.dataclass
+class ControlsConfig:
+    current_tolerance: float = 0.25
+    update_difference_threshold: float = 0.1
+    verification_delay: float = 0.1
+    retry_delay: float = 0.5
+    max_retries: int = 3
+    watchdog_interval_seconds: int = 30
+    max_set_current: float = 64.0
+
+    def __post_init__(self):
+        if self.current_tolerance < 0:
+            raise ValueError("current_tolerance must be non-negative")
+        if self.max_retries < 1:
+            raise ValueError("max_retries must be at least 1")
+        # Add similar for others
+
+
+@dataclasses.dataclass
+class Config:
+    modbus: ModbusConfig
+    device_instance: int
+    registers: RegistersConfig
+    defaults: DefaultsConfig
+    logging: LoggingConfig
+    schedule: ScheduleConfig
+    low_soc: LowSocConfig
+    controls: ControlsConfig
+    poll_interval_ms: int
+
+    def __post_init__(self):
+        # Basic validation
+        if self.modbus.port <= 0:
+            raise ValueError("modbus.port must be positive")
+        if self.defaults.intended_set_current < 0:
+            raise ValueError("defaults.intended_set_current must be non-negative")
+        # Add more as needed
+
+
+DEFAULT_CONFIG = Config(
+    modbus=ModbusConfig(
+        ip="10.128.0.64", port=502, socket_slave_id=1, station_slave_id=200
+    ),
+    device_instance=0,
+    registers=RegistersConfig(
+        voltages=306,
+        currents=320,
+        power=344,
+        energy=374,
+        status=1201,
+        amps_config=1210,
+        phases=1215,
+        firmware_version=123,
+        firmware_version_count=17,
+        station_serial=157,
+        station_serial_count=11,
+        manufacturer=117,
+        manufacturer_count=5,
+        platform_type=140,
+        platform_type_count=17,
+        station_max_current=1100,
+    ),
+    defaults=DefaultsConfig(intended_set_current=6.0, station_max_current=32.0),
+    logging=LoggingConfig(level="INFO", file="/var/log/alfen_driver.log"),
+    schedule=ScheduleConfig(enabled=0, days_mask=0, start="00:00", end="00:00"),
+    low_soc=LowSocConfig(
+        enabled=0,
+        threshold=20.0,
+        hysteresis=2.0,
+        battery_soc_dbus_path="/Dc/Battery/Soc",
+    ),
+    controls=ControlsConfig(),
+    poll_interval_ms=1000,
+)
 
 CONFIG_PATH: str = os.path.join(
     os.path.dirname(__file__), "../alfen_driver_config.json"
 )
 
 
-def load_config(logger: logging.Logger) -> Dict[str, Any]:
+def load_config(logger: logging.Logger) -> Config:
     """
     Load configuration from JSON file, falling back to defaults.
 
@@ -61,16 +156,35 @@ def load_config(logger: logging.Logger) -> Dict[str, Any]:
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 loaded_config = json.load(f)
-            # Basic validation
             if not isinstance(loaded_config, dict):
                 raise ValueError("Config must be a dictionary")
+            # Create instances
+            modbus = ModbusConfig(**loaded_config.get("modbus", {}))
+            registers = RegistersConfig(**loaded_config.get("registers", {}))
+            defaults = DefaultsConfig(**loaded_config.get("defaults", {}))
+            logging_cfg = LoggingConfig(**loaded_config.get("logging", {}))
+            schedule = ScheduleConfig(**loaded_config.get("schedule", {}))
+            low_soc = LowSocConfig(**loaded_config.get("low_soc", {}))
+            controls = ControlsConfig(**loaded_config.get("controls", {}))
+            config = Config(
+                modbus=modbus,
+                device_instance=loaded_config.get("device_instance", 0),
+                registers=registers,
+                defaults=defaults,
+                logging=logging_cfg,
+                schedule=schedule,
+                low_soc=low_soc,
+                controls=controls,
+                poll_interval_ms=loaded_config.get("poll_interval_ms", 1000),
+            )
+            # Basic validation
+            if not isinstance(config, Config):
+                raise ValueError("Loaded config is not an instance of Config")
             # Validate specific fields (example)
-            if "modbus" in loaded_config:
-                modbus = loaded_config["modbus"]
-                if "ip" in modbus and not isinstance(modbus["ip"], str):
-                    raise ValueError("modbus.ip must be a string")
-                if "port" in modbus and not isinstance(modbus["port"], int):
-                    raise ValueError("modbus.port must be an integer")
+            if config.modbus.port <= 0:
+                raise ValueError("modbus.port must be positive")
+            if config.defaults.intended_set_current < 0:
+                raise ValueError("defaults.intended_set_current must be non-negative")
             if "schedule" in loaded_config:
                 sched = loaded_config["schedule"]
                 if "start" in sched:
@@ -78,15 +192,15 @@ def load_config(logger: logging.Logger) -> Dict[str, Any]:
                 if "end" in sched:
                     parse_hhmm_to_minutes(sched["end"])
             # Merge with defaults
-            config = DEFAULT_CONFIG.copy()
-            for key in config:
-                if key in loaded_config:
-                    if isinstance(config[key], dict) and isinstance(
-                        loaded_config[key], dict
-                    ):
-                        config[key].update(loaded_config[key])
-                    else:
-                        config[key] = loaded_config[key]
+            # config = DEFAULT_CONFIG.copy() # This line is removed as we are using objects
+            # for key in config: # This line is removed as we are using objects
+            #     if key in loaded_config: # This line is removed as we are using objects
+            #         if isinstance(config[key], dict) and isinstance( # This line is removed as we are using objects
+            #             loaded_config[key], dict # This line is removed as we are using objects
+            #         ): # This line is removed as we are using objects
+            #             config[key].update(loaded_config[key]) # This line is removed as we are using objects
+            #         else: # This line is removed as we are using objects
+            #             config[key] = loaded_config[key] # This line is removed as we are using objects
             logger.info(f"Loaded and validated config from {CONFIG_PATH}")
             return config
         except (ValueError, KeyError) as e:

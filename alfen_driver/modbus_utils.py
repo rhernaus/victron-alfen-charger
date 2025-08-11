@@ -1,7 +1,7 @@
 import logging
 import math
 import time
-from typing import List
+from typing import Any, List
 
 from pymodbus.client import ModbusTcpClient
 from pymodbus.constants import Endian
@@ -123,3 +123,22 @@ def reconnect(
         time.sleep(retry_delay)
     logger.error("Failed to reconnect to Modbus after retries.")
     return False
+
+
+def retry_modbus_operation(
+    operation: callable,
+    retries: int,
+    retry_delay: float,
+    logger: logging.Logger = None,
+) -> Any:
+    for attempt in range(retries):
+        try:
+            return operation()
+        except ModbusException as e:
+            if logger:
+                logger.error(f"Modbus error on attempt {attempt+1}: {e}")
+            if attempt < retries - 1:
+                time.sleep(retry_delay)
+    if logger:
+        logger.error("Failed after retries.")
+    raise ModbusException("Operation failed after retries")

@@ -15,7 +15,7 @@ from gi.repository import GLib
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
-from .config import load_config, load_initial_config, persist_config_to_disk
+from .config import Config, load_config, load_initial_config, persist_config_to_disk
 from .controls import (
     MAX_SET_CURRENT,
     clamp_intended_current_to_max,
@@ -67,14 +67,14 @@ class AlfenDriver:
         )
         self.logger: logging.Logger = logging.getLogger("alfen_driver")
 
-        self.config: dict = load_config(self.logger)
+        self.config: Config = load_config(self.logger)
 
         # Reconfigure logging with loaded config values
         logging.basicConfig(
-            level=self.config["logging"]["level"],
+            level=self.config.logging.level,
             format="%(asctime)s [%(levelname)s] %(message)s",
             handlers=[
-                logging.FileHandler(self.config["logging"]["file"]),
+                logging.FileHandler(self.config.logging.file),
                 logging.StreamHandler(sys.stdout),
             ],
             force=True,  # Force reconfiguration
@@ -83,31 +83,29 @@ class AlfenDriver:
         self.charging_start_time: float = 0
         self.last_current_set_time: float = 0
         self.session_start_energy_kwh: float = 0
-        self.intended_set_current: float = self.config["defaults"][
-            "intended_set_current"
-        ]
+        self.intended_set_current: float = self.config.defaults.intended_set_current
         self.current_mode: EVC_MODE = EVC_MODE.AUTO
         self.start_stop: EVC_CHARGE = EVC_CHARGE.DISABLED
         self.auto_start: int = 1
         self.last_sent_current: float = -1.0
-        self.schedule_enabled: int = self.config["schedule"]["enabled"]
-        self.schedule_days_mask: int = self.config["schedule"]["days_mask"]
-        self.schedule_start: str = self.config["schedule"]["start"]
-        self.schedule_end: str = self.config["schedule"]["end"]
-        self.low_soc_enabled: int = self.config["low_soc"]["enabled"]
-        self.low_soc_threshold: float = self.config["low_soc"]["threshold"]
-        self.low_soc_hysteresis: float = self.config["low_soc"]["hysteresis"]
+        self.schedule_enabled: int = self.config.schedule.enabled
+        self.schedule_days_mask: int = self.config.schedule.days_mask
+        self.schedule_start: str = self.config.schedule.start
+        self.schedule_end: str = self.config.schedule.end
+        self.low_soc_enabled: int = self.config.low_soc.enabled
+        self.low_soc_threshold: float = self.config.low_soc.threshold
+        self.low_soc_hysteresis: float = self.config.low_soc.hysteresis
         self.low_soc_active: bool = False
         self.battery_soc: float | None = None
         self.dbus_bus: Any | None = None
         self.dbus_soc_obj: Any | None = None
-        self.station_max_current: float = self.config["defaults"]["station_max_current"]
+        self.station_max_current: float = self.config.defaults.station_max_current
         self.max_current_update_counter: int = 0
-        modbus_config = self.config["modbus"]
+        modbus_config = self.config.modbus
         self.client: ModbusTcpClient = ModbusTcpClient(
-            host=modbus_config["ip"], port=modbus_config["port"]
+            host=modbus_config.ip, port=modbus_config.port
         )
-        device_instance = self.config["device_instance"]
+        device_instance = self.config.device_instance
         self.service_name: str = f"com.victronenergy.evcharger.alfen_{device_instance}"
         self.config_file_path: str = f"/data/evcharger_alfen_{device_instance}.json"
 
@@ -149,9 +147,7 @@ class AlfenDriver:
         )
 
         self._load_static_info()
-        self._schedule_next_poll(
-            self.config.get("poll_interval_ms", self.POLL_INTERVAL_MS)
-        )
+        self._schedule_next_poll(self.config.poll_interval_ms)
 
     def _schedule_next_poll(self, interval: int) -> None:
         GLib.timeout_add(interval, self.poll)
@@ -169,9 +165,9 @@ class AlfenDriver:
         """
         fw_str = read_modbus_string(
             self.client,
-            self.config["registers"]["firmware_version"],
-            self.config["registers"]["firmware_version_count"],
-            self.config["modbus"]["station_slave_id"],
+            self.config.registers.firmware_version,
+            self.config.registers.firmware_version_count,
+            self.config.modbus.station_slave_id,
         )
         self.service["/FirmwareVersion"] = fw_str
 
@@ -183,9 +179,9 @@ class AlfenDriver:
         """
         sn_str = read_modbus_string(
             self.client,
-            self.config["registers"]["station_serial"],
-            self.config["registers"]["station_serial_count"],
-            self.config["modbus"]["station_slave_id"],
+            self.config.registers.station_serial,
+            self.config.registers.station_serial_count,
+            self.config.modbus.station_slave_id,
         )
         self.service["/Serial"] = sn_str
 
@@ -197,15 +193,15 @@ class AlfenDriver:
         """
         mfg_str = read_modbus_string(
             self.client,
-            self.config["registers"]["manufacturer"],
-            self.config["registers"]["manufacturer_count"],
-            self.config["modbus"]["station_slave_id"],
+            self.config.registers.manufacturer,
+            self.config.registers.manufacturer_count,
+            self.config.modbus.station_slave_id,
         )
         pt_str = read_modbus_string(
             self.client,
-            self.config["registers"]["platform_type"],
-            self.config["registers"]["platform_type_count"],
-            self.config["modbus"]["station_slave_id"],
+            self.config.registers.platform_type,
+            self.config.registers.platform_type_count,
+            self.config.modbus.station_slave_id,
         )
         self.service["/ProductName"] = f"{mfg_str} {pt_str}"
 
@@ -225,7 +221,7 @@ class AlfenDriver:
             if self.dbus_bus is None:
                 self.dbus_bus = dbus.SystemBus()
             if self.dbus_soc_obj is None:
-                soc_path = self.config["low_soc"]["battery_soc_dbus_path"]
+                soc_path = self.config.low_soc.battery_soc_dbus_path
                 self.dbus_soc_obj = self.dbus_bus.get_object(
                     "com.victronenergy.system", soc_path
                 )
@@ -329,12 +325,14 @@ class AlfenDriver:
 
     def set_current_callback(self, path: str, value: Any) -> bool:
         try:
-            requested = max(0.0, min(MAX_SET_CURRENT, float(value)))
+            requested = max(
+                0.0, min(self.config.controls.max_set_current, float(value))
+            )
             self.station_max_current = update_station_max_current(
                 self.client,
                 self.config,
                 self.service,
-                self.config["defaults"],
+                self.config.defaults,
                 self.logger,
             )
             max_allowed = max(0.0, float(self.station_max_current))
@@ -457,27 +455,27 @@ class AlfenDriver:
         return {
             "voltages": read_holding_registers(
                 self.client,
-                self.config["registers"]["voltages"],
+                self.config.registers.voltages,
                 6,
-                self.config["modbus"]["socket_slave_id"],
+                self.config.modbus.socket_slave_id,
             ),
             "currents": read_holding_registers(
                 self.client,
-                self.config["registers"]["currents"],
+                self.config.registers.currents,
                 6,
-                self.config["modbus"]["socket_slave_id"],
+                self.config.modbus.socket_slave_id,
             ),
             "power": read_holding_registers(
                 self.client,
-                self.config["registers"]["power"],
+                self.config.registers.power,
                 2,
-                self.config["modbus"]["socket_slave_id"],
+                self.config.modbus.socket_slave_id,
             ),
             "phases": read_holding_registers(
                 self.client,
-                self.config["registers"]["phases"],
+                self.config.registers.phases,
                 1,
-                self.config["modbus"]["socket_slave_id"],
+                self.config.modbus.socket_slave_id,
             ),
         }
 
@@ -522,7 +520,7 @@ class AlfenDriver:
                 self.client,
                 self.config,
                 self.service,
-                self.config["defaults"],
+                self.config.defaults,
                 self.logger,
             )
         self.max_current_update_counter += 1

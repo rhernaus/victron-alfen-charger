@@ -8,16 +8,11 @@ from pymodbus.exceptions import ModbusException
 from pymodbus.payload import BinaryPayloadBuilder, BinaryPayloadDecoder
 
 from .logic import compute_effective_current
-from .modbus_utils import decode_floats, read_holding_registers
+from .modbus_utils import decode_floats, read_holding_registers, retry_modbus_operation
 
-CURRENT_TOLERANCE: float = 0.25
-CLAMP_EPSILON: float = 1e-6
-UPDATE_DIFFERENCE_THRESHOLD: float = 0.1
-VERIFICATION_DELAY: float = 0.1
-RETRY_DELAY: float = 0.5
-MAX_RETRIES: int = 3
-WATCHDOG_INTERVAL_SECONDS: int = 30
-MAX_SET_CURRENT: float = 64.0
+
+def clamp_value(value: float, min_val: float, max_val: float) -> float:
+    return max(min_val, min(value, max_val))
 
 
 def set_current(
@@ -40,53 +35,47 @@ def set_current(
     Raises:
         ModbusException, ValueError: Handled with logging and retries.
     """
-    target_amps = max(0.0, min(target_amps, station_max_current))
-    retries = MAX_RETRIES
-    for attempt in range(retries):
-        try:
-            builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
-            builder.add_32bit_float(float(target_amps))
-            payload = builder.to_registers()
-            client.write_registers(
+    target_amps = clamp_value(target_amps, 0.0, station_max_current)
+
+    def write_op():
+        builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
+        builder.add_32bit_float(float(target_amps))
+        payload = builder.to_registers()
+        client.write_registers(
+            config["registers"]["amps_config"],
+            payload,
+            slave=config["modbus"]["socket_slave_id"],
+        )
+        if force_verify:
+            time.sleep(config.controls.verification_delay)
+            regs = read_holding_registers(
+                client,
                 config["registers"]["amps_config"],
-                payload,
-                slave=config["modbus"]["socket_slave_id"],
+                2,
+                config["modbus"]["socket_slave_id"],
             )
-            if force_verify:
-                time.sleep(VERIFICATION_DELAY)
-                regs = read_holding_registers(
-                    client,
-                    config["registers"]["amps_config"],
-                    2,
-                    config["modbus"]["socket_slave_id"],
+            if len(regs) == 2:
+                dec = BinaryPayloadDecoder.fromRegisters(
+                    regs, byteorder=Endian.BIG, wordorder=Endian.BIG
+                ).decode_32bit_float()
+                logging.getLogger("alfen_driver").info(
+                    f"SetCurrent write: raw={regs}, dec={dec:.3f}"
                 )
-                if len(regs) == 2:
-                    dec = BinaryPayloadDecoder.fromRegisters(
-                        regs, byteorder=Endian.BIG, wordorder=Endian.BIG
-                    ).decode_32bit_float()
-                    logging.getLogger("alfen_driver").info(
-                        f"SetCurrent write (attempt {attempt+1}): raw={regs}, dec={dec:.3f}"
-                    )
-                    if math.isclose(dec, float(target_amps), abs_tol=CURRENT_TOLERANCE):
-                        return True
-                else:
-                    logging.getLogger("alfen_driver").warning(
-                        f"Verification failed on attempt {attempt+1}"
-                    )
-            else:
-                return True
-        except ModbusException as e:
-            logging.getLogger("alfen_driver").error(
-                f"Modbus error on SetCurrent attempt {attempt+1}: {e}"
-            )
-            if attempt < retries - 1:
-                time.sleep(RETRY_DELAY)
-        except ValueError as e:
-            logging.getLogger("alfen_driver").error(
-                f"Value error on SetCurrent attempt {attempt+1}: {e}"
-            )
+                if math.isclose(
+                    dec, float(target_amps), abs_tol=config.controls.current_tolerance
+                ):
+                    return True
             return False
-    return False
+        return True
+
+    try:
+        return retry_modbus_operation(
+            write_op,
+            retries=config.controls.max_retries,
+            retry_delay=config.controls.retry_delay,
+        )
+    except ModbusException:
+        return False
 
 
 def set_effective_current(
@@ -135,8 +124,12 @@ def set_effective_current(
     current_time = time.time()
     needs_update = (
         force
-        or abs(effective_current - last_sent_current) > UPDATE_DIFFERENCE_THRESHOLD
-        or (current_time - last_current_set_time > WATCHDOG_INTERVAL_SECONDS)
+        or abs(effective_current - last_sent_current)
+        > config.controls.update_difference_threshold
+        or (
+            current_time - last_current_set_time
+            > config.controls.watchdog_interval_seconds
+        )
     )
     if needs_update:
         ok = set_current(
@@ -185,25 +178,32 @@ def update_station_max_current(
 
     References Alfen Modbus spec for register 1100 (Max Current).
     """
-    retries = MAX_RETRIES
-    for attempt in range(retries):
-        try:
-            rr_max_c = client.read_holding_registers(
-                config["registers"]["station_max_current"],
-                2,
-                slave=config["modbus"]["station_slave_id"],
-            )
-            if not rr_max_c.isError():
-                max_current = decode_floats(rr_max_c.registers, 1)[0]
-                if not math.isnan(max_current) and max_current > 0:
-                    station_max_current = float(max_current)
-                    service["/MaxCurrent"] = round(station_max_current, 1)
-                    return station_max_current
-        except ModbusException as e:
-            logger.debug(f"Station MaxCurrent read failed: {e}")
-            if attempt < retries - 1:
-                time.sleep(RETRY_DELAY)
-    logger.warning("Failed to read station max current after retries. Using fallback.")
-    station_max_current = defaults["station_max_current"]
-    service["/MaxCurrent"] = round(station_max_current, 1)
-    return station_max_current
+
+    def read_op():
+        rr_max_c = client.read_holding_registers(
+            config["registers"]["station_max_current"],
+            2,
+            slave=config["modbus"]["station_slave_id"],
+        )
+        if not rr_max_c.isError():
+            max_current = decode_floats(rr_max_c.registers, 1)[0]
+            if not math.isnan(max_current) and max_current > 0:
+                station_max_current = float(max_current)
+                service["/MaxCurrent"] = round(station_max_current, 1)
+                return station_max_current
+        raise ModbusException("Read failed")
+
+    try:
+        return retry_modbus_operation(
+            read_op,
+            retries=config.controls.max_retries,
+            retry_delay=config.controls.retry_delay,
+            logger=logger,
+        )
+    except ModbusException:
+        logger.warning(
+            "Failed to read station max current after retries. Using fallback."
+        )
+        station_max_current = defaults["station_max_current"]
+        service["/MaxCurrent"] = round(station_max_current, 1)
+        return station_max_current

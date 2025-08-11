@@ -147,3 +147,56 @@ If issues arise, check logs with `systemctl status alfen-driver` (if using syste
 ## License
 
 MIT License (or specify your license).
+
+## Architecture Overview
+
+The driver bridges the Alfen charger (via Modbus TCP) and Victron's Venus OS (via D-Bus). Here's a high-level diagram:
+
+```mermaid
+graph TD
+    A[Alfen Charger] -- Modbus TCP --> B[AlfenDriver Script]
+    B -- Polls Metrics --> C[Modbus Utils]
+    B -- Processes Logic --> D[Logic & Controls]
+    B -- Publishes Data --> E[D-Bus Service]
+    E -- Victron UI/System --> F[GX Device]
+    G[Config JSON] -- Loads --> B
+    H[Persistence JSON] -- Saves/Loads State --> B
+```
+
+- **Modbus Polling**: Reads registers for voltages, currents, etc.
+- **Logic**: Computes effective current, handles modes (Manual/Auto/Scheduled), low SOC, scheduling.
+- **D-Bus**: Exposes paths like /Ac/Power for Victron integration.
+
+## Assumptions
+
+- **Hardware**: Assumes a 3-phase Alfen Eve Pro Line charger. Single-phase setups may report 0/NaN for unused phases, but the code doesn't dynamically adapt—manual config adjustments may be needed.
+- **Environment**: Designed for Victron Venus OS on GX devices. Requires SSH access, opkg-installed tools (git, python3, pip), and paths like /opt/victronenergy/dbus-modbus-client.
+- **Charger Setup**: Alfen charger must have Modbus TCP enabled as slave, with Active Load Balancing configured if needed.
+- **Dependencies**: Specific versions (e.g., pymodbus==3.6.4) for compatibility. D-Bus paths (e.g., /Dc/Battery/Soc) assume a standard Victron battery setup.
+- **Network**: Charger IP is static and reachable; no dynamic discovery.
+
+## Troubleshooting
+
+Common issues and fixes:
+
+- **Modbus Connection Failures**:
+  - Symptom: Logs show "Failed to connect" or "Poll error: ConnectionException".
+  - Fix: Verify ALFEN_IP in config.json, ensure charger Modbus TCP is enabled (port 502), check network (ping the IP). Restart the script or device.
+
+- **Register Read Errors** (e.g., "Error reading registers at X"):
+  - Symptom: Data like voltages show 0 or NaN persistently.
+  - Fix: Confirm register addresses match Alfen docs (reference/Implementation_of_Modbus_Slave_TCPIP_for_Alfen_NG9xx_platform.pdf). Slave IDs (1 for socket, 200 for station) may need adjustment in config.json.
+
+- **D-Bus Issues**:
+  - Symptom: Charger not appearing in Victron UI, or "Unable to connect to battery SOC D-Bus path".
+  - Fix: Ensure the script is running (check systemctl status or ps aux). Verify device_instance in config doesn't conflict. For SOC, confirm /Dc/Battery/Soc path exists (use dbus -y com.victronenergy.system /Dc/Battery/Soc GetValue).
+
+- **Current Not Setting**:
+  - Symptom: SetCurrent callbacks fail, or effective current doesn't match intended.
+  - Fix: Check logs for "SetCurrent write failed". Verify station max current (register 1100). Increase retries/tolerances in config if network is flaky.
+
+- **General Debugging**:
+  - Check logs: tail -f /var/log/alfen_driver.log
+  - Test Modbus: Run test_modbus.py on a PC to verify communication.
+  - Restart: systemctl restart alfen-driver (if using systemd) or reboot the GX.
+  - If issues persist, enable DEBUG logging in config.json and share logs.

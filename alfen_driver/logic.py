@@ -320,7 +320,7 @@ def process_status_and_energy(
     )
 
     if low_soc_active and connected:
-        new_victron_status = 7  # Moved here if not in apply_mode_specific_status
+        new_victron_status = 7
 
     service["/Status"] = new_victron_status
 
