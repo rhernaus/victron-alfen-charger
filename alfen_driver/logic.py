@@ -115,6 +115,7 @@ def compute_effective_current(
     now: float,
     schedules: list[ScheduleItem],
     ev_power: float = 0.0,  # New parameter
+    timezone: str = "UTC",
 ) -> tuple[float, str]:
     effective = 0.0
     explanation = ""
@@ -150,7 +151,7 @@ def compute_effective_current(
             effective = 0.0
             explanation = "Scheduled mode disabled by start_stop"
         else:
-            within = is_within_any_schedule(schedules, now)
+            within = is_within_any_schedule(schedules, now, timezone)
             effective = station_max_current if within else 0.0
             explanation = f"Scheduled mode: {'within' if within else 'not within'} schedule, set to {effective:.2f}A"
     clamped_effective = max(0.0, min(effective, station_max_current))
@@ -222,6 +223,7 @@ def apply_auto_start(
     set_current: callable,
     persist_config_to_disk: callable,
     logger: logging.Logger,
+    timezone: str,
 ) -> EVC_CHARGE:
     """Apply auto-start logic if vehicle connects and conditions are met."""
     if (
@@ -242,6 +244,8 @@ def apply_auto_start(
             station_max_current,
             time.time(),
             schedules,
+            0.0,  # Default ev_power
+            timezone,
         )
         if set_current(target, force_verify=True):
             logger.debug(
@@ -339,6 +343,7 @@ def process_status_and_energy(
         set_current,
         persist_config_to_disk,
         logger,
+        timezone,
     )
 
     target, explanation = compute_effective_current(
@@ -348,6 +353,8 @@ def process_status_and_energy(
         station_max_current,
         time.time(),
         schedules,
+        0.0,  # Default ev_power
+        timezone,
     )
     if set_current(target, force_verify=True):
         logger.debug(
