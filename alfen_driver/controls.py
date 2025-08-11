@@ -99,7 +99,7 @@ def set_effective_current(
         ev_power: Total power of the EV charger for excess calculation.
     """
     now = time.time()
-    effective_current = compute_effective_current(
+    effective_current, explanation = compute_effective_current(
         current_mode,
         start_stop,
         intended_set_current,
@@ -108,11 +108,6 @@ def set_effective_current(
         schedules,
         ev_power,  # Pass to compute
     )
-    if effective_current < 0:
-        effective_current = 0.0
-    if effective_current > station_max_current:
-        effective_current = station_max_current
-
     current_time = time.time()
     needs_update = (
         force
@@ -136,7 +131,7 @@ def set_effective_current(
             )
             if current_mode == EVC_MODE.MANUAL:
                 log_message += f", intended: {intended_set_current:.2f}"
-            log_message += ")"
+            log_message += f"). Calculation: {explanation}"
             logger.info(log_message)
     return last_sent_current, last_current_set_time
 

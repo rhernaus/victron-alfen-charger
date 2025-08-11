@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 from typing import Any
 
@@ -58,7 +59,7 @@ def is_within_any_schedule(
     return False
 
 
-def get_excess_solar_current(ev_power: float = 0.0) -> float:
+def get_excess_solar_current(ev_power: float = 0.0) -> tuple[float, str]:
     global _config
     try:
         bus = dbus.SystemBus()
@@ -82,10 +83,19 @@ def get_excess_solar_current(ev_power: float = 0.0) -> float:
         excess = max(0.0, total_pv - adjusted_consumption - max(0.0, battery_power))
         # Calculate current for 3 phases
         current = excess / (3 * NOMINAL_VOLTAGE)
-        return clamp_value(current, MIN_CURRENT, MAX_CURRENT)
+        clamped_current = clamp_value(current, MIN_CURRENT, MAX_CURRENT)
+        explanation = (
+            f"total_pv={total_pv:.2f}W, "
+            f"adjusted_consumption={adjusted_consumption:.2f}W (consumption={consumption:.2f}W - ev_power={ev_power:.2f}W), "
+            f"battery_charging={max(0.0, battery_power):.2f}W, "
+            f"excess={excess:.2f}W, "
+            f"raw_current={current:.2f}A "
+            f"clamped to [{MIN_CURRENT}-{MAX_CURRENT}] -> {clamped_current:.2f}A"
+        )
+        return clamped_current, explanation
     except Exception as e:
         logging.error(f"Error calculating excess solar: {e}")
-        return 0.0
+        return 0.0, f"Error: {str(e)}"
 
 
 def compute_effective_current(
@@ -96,26 +106,42 @@ def compute_effective_current(
     now: float,
     schedules: list[ScheduleItem],
     ev_power: float = 0.0,  # New parameter
-) -> float:
+) -> tuple[float, str]:
     effective = 0.0
+    explanation = ""
     if current_mode == EVC_MODE.MANUAL:
-        effective = intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+        if start_stop == EVC_CHARGE.ENABLED:
+            effective = intended_set_current
+            state = "enabled"
+        else:
+            effective = 0.0
+            state = "disabled"
+        explanation = f"Manual mode {state}, intended_current={intended_set_current:.2f}A -> {effective:.2f}A"
     elif current_mode == EVC_MODE.AUTO:
         if start_stop == EVC_CHARGE.DISABLED:
             effective = 0.0
+            explanation = "Auto mode disabled by start_stop"
         else:
             strategy = get_current_ess_strategy()
             if strategy == "buying":
-                effective = station_max_current  # Max current
+                effective = station_max_current
+                explanation = (
+                    f"Auto mode buying strategy, set to max {station_max_current:.2f}A"
+                )
             elif strategy == "selling":
-                effective = 0.0  # Disable
+                effective = 0.0
+                explanation = "Auto mode selling strategy, disabled"
             else:
-                effective = get_excess_solar_current(ev_power)  # Pass ev_power
+                effective, excess_exp = get_excess_solar_current(ev_power)
+                explanation = f"Auto mode excess solar: {excess_exp}"
     elif current_mode == EVC_MODE.SCHEDULED:
-        effective = (
-            station_max_current if is_within_any_schedule(schedules, now) else 0.0
-        )
-    return max(0.0, min(effective, station_max_current))
+        within = is_within_any_schedule(schedules, now)
+        effective = station_max_current if within else 0.0
+        explanation = f"Scheduled mode: {'within' if within else 'not within'} schedule, set to {effective:.2f}A"
+    clamped_effective = max(0.0, min(effective, station_max_current))
+    if not math.isclose(clamped_effective, effective, abs_tol=0.01):
+        explanation += f" (clamped from {effective:.2f}A to {clamped_effective:.2f}A)"
+    return clamped_effective, explanation
 
 
 def map_alfen_status(client: Any, config: Config) -> int:
@@ -193,7 +219,7 @@ def apply_auto_start(
         logger.info(
             f"Auto-start triggered: Set StartStop to ENABLED (mode: {EVC_MODE(current_mode).name})"
         )
-        target = compute_effective_current(
+        target, explanation = compute_effective_current(
             current_mode,
             start_stop,
             intended_set_current,
@@ -202,7 +228,9 @@ def apply_auto_start(
             schedules,
         )
         if set_current(target, force_verify=True):
-            logger.info(f"Auto-start applied current: {target:.2f} A")
+            logger.info(
+                f"Auto-start applied current: {target:.2f} A. Calculation: {explanation}"
+            )
     return start_stop
 
 
@@ -294,6 +322,19 @@ def process_status_and_energy(
         persist_config_to_disk,
         logger,
     )
+
+    target, explanation = compute_effective_current(
+        current_mode,
+        start_stop,
+        intended_set_current,
+        station_max_current,
+        time.time(),
+        schedules,
+    )
+    if set_current(target, force_verify=True):
+        logger.info(
+            f"Auto-start applied current: {target:.2f} A. Calculation: {explanation}"
+        )
 
     charging_start_time, session_start_energy_kwh = calculate_session_energy_and_time(
         client,
