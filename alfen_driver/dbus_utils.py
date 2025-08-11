@@ -134,18 +134,30 @@ def register_dbus_service(
 def get_current_ess_strategy() -> str:
     try:
         bus = dbus.SystemBus()
-        settings = bus.get_object("com.victronenergy.settings", "/Settings/DynamicEss")
+        settings_obj = bus.get_object(
+            "com.victronenergy.settings", "/Settings/DynamicEss"
+        )
+        all_values = settings_obj.GetValue()  # Fetch entire dict
         now = time.time()
         for i in range(48):  # Up to 48 slots as per user's data
-            start = settings.GetValue(f"Schedule/{i}/Start")
-            duration = settings.GetValue(f"Schedule/{i}/Duration")
+            start_key = f"Schedule/{i}/Start"
+            duration_key = f"Schedule/{i}/Duration"
+            if start_key not in all_values or duration_key not in all_values:
+                continue
+            start = all_values[start_key]
+            duration = all_values[duration_key]
             end = start + duration
             if start <= now < end:
-                strategy = settings.GetValue(f"Schedule/{i}/Strategy")
-                soc_target = settings.GetValue(f"Schedule/{i}/Soc")
-                # Get current battery SOC for comparison
-                battery = bus.get_object("com.victronenergy.system", "/Dc/Battery/Soc")
-                current_soc = battery.GetValue()
+                strategy_key = f"Schedule/{i}/Strategy"
+                soc_key = f"Schedule/{i}/Soc"
+                if strategy_key not in all_values or soc_key not in all_values:
+                    continue
+                strategy = all_values[strategy_key]
+                soc_target = all_values[soc_key]
+                # Get current battery SOC from system dict
+                system_obj = bus.get_object("com.victronenergy.system", "/")
+                system_values = system_obj.GetValue()
+                current_soc = system_values.get("Dc/Battery/Soc", 0.0)
                 if strategy == 1 and soc_target > current_soc:
                     return "buying"  # Low price, buying energy
                 elif strategy in [2, 3] and soc_target < current_soc:

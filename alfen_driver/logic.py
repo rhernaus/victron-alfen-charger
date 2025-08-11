@@ -2,7 +2,10 @@ import logging
 import time
 from typing import Any
 
+import dbus
+
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
+from .controls import clamp_value
 from .dbus_utils import EVC_CHARGE, EVC_MODE, get_current_ess_strategy
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
@@ -50,18 +53,19 @@ def get_excess_solar_current() -> float:
     try:
         bus = dbus.SystemBus()
         system = bus.get_object("com.victronenergy.system", "/")
-        dc_pv = system.GetValue("/Dc/Pv/Power") or 0.0
-        ac_pv_l1 = system.GetValue("/Ac/PvOnOutput/L1/Power") or 0.0
-        ac_pv_l2 = system.GetValue("/Ac/PvOnOutput/L2/Power") or 0.0
-        ac_pv_l3 = system.GetValue("/Ac/PvOnOutput/L3/Power") or 0.0
+        all_values = system.GetValue()  # Fetch entire system dict
+        dc_pv = all_values.get("Dc/Pv/Power", 0.0)
+        ac_pv_l1 = all_values.get("Ac/PvOnOutput/L1/Power", 0.0)
+        ac_pv_l2 = all_values.get("Ac/PvOnOutput/L2/Power", 0.0)
+        ac_pv_l3 = all_values.get("Ac/PvOnOutput/L3/Power", 0.0)
         total_pv = dc_pv + ac_pv_l1 + ac_pv_l2 + ac_pv_l3
         consumption = (
-            (system.GetValue("/Ac/Consumption/L1/Power") or 0.0)
-            + (system.GetValue("/Ac/Consumption/L2/Power") or 0.0)
-            + (system.GetValue("/Ac/Consumption/L3/Power") or 0.0)
+            all_values.get("Ac/Consumption/L1/Power", 0.0)
+            + all_values.get("Ac/Consumption/L2/Power", 0.0)
+            + all_values.get("Ac/Consumption/L3/Power", 0.0)
         )
-        battery_power = (
-            system.GetValue("/Dc/Battery/Power") or 0.0
+        battery_power = all_values.get(
+            "Dc/Battery/Power", 0.0
         )  # Positive: charging, negative: discharging
         # Adjust excess: subtract battery charging (if positive) as it's using solar
         excess = max(0.0, total_pv - consumption - max(0.0, battery_power))
