@@ -30,6 +30,7 @@ registers:
 defaults:
   intended_set_current: 6.0 # Default charging current in amps
   station_max_current: 32.0 # Default max current if read fails
+  timezone: Europe/Amsterdam
 
 logging:
   level: INFO # Logging level (DEBUG, INFO, WARNING, ERROR)
