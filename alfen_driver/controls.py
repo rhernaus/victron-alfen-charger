@@ -8,6 +8,7 @@ from pymodbus.exceptions import ModbusException
 from pymodbus.payload import BinaryPayloadBuilder, BinaryPayloadDecoder
 
 from .config import Config, DefaultsConfig, ScheduleItem
+from .dbus_utils import EVC_MODE
 from .logic import compute_effective_current
 from .modbus_utils import decode_floats, read_holding_registers, retry_modbus_operation
 
