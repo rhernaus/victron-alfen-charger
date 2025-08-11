@@ -8,7 +8,7 @@ import os
 import sys
 import time
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 sys.path.insert(
     1, os.path.join(os.path.dirname(__file__), "/opt/victronenergy/dbus-modbus-client")
@@ -95,8 +95,12 @@ class AlfenDriver:
     POLL_INTERVAL_MS: int = 1000  # Default
 
     def __init__(self):
-        """Initialize the AlfenDriver with default values and setup."""
+        """
+        Initialize the AlfenDriver with default values and setup.
 
+        Sets up logging, loads configuration, initializes Modbus client,
+        and registers D-Bus service with paths and callbacks.
+        """
         # Initialize default logging before config load
         logging.basicConfig(
             level=logging.INFO,  # Default level
@@ -267,7 +271,12 @@ class AlfenDriver:
         self.service.register()
 
     def _load_initial_config(self) -> None:
-        """Load initial configuration from D-Bus or disk."""
+        """
+        Load initial configuration from D-Bus or disk.
+
+        Checks for existing D-Bus service and loads values if found,
+        otherwise loads from persisted JSON file.
+        """
         existing_service_found = False
         if dbus is not None:
             try:
@@ -293,6 +302,14 @@ class AlfenDriver:
                 self._apply_config(data)
 
     def _load_from_dbus(self, bus: Any) -> None:
+        """
+        Load configuration values from an existing D-Bus service.
+
+        Parameters:
+            bus: The D-Bus system bus object.
+
+        Loads values like mode, start/stop, auto-start, and set current.
+        """
         paths = {
             "/Mode": lambda v: setattr(self, "current_mode", EVC_MODE(int(v))),
             "/StartStop": lambda v: setattr(self, "start_stop", EVC_CHARGE(int(v))),
@@ -308,6 +325,19 @@ class AlfenDriver:
                     self.logger.warning(f"Failed to parse existing {path}: {v!r} ({e})")
 
     def _get_busitem_value(self, bus: Any, path: str) -> Optional[Any]:
+        """
+        Retrieve a value from a D-Bus path.
+
+        Parameters:
+            bus: The D-Bus system bus object.
+            path: The D-Bus path to query.
+
+        Returns:
+            The value from the D-Bus item, or None if not found or error.
+
+        Raises:
+            dbus.DBusException: If D-Bus query fails (caught externally).
+        """
         try:
             obj = bus.get_object(self.service_name, path)
             return obj.GetValue(dbus_interface="com.victronenergy.BusItem")
@@ -315,6 +345,11 @@ class AlfenDriver:
             return None
 
     def _persist_config_to_disk(self) -> None:
+        """
+        Persist current configuration to disk as JSON.
+
+        Saves key states like mode, start/stop, auto-start, and set current.
+        """
         try:
             cfg: Dict[str, Any] = {
                 "Mode": int(self.current_mode),
@@ -329,6 +364,15 @@ class AlfenDriver:
             self.logger.warning(f"Failed to persist config: {e}")
 
     def _load_config_from_disk(self) -> Optional[Dict[str, Any]]:
+        """
+        Load persisted configuration from disk.
+
+        Returns:
+            The loaded config dictionary, or None if file not found or invalid.
+
+        Raises:
+            OSError, json.JSONDecodeError: Handled and logged.
+        """
         try:
             if not os.path.exists(self.config_file_path):
                 return None
@@ -339,6 +383,14 @@ class AlfenDriver:
             return None
 
     def _apply_config(self, data: Dict[str, Any]) -> None:
+        """
+        Apply loaded configuration data to instance variables.
+
+        Parameters:
+            data: The configuration dictionary to apply.
+
+        Handles type conversions and defaults on errors.
+        """
         try:
             self.current_mode = EVC_MODE(int(data.get("Mode", int(self.current_mode))))
         except ValueError:
@@ -355,7 +407,18 @@ class AlfenDriver:
         )
 
     def _parse_hhmm_to_minutes(self, timestr: str) -> int:
-        """Parse HH:MM string to minutes since midnight."""
+        """
+        Parse HH:MM string to minutes since midnight.
+
+        Parameters:
+            timestr: The time string in HH:MM format.
+
+        Returns:
+            Minutes since midnight, or 0 if invalid.
+
+        Raises:
+            ValueError: If parsing fails (caught and returns 0).
+        """
         try:
             parts = timestr.strip().split(":")
             if len(parts) != 2:
@@ -367,7 +430,17 @@ class AlfenDriver:
             return 0
 
     def _is_within_schedule(self, now: float) -> bool:
-        """Check if current time is within the scheduled window."""
+        """
+        Check if current time is within the scheduled window.
+
+        Parameters:
+            now: Current time in seconds since epoch.
+
+        Returns:
+            True if within schedule, False otherwise.
+
+        Uses local time, day mask, and start/end times.
+        """
         if self.schedule_enabled == 0:
             return False
         tm = time.localtime(now)
@@ -385,10 +458,13 @@ class AlfenDriver:
         return minutes_now >= start_min or minutes_now < end_min
 
     def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from JSON file, falling back to defaults.
+        """
+        Load configuration from JSON file, falling back to defaults.
 
         Returns:
-            Dict[str, Any]: The loaded or default configuration.
+            The loaded or default configuration dictionary.
+
+        Validates key fields and merges with defaults.
         """
         if os.path.exists(CONFIG_PATH):
             try:
@@ -437,6 +513,15 @@ class AlfenDriver:
         return DEFAULT_CONFIG
 
     def _ensure_soc_proxy(self) -> bool:
+        """
+        Ensure D-Bus proxy for battery SOC is initialized.
+
+        Returns:
+            True if proxy is ready, False otherwise.
+
+        Raises:
+            dbus.DBusException: If connection fails (caught and returns False).
+        """
         if dbus is None:
             return False
         try:
@@ -453,6 +538,15 @@ class AlfenDriver:
             return False
 
     def _read_battery_soc(self) -> Optional[float]:
+        """
+        Read battery SOC from D-Bus.
+
+        Returns:
+            The SOC value as float, or None if unavailable.
+
+        Raises:
+            dbus.DBusException: Handled and logged, returns None.
+        """
         try:
             if not self._ensure_soc_proxy():
                 self.logger.warning("Unable to connect to battery SOC D-Bus path.")
@@ -465,37 +559,125 @@ class AlfenDriver:
             self.logger.error(f"Error reading battery SOC: {e}")
             return None
 
-    def _write_current_with_verification(self, target_amps: float) -> bool:
-        try:
-            builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
-            builder.add_32bit_float(float(target_amps))
-            payload = builder.to_registers()
-            self.client.write_registers(
-                self.config["registers"]["amps_config"],
-                payload,
-                slave=self.config["modbus"]["socket_slave_id"],
+    def _clamp_intended_current_to_max(self) -> None:
+        """Clamp the intended set current to the station max in MANUAL mode."""
+        max_allowed = max(0.0, float(self.station_max_current))
+        if self.intended_set_current > max_allowed + self.CLAMP_EPSILON:
+            self.intended_set_current = max_allowed
+            self.service["/SetCurrent"] = round(self.intended_set_current, 1)
+            self._persist_config_to_disk()
+            self.logger.info(
+                f"Clamped DBus /SetCurrent to station max: {self.intended_set_current:.1f} A (MANUAL mode)"
             )
-            rr = self.client.read_holding_registers(
-                self.config["registers"]["amps_config"],
-                2,
-                slave=self.config["modbus"]["socket_slave_id"],
-            )
-            regs = rr.registers if hasattr(rr, "registers") else []
-            if len(regs) == 2:
-                dec = BinaryPayloadDecoder.fromRegisters(
-                    regs, byteorder=Endian.BIG, wordorder=Endian.BIG
-                ).decode_32bit_float()
-                self.logger.info(f"SetCurrent write: raw={regs}, dec={dec:.3f}")
-                if math.isclose(
-                    dec, float(target_amps), abs_tol=self.CURRENT_TOLERANCE
-                ):
+
+    def _set_current(self, target_amps: float, force_verify: bool = False) -> bool:
+        """
+        Set the current via Modbus with verification and retries.
+
+        Parameters:
+            target_amps: The target current in amps.
+            force_verify: If True, verify the write by reading back.
+
+        Returns:
+            True if set successfully, False otherwise.
+
+        Raises:
+            ModbusException, ValueError: Handled with logging and retries.
+        """
+        target_amps = max(0.0, min(target_amps, self.station_max_current))
+        retries = self.MAX_RETRIES
+        for attempt in range(retries):
+            try:
+                builder = BinaryPayloadBuilder(
+                    byteorder=Endian.BIG, wordorder=Endian.BIG
+                )
+                builder.add_32bit_float(float(target_amps))
+                payload = builder.to_registers()
+                self.client.write_registers(
+                    self.config["registers"]["amps_config"],
+                    payload,
+                    slave=self.config["modbus"]["socket_slave_id"],
+                )
+                if force_verify:
+                    time.sleep(self.VERIFICATION_DELAY)
+                    regs = self.read_holding_registers(
+                        self.config["registers"]["amps_config"],
+                        2,
+                        self.config["modbus"]["socket_slave_id"],
+                    )
+                    if len(regs) == 2:
+                        dec = BinaryPayloadDecoder.fromRegisters(
+                            regs, byteorder=Endian.BIG, wordorder=Endian.BIG
+                        ).decode_32bit_float()
+                        self.logger.info(
+                            f"SetCurrent write (attempt {attempt+1}): raw={regs}, dec={dec:.3f}"
+                        )
+                        if math.isclose(
+                            dec, float(target_amps), abs_tol=self.CURRENT_TOLERANCE
+                        ):
+                            return True
+                    else:
+                        self.logger.warning(
+                            f"Verification failed on attempt {attempt+1}"
+                        )
+                else:
                     return True
-        except Exception as e:
-            self.logger.error(f"SetCurrent write failed: {e}")
+            except ModbusException as e:
+                self.logger.error(
+                    f"Modbus error on SetCurrent attempt {attempt+1}: {e}"
+                )
+                if attempt < retries - 1:
+                    time.sleep(self.RETRY_DELAY)
+            except ValueError as e:
+                self.logger.error(f"Value error on SetCurrent attempt {attempt+1}: {e}")
+                return False
         return False
 
+    def _set_effective_current(self, force: bool = False) -> None:
+        """
+        Set the effective current based on mode and watchdog.
+
+        Parameters:
+            force: If True, force update regardless of thresholds.
+        """
+        effective_current = self._compute_effective_current(time.time())
+        if effective_current < 0:
+            effective_current = 0.0
+        if effective_current > self.station_max_current:
+            effective_current = self.station_max_current
+
+        current_time = time.time()
+        needs_update = (
+            force
+            or abs(effective_current - self.last_sent_current)
+            > self.UPDATE_DIFFERENCE_THRESHOLD
+            or (
+                current_time - self.last_current_set_time
+                > self.WATCHDOG_INTERVAL_SECONDS
+            )
+        )
+        if needs_update:
+            ok = self._set_current(effective_current, force_verify=True)
+            if ok:
+                self.last_current_set_time = current_time
+                self.last_sent_current = effective_current
+                self.logger.info(
+                    f"Set effective current to {effective_current:.2f} A (mode: {self.current_mode.name}, intended: {self.intended_set_current:.2f})"
+                )
+
     def set_current_callback(self, path: str, value: Any) -> bool:
-        """Handle changes to the set current value from D-Bus."""
+        """
+        Handle changes to the set current value from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused, for callback compatibility).
+            value: The new current value.
+
+        Returns:
+            True if update successful, False otherwise.
+
+        Applies clamping, persists config, and sets current in manual mode.
+        """
         try:
             requested = max(0.0, min(self.MAX_SET_CURRENT, float(value)))
             self._update_station_max_current()
@@ -515,7 +697,7 @@ class AlfenDriver:
                 )
                 if target > self.station_max_current:
                     target = self.station_max_current
-                if self._write_current_with_verification(target):
+                if self._set_current(target):
                     self.last_current_set_time = time.time()
                     self.last_sent_current = target
                     self.logger.info(
@@ -523,12 +705,32 @@ class AlfenDriver:
                     )
             self.logger.info(f"SetCurrent changed to {self.intended_set_current:.2f} A")
             return True
-        except (ValueError, TypeError, ModbusException) as e:
-            self.logger.error(f"Set current error: {e}\n{traceback.format_exc()}")
+        except ValueError as e:
+            self.logger.error(f"Set current value error: {e}")
+            return False
+        except ModbusException as e:
+            self.logger.error(f"Set current Modbus error: {e}")
+            self.reconnect()
+            return False
+        except Exception as e:  # Fallback for unexpected errors
+            self.logger.error(
+                f"Unexpected error in set_current_callback: {e}\n{traceback.format_exc()}"
+            )
             return False
 
     def mode_callback(self, path: str, value: Any) -> bool:
-        """Handle changes to the mode from D-Bus."""
+        """
+        Handle changes to the mode from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new mode value (int).
+
+        Returns:
+            True if update successful, False otherwise.
+
+        Updates mode, persists config, and applies effective current.
+        """
         try:
             self.current_mode = EVC_MODE(int(value))
             self._persist_config_to_disk()
@@ -565,7 +767,7 @@ class AlfenDriver:
             ):
                 effective_current = 0.0
 
-            if self._write_current_with_verification(effective_current):
+            if self._set_current(effective_current, force_verify=True):
                 self.last_current_set_time = now
                 self.last_sent_current = effective_current
                 self.logger.info(
@@ -577,6 +779,18 @@ class AlfenDriver:
             return False
 
     def startstop_callback(self, path: str, value: Any) -> bool:
+        """
+        Handle changes to start/stop from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new start/stop value (int).
+
+        Returns:
+            True if update successful, False otherwise.
+
+        Updates start/stop, persists config, and applies in manual mode.
+        """
         try:
             self.start_stop = EVC_CHARGE(int(value))
             self._persist_config_to_disk()
@@ -586,7 +800,7 @@ class AlfenDriver:
                     if self.start_stop == EVC_CHARGE.ENABLED
                     else 0.0
                 )
-                if self._write_current_with_verification(target):
+                if self._set_current(target, force_verify=True):
                     self.last_current_set_time = time.time()
                     self.last_sent_current = target
                     self.logger.info(
@@ -598,12 +812,32 @@ class AlfenDriver:
             return False
 
     def autostart_callback(self, path: str, value: Any) -> bool:
+        """
+        Handle changes to auto-start from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new auto-start value (int).
+
+        Returns:
+            True if update successful.
+        """
         self.auto_start = int(value)
         self._persist_config_to_disk()
         self.logger.info(f"AutoStart changed to {self.auto_start}")
         return True
 
     def schedule_enabled_callback(self, path: str, value: Any) -> bool:
+        """
+        Handle changes to schedule enabled from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new enabled value (int).
+
+        Returns:
+            True if update successful, False otherwise.
+        """
         try:
             self.schedule_enabled = int(value)
             self._persist_config_to_disk()
@@ -612,6 +846,16 @@ class AlfenDriver:
             return False
 
     def schedule_days_callback(self, path: str, value: Any) -> bool:
+        """
+        Handle changes to schedule days mask from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new days mask value (int).
+
+        Returns:
+            True if update successful, False otherwise.
+        """
         try:
             self.schedule_days_mask = int(value) & 0x7F
             self._persist_config_to_disk()
@@ -620,6 +864,16 @@ class AlfenDriver:
             return False
 
     def schedule_start_callback(self, path: str, value: Any) -> bool:
+        """
+        Handle changes to schedule start time from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new start time string (HH:MM).
+
+        Returns:
+            True if valid and updated, False otherwise.
+        """
         try:
             _ = self._parse_hhmm_to_minutes(str(value))
             self.schedule_start = str(value)
@@ -629,6 +883,16 @@ class AlfenDriver:
             return False
 
     def schedule_end_callback(self, path: str, value: Any) -> bool:
+        """
+        Handle changes to schedule end time from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new end time string (HH:MM).
+
+        Returns:
+            True if valid and updated, False otherwise.
+        """
         try:
             _ = self._parse_hhmm_to_minutes(str(value))
             self.schedule_end = str(value)
@@ -638,6 +902,16 @@ class AlfenDriver:
             return False
 
     def low_soc_enabled_callback(self, path: str, value: Any) -> bool:
+        """
+        Handle changes to low SOC enabled from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new enabled value (int).
+
+        Returns:
+            True if update successful, False otherwise.
+        """
         try:
             self.low_soc_enabled = int(value)
             self._persist_config_to_disk()
@@ -646,6 +920,16 @@ class AlfenDriver:
             return False
 
     def low_soc_threshold_callback(self, path: str, value: Any) -> bool:
+        """
+        Handle changes to low SOC threshold from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new threshold value (float).
+
+        Returns:
+            True if update successful, False otherwise.
+        """
         try:
             self.low_soc_threshold = float(value)
             self._persist_config_to_disk()
@@ -654,6 +938,16 @@ class AlfenDriver:
             return False
 
     def low_soc_hysteresis_callback(self, path: str, value: Any) -> bool:
+        """
+        Handle changes to low SOC hysteresis from D-Bus.
+
+        Parameters:
+            path: The D-Bus path (unused).
+            value: The new hysteresis value (float).
+
+        Returns:
+            True if update successful, False otherwise.
+        """
         try:
             self.low_soc_hysteresis = max(0.0, float(value))
             self._persist_config_to_disk()
@@ -662,7 +956,15 @@ class AlfenDriver:
             return False
 
     def _compute_effective_current(self, now: float) -> float:
-        """Calculate the effective charging current based on mode, schedule, and low SoC conditions."""
+        """
+        Calculate the effective charging current based on mode, schedule, and low SoC conditions.
+
+        Parameters:
+            now: Current time in seconds since epoch.
+
+        Returns:
+            The computed effective current (clamped to 0 - station_max_current).
+        """
         effective = 0.0
         if self.current_mode == EVC_MODE.MANUAL:
             effective = (
@@ -689,7 +991,14 @@ class AlfenDriver:
         return max(0.0, min(effective, self.station_max_current))
 
     def _update_station_max_current(self) -> bool:
-        """Update the station max current from Modbus with retries and return True if successful."""
+        """
+        Update the station max current from Modbus with retries.
+
+        Returns:
+            True if read successful, False otherwise (uses fallback).
+
+        References Alfen Modbus spec for register 1100 (Max Current).
+        """
         retries = self.MAX_RETRIES
         for attempt in range(retries):
             try:
@@ -717,502 +1026,80 @@ class AlfenDriver:
         self.service["/MaxCurrent"] = round(self.station_max_current, 1)
         return False
 
-    def _update_ac_measurements(self) -> None:
-        """Read and update AC voltages, currents, power, and phase count from Modbus."""
-        rr_v = self.client.read_holding_registers(
-            self.config["registers"]["voltages"],
-            6,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
-        decoder_v = BinaryPayloadDecoder.fromRegisters(
-            rr_v.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-        )
-        v1, v2, v3 = (
-            decoder_v.decode_32bit_float(),
-            decoder_v.decode_32bit_float(),
-            decoder_v.decode_32bit_float(),
-        )
-        self.service["/Ac/L1/Voltage"] = round(v1 if not math.isnan(v1) else 0, 2)
-        self.service["/Ac/L2/Voltage"] = round(v2 if not math.isnan(v2) else 0, 2)
-        self.service["/Ac/L3/Voltage"] = round(v3 if not math.isnan(v3) else 0, 2)
-        rr_c = self.client.read_holding_registers(
-            self.config["registers"]["currents"],
-            6,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
-        decoder_c = BinaryPayloadDecoder.fromRegisters(
-            rr_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-        )
-        i1, i2, i3 = (
-            decoder_c.decode_32bit_float(),
-            decoder_c.decode_32bit_float(),
-            decoder_c.decode_32bit_float(),
-        )
-        self.service["/Ac/L1/Current"] = round(i1 if not math.isnan(i1) else 0, 2)
-        self.service["/Ac/L2/Current"] = round(i2 if not math.isnan(i2) else 0, 2)
-        self.service["/Ac/L3/Current"] = round(i3 if not math.isnan(i3) else 0, 2)
-        current_a = round(max(i1, i2, i3), 2)
-        self.service["/Ac/Current"] = current_a
-        self.service["/Current"] = current_a
-        self.service["/Ac/L1/Power"] = round(v1 * i1, 2)
-        self.service["/Ac/L2/Power"] = round(v2 * i2, 2)
-        self.service["/Ac/L3/Power"] = round(v3 * i3, 2)
-        rr_p = self.client.read_holding_registers(
-            self.config["registers"]["power"],
-            2,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
-        power = BinaryPayloadDecoder.fromRegisters(
-            rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-        ).decode_32bit_float()
-        self.service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
-        rr_ph = self.client.read_holding_registers(
-            self.config["registers"]["phases"],
-            1,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
-        self.service["/Ac/PhaseCount"] = rr_ph.registers[0]
+    # Helper methods for Modbus operations
+    def read_holding_registers(self, address: int, count: int, slave: int) -> List[int]:
+        """
+        Read holding registers from Modbus.
 
-    def _fetch_data(self) -> None:
-        """Fetch raw data from Modbus."""
-        # Fetch voltages, currents, power, phases, energy, status, etc.
-        self.rr_v = self.client.read_holding_registers(
-            self.config["registers"]["voltages"],
-            6,
-            slave=self.config["modbus"]["socket_slave_id"],
+        Parameters:
+            address: Starting register address.
+            count: Number of registers to read.
+            slave: Modbus slave ID.
+
+        Returns:
+            List of register values.
+
+        Raises:
+            ModbusException: If read fails.
+        """
+        rr = self.client.read_holding_registers(address, count, slave=slave)
+        if rr.isError():
+            raise ModbusException(f"Error reading registers at {address}")
+        return rr.registers
+
+    def decode_floats(self, registers: List[int], count: int) -> List[float]:
+        """
+        Decode list of registers into floats (assuming 2 registers per float).
+
+        Parameters:
+            registers: List of register values.
+            count: Number of floats to decode.
+
+        Returns:
+            List of decoded float values (NaN replaced with 0.0).
+        """
+        values = []
+        decoder = BinaryPayloadDecoder.fromRegisters(
+            registers, byteorder=Endian.BIG, wordorder=Endian.BIG
         )
-        self.rr_c = self.client.read_holding_registers(
-            self.config["registers"]["currents"],
-            6,
-            slave=self.config["modbus"]["socket_slave_id"],
+        for _ in range(count):
+            val = decoder.decode_32bit_float()
+            values.append(val if not math.isnan(val) else 0.0)
+        return values
+
+    def decode_64bit_float(self, registers: List[int]) -> float:
+        """
+        Decode 4 registers into a 64-bit float.
+
+        Parameters:
+            registers: List of 4 register values.
+
+        Returns:
+            The decoded float (NaN replaced with 0.0).
+        """
+        decoder = BinaryPayloadDecoder.fromRegisters(
+            registers, byteorder=Endian.BIG, wordorder=Endian.BIG
         )
-        self.rr_p = self.client.read_holding_registers(
-            self.config["registers"]["power"],
-            2,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
-        self.rr_ph = self.client.read_holding_registers(
-            self.config["registers"]["phases"],
-            1,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
-        self.rr_e = self.client.read_holding_registers(
-            self.config["registers"]["energy"],
-            4,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
-        self.rr_status = self.client.read_holding_registers(
-            self.config["registers"]["status"],
-            5,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
+        val = decoder.decode_64bit_float()
+        return val if not math.isnan(val) else 0.0
 
-    def _apply_logic(self) -> None:
-        """Apply business logic to fetched data."""
-        # Status logic
-        if self.rr_status.isError():
-            raise ConnectionError("Modbus error reading status")
-        status_str = (
-            "".join(
-                [chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in self.rr_status.registers]
-            )
-            .strip("\x00 ")
-            .upper()
-        )
-        if status_str in ("C2", "D2"):
-            raw_status = 2
-        elif status_str in ("B1", "B2", "C1", "D1"):
-            raw_status = 1
-        else:
-            raw_status = 0
+    def read_modbus_string(self, address: int, count: int, slave: int) -> str:
+        """
+        Read a string from Modbus holding registers.
 
-        old_victron_status = self.service["/Status"]
-        connected = raw_status >= 1
-        was_disconnected = old_victron_status == 0
-        now_connected = connected
+        Parameters:
+            address: Starting register address.
+            count: Number of registers to read.
+            slave: Modbus slave ID.
 
-        new_victron_status = raw_status
-        if (
-            self.current_mode == EVC_MODE.MANUAL
-            and connected
-            and self.auto_start == 0
-            and self.start_stop == EVC_CHARGE.DISABLED
-        ):
-            new_victron_status = 6
-        if self.current_mode == EVC_MODE.AUTO and connected:
-            if self.start_stop == EVC_CHARGE.DISABLED:
-                new_victron_status = 6
-            elif self.intended_set_current <= self.MIN_CHARGING_CURRENT:
-                new_victron_status = 4
-        if self.current_mode == EVC_MODE.SCHEDULED and connected:
-            if not self._is_within_schedule(time.time()):
-                new_victron_status = 6
+        Returns:
+            The decoded string, stripped of nulls/spaces.
 
-        battery_soc_value = self._read_battery_soc()
-        if battery_soc_value is not None and not math.isnan(battery_soc_value):
-            battery_soc_value = float(battery_soc_value)
-        else:
-            battery_soc_value = None
-
-        if self.low_soc_enabled and battery_soc_value is not None:
-            if self.low_soc_active:
-                if battery_soc_value >= (
-                    self.low_soc_threshold + self.low_soc_hysteresis
-                ):
-                    self.low_soc_active = False
-            else:
-                if battery_soc_value <= self.low_soc_threshold:
-                    self.low_soc_active = True
-            if self.low_soc_active and connected:
-                new_victron_status = 7
-
-        self.service["/Status"] = new_victron_status
-
-        # Auto-start logic
-        if (
-            now_connected
-            and was_disconnected
-            and self.auto_start == 1
-            and self.start_stop == EVC_CHARGE.DISABLED
-        ):
-            self.start_stop = EVC_CHARGE.ENABLED
-            self._persist_config_to_disk()
-            self.logger.info(
-                f"Auto-start triggered: Set StartStop to ENABLED (mode: {self.current_mode.name})"
-            )
-            target = self._compute_effective_current(time.time())
-            if self._set_current(target, force_verify=True):
-                self.last_current_set_time = time.time()
-                self.last_sent_current = target
-                self.logger.info(f"Auto-start applied current: {target:.2f} A")
-
-        # Energy and charging time logic
-        total_energy_kwh = (
-            BinaryPayloadDecoder.fromRegisters(
-                self.rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-            ).decode_64bit_float()
-            / 1000.0
-        )
-
-        if new_victron_status == 2 and old_victron_status != 2:
-            self.charging_start_time = time.time()
-            self.session_start_energy_kwh = total_energy_kwh
-        elif new_victron_status != 2:
-            self.charging_start_time = 0
-            self.session_start_energy_kwh = 0
-
-        self.service["/ChargingTime"] = (
-            time.time() - self.charging_start_time
-            if self.charging_start_time > 0
-            else 0
-        )
-
-        if self.session_start_energy_kwh > 0:
-            session_energy = total_energy_kwh - self.session_start_energy_kwh
-            self.service["/Ac/Energy/Forward"] = round(
-                session_energy if not math.isnan(session_energy) else 0, 3
-            )
-        else:
-            self.service["/Ac/Energy/Forward"] = 0.0
-
-    def _update_dbus(self) -> None:
-        """Update D-Bus paths with processed data."""
-        decoder_v = BinaryPayloadDecoder.fromRegisters(
-            self.rr_v.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-        )
-        v1, v2, v3 = (
-            decoder_v.decode_32bit_float(),
-            decoder_v.decode_32bit_float(),
-            decoder_v.decode_32bit_float(),
-        )
-        self.service["/Ac/L1/Voltage"] = round(v1 if not math.isnan(v1) else 0, 2)
-        self.service["/Ac/L2/Voltage"] = round(v2 if not math.isnan(v2) else 0, 2)
-        self.service["/Ac/L3/Voltage"] = round(v3 if not math.isnan(v3) else 0, 2)
-
-        decoder_c = BinaryPayloadDecoder.fromRegisters(
-            self.rr_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-        )
-        i1, i2, i3 = (
-            decoder_c.decode_32bit_float(),
-            decoder_c.decode_32bit_float(),
-            decoder_c.decode_32bit_float(),
-        )
-        self.service["/Ac/L1/Current"] = round(i1 if not math.isnan(i1) else 0, 2)
-        self.service["/Ac/L2/Current"] = round(i2 if not math.isnan(i2) else 0, 2)
-        self.service["/Ac/L3/Current"] = round(i3 if not math.isnan(i3) else 0, 2)
-        current_a = round(max(i1, i2, i3), 2)
-        self.service["/Ac/Current"] = current_a
-        self.service["/Current"] = current_a
-        self.service["/Ac/L1/Power"] = round(v1 * i1, 2)
-        self.service["/Ac/L2/Power"] = round(v2 * i2, 2)
-        self.service["/Ac/L3/Power"] = round(v3 * i3, 2)
-
-        power = BinaryPayloadDecoder.fromRegisters(
-            self.rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-        ).decode_32bit_float()
-        self.service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
-
-        self.service["/Ac/PhaseCount"] = self.rr_ph.registers[0]
-
-    def poll(self) -> bool:
-        """Poll the Modbus device for updates and apply logic."""
+        Raises:
+            ModbusException: If read fails (logged, returns "N/A").
+        """
         try:
-            if not self.client.is_socket_open():
-                self.logger.info(
-                    "Modbus connection is closed. Attempting to reconnect..."
-                )
-                if not self.client.connect():
-                    self.logger.error(
-                        "Failed to reconnect to Alfen. Will retry on next poll."
-                    )
-                    self.service["/Connected"] = 0
-                    return True
-                self.logger.info("Modbus connection re-established.")
-                self._read_firmware_version()
-                self._read_station_serial()
-                self._read_product_name()
-
-            self._fetch_data()
-            self._apply_logic()
-            self._update_station_max_current()
-            if self.current_mode == EVC_MODE.MANUAL:
-                self._clamp_intended_current_to_max()
-            self._update_dbus()
-            self._set_effective_current()
-
-            self.service["/Connected"] = 1
-            self.logger.debug("Poll completed successfully")
-
-        except ModbusException as e:
-            self.logger.error(f"Poll error: {e}. The connection will be retried.")
-            self.client.close()
-            self.service["/Connected"] = 0
-        except ConnectionError as e:
-            self.logger.error(f"Poll error: {e}. The connection will be retried.")
-            self.client.close()
-            self.service["/Connected"] = 0
-        return True
-
-    def _update_status_and_apply_logic(self) -> None:
-        """Update status from Modbus and apply logic for victron status, low SOC, and auto-start."""
-        rr_status = self.client.read_holding_registers(
-            self.config["registers"]["status"],
-            5,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
-        if rr_status.isError():
-            raise ConnectionError("Modbus error reading status")
-        status_str = (
-            "".join([chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in rr_status.registers])
-            .strip("\x00 ")
-            .upper()
-        )
-
-        # Map Alfen status strings to raw status codes
-        if status_str in ("C2", "D2"):
-            raw_status = 2  # Charging
-        elif status_str in ("B1", "B2", "C1", "D1"):
-            raw_status = 1  # Connected
-        else:
-            raw_status = 0  # Disconnected
-
-        old_victron_status = self.service["/Status"]
-
-        connected = raw_status >= 1
-
-        # Detect connection event
-        was_disconnected = old_victron_status == 0
-        now_connected = connected
-
-        new_victron_status = raw_status
-        if (
-            self.current_mode == EVC_MODE.MANUAL
-            and connected
-            and self.auto_start == 0
-            and self.start_stop == EVC_CHARGE.DISABLED
-        ):
-            new_victron_status = 6  # WAIT_START
-        if self.current_mode == EVC_MODE.AUTO and connected:
-            if self.start_stop == EVC_CHARGE.DISABLED:
-                new_victron_status = 6
-            elif self.intended_set_current <= self.MIN_CHARGING_CURRENT:
-                new_victron_status = 4
-        if self.current_mode == EVC_MODE.SCHEDULED and connected:
-            if not self._is_within_schedule(time.time()):
-                new_victron_status = 6
-
-        battery_soc_value = self._read_battery_soc()
-        if battery_soc_value is not None and not math.isnan(battery_soc_value):
-            battery_soc_value = float(battery_soc_value)
-        else:
-            battery_soc_value = None
-
-        if self.low_soc_enabled and battery_soc_value is not None:
-            if self.low_soc_active:
-                if battery_soc_value >= (
-                    self.low_soc_threshold + self.low_soc_hysteresis
-                ):
-                    self.low_soc_active = False
-            else:
-                if battery_soc_value <= self.low_soc_threshold:
-                    self.low_soc_active = True
-            if self.low_soc_active and connected:
-                new_victron_status = 7
-
-        self.service["/Status"] = new_victron_status
-
-        # Auto-start logic: if just connected in ANY mode and auto_start enabled, enable StartStop
-        if (
-            now_connected
-            and was_disconnected
-            and self.auto_start == 1
-            and self.start_stop
-            == EVC_CHARGE.DISABLED  # Avoid re-triggering if already enabled
-        ):
-            self.start_stop = EVC_CHARGE.ENABLED
-            self._persist_config_to_disk()
-            self.logger.info(
-                f"Auto-start triggered: Set StartStop to ENABLED (mode: {self.current_mode.name})"
-            )
-            # Apply the current immediately
-            target = self._compute_effective_current(time.time())
-            if self._set_current(target, force_verify=True):
-                self.last_current_set_time = time.time()
-                self.last_sent_current = target
-                self.logger.info(f"Auto-start applied current: {target:.2f} A")
-
-    def _update_energy_and_charging_time(self) -> None:
-        """Update energy readings and charging time from Modbus."""
-        rr_e = self.client.read_holding_registers(
-            self.config["registers"]["energy"],
-            4,
-            slave=self.config["modbus"]["socket_slave_id"],
-        )
-        total_energy_kwh = (
-            BinaryPayloadDecoder.fromRegisters(
-                rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-            ).decode_64bit_float()
-            / 1000.0
-        )
-
-        old_victron_status = self.service["/Status"]
-        new_victron_status = self.service[
-            "/Status"
-        ]  # Assuming updated in previous method
-
-        if new_victron_status == 2 and old_victron_status != 2:
-            self.charging_start_time = time.time()
-            self.session_start_energy_kwh = total_energy_kwh
-        elif new_victron_status != 2:
-            self.charging_start_time = 0
-            self.session_start_energy_kwh = 0
-
-        self.service["/ChargingTime"] = (
-            time.time() - self.charging_start_time
-            if self.charging_start_time > 0
-            else 0
-        )
-
-        if self.session_start_energy_kwh > 0:
-            session_energy = total_energy_kwh - self.session_start_energy_kwh
-            self.service["/Ac/Energy/Forward"] = round(
-                session_energy if not math.isnan(session_energy) else 0, 3
-            )
-        else:
-            self.service["/Ac/Energy/Forward"] = 0.0
-
-    def _clamp_intended_current_to_max(self) -> None:
-        """Clamp the intended set current to the station max in MANUAL mode."""
-        max_allowed = max(0.0, float(self.station_max_current))
-        if self.intended_set_current > max_allowed + self.CLAMP_EPSILON:
-            self.intended_set_current = max_allowed
-            self.service["/SetCurrent"] = round(self.intended_set_current, 1)
-            self._persist_config_to_disk()
-            self.logger.info(
-                f"Clamped DBus /SetCurrent to station max: {self.intended_set_current:.1f} A (MANUAL mode)"
-            )
-
-    def _set_current(self, target_amps: float, force_verify: bool = False) -> bool:
-        """Set the current via Modbus with verification and retries."""
-        target_amps = max(0.0, min(target_amps, self.station_max_current))
-        retries = self.MAX_RETRIES
-        for attempt in range(retries):
-            try:
-                builder = BinaryPayloadBuilder(
-                    byteorder=Endian.BIG, wordorder=Endian.BIG
-                )
-                builder.add_32bit_float(float(target_amps))
-                payload = builder.to_registers()
-                self.client.write_registers(
-                    self.config["registers"]["amps_config"],
-                    payload,
-                    slave=self.config["modbus"]["socket_slave_id"],
-                )
-                if force_verify:
-                    time.sleep(self.VERIFICATION_DELAY)  # Small delay for verification
-                    rr = self.client.read_holding_registers(
-                        self.config["registers"]["amps_config"],
-                        2,
-                        slave=self.config["modbus"]["socket_slave_id"],
-                    )
-                    regs = rr.registers if hasattr(rr, "registers") else []
-                    if len(regs) == 2:
-                        dec = BinaryPayloadDecoder.fromRegisters(
-                            regs, byteorder=Endian.BIG, wordorder=Endian.BIG
-                        ).decode_32bit_float()
-                        self.logger.info(
-                            f"SetCurrent write (attempt {attempt+1}): raw={regs}, dec={dec:.3f}"
-                        )
-                        if math.isclose(
-                            dec, float(target_amps), abs_tol=self.CURRENT_TOLERANCE
-                        ):
-                            return True
-                    else:
-                        self.logger.warning(
-                            f"Verification failed on attempt {attempt+1}"
-                        )
-                else:
-                    return True  # Assume success if not verifying
-            except Exception as e:
-                self.logger.error(
-                    f"SetCurrent write failed on attempt {attempt+1}: {e}"
-                )
-                if attempt < retries - 1:
-                    time.sleep(self.RETRY_DELAY)
-        return False
-
-    def _set_effective_current(self, force: bool = False) -> None:
-        """Set the effective current based on mode and watchdog."""
-        effective_current = self._compute_effective_current(time.time())
-        if effective_current < 0:
-            effective_current = 0.0
-        if effective_current > self.station_max_current:
-            effective_current = self.station_max_current
-
-        current_time = time.time()
-        needs_update = (
-            force
-            or abs(effective_current - self.last_sent_current)
-            > self.UPDATE_DIFFERENCE_THRESHOLD
-            or (
-                current_time - self.last_current_set_time
-                > self.WATCHDOG_INTERVAL_SECONDS
-            )
-        )
-        if needs_update:
-            ok = self._set_current(effective_current, force_verify=True)
-            if ok:
-                self.last_current_set_time = current_time
-                self.last_sent_current = effective_current
-                self.logger.info(
-                    f"Set effective current to {effective_current:.2f} A (mode: {self.current_mode.name}, intended: {self.intended_set_current:.2f})"
-                )
-
-    def _read_modbus_string(self, register: int, count: int, slave: int) -> str:
-        """Read a string from Modbus holding registers."""
-        try:
-            rr = self.client.read_holding_registers(register, count, slave=slave)
-            regs = rr.registers if hasattr(rr, "registers") else []
+            regs = self.read_holding_registers(address, count, slave)
             bytes_list = []
             for reg in regs:
                 bytes_list.append((reg >> 8) & 0xFF)
@@ -1222,8 +1109,134 @@ class AlfenDriver:
             self.logger.debug(f"Modbus string read failed: {e}")
             return "N/A"
 
+    # Merged method for status and energy logic
+    def process_status_and_energy(self) -> None:
+        """
+        Process status, apply logic, and update energy/charging time.
+
+        Handles status mapping, mode logic, low SOC, auto-start, and energy calculations.
+        References Alfen Modbus spec for status codes (register 1201).
+        """
+        # Read status
+        status_regs = self.read_holding_registers(
+            self.config["registers"]["status"],
+            5,
+            self.config["modbus"]["socket_slave_id"],
+        )
+        status_str = (
+            "".join([chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in status_regs])
+            .strip("\x00 ")
+            .upper()
+        )
+
+        # Map Alfen status strings to raw status codes
+        # Per Alfen Modbus spec (Implementation_of_Modbus_Slave_TCPIP_for_Alfen_NG9xx_platform.pdf):
+        # C2/D2: Charging, B1/B2/C1/D1: Connected/Available, others: Disconnected/Error
+        if status_str in ("C2", "D2"):
+            raw_status = 2  # Charging
+        elif status_str in ("B1", "B2", "C1", "D1"):
+            raw_status = 1  # Connected
+        else:
+            raw_status = 0  # Disconnected
+
+        old_victron_status = self.service["/Status"]
+        connected = raw_status >= 1
+        was_disconnected = old_victron_status == 0
+        now_connected = connected
+
+        new_victron_status = raw_status
+
+        # Apply mode-specific logic for Victron status codes
+        if (
+            self.current_mode == EVC_MODE.MANUAL
+            and connected
+            and self.auto_start == 0
+            and self.start_stop == EVC_CHARGE.DISABLED
+        ):
+            new_victron_status = 6  # Wait for start
+        if self.current_mode == EVC_MODE.AUTO and connected:
+            if self.start_stop == EVC_CHARGE.DISABLED:
+                new_victron_status = 6
+            elif self.intended_set_current <= self.MIN_CHARGING_CURRENT:
+                new_victron_status = 4  # Low current
+        if self.current_mode == EVC_MODE.SCHEDULED and connected:
+            if not self._is_within_schedule(time.time()):
+                new_victron_status = 6
+
+        # Low SOC logic with hysteresis to prevent flapping
+        battery_soc_value = self._read_battery_soc()
+        if battery_soc_value is not None and not math.isnan(battery_soc_value):
+            battery_soc_value = float(battery_soc_value)
+        else:
+            battery_soc_value = None
+
+        if self.low_soc_enabled and battery_soc_value is not None:
+            if self.low_soc_active:
+                if battery_soc_value >= (
+                    self.low_soc_threshold + self.low_soc_hysteresis
+                ):
+                    self.low_soc_active = False
+            else:
+                if battery_soc_value <= self.low_soc_threshold:
+                    self.low_soc_active = True
+            if self.low_soc_active and connected:
+                new_victron_status = 7  # Low SOC pause
+
+        self.service["/Status"] = new_victron_status
+
+        # Auto-start logic: Enable charging on connection if configured
+        if (
+            now_connected
+            and was_disconnected
+            and self.auto_start == 1
+            and self.start_stop == EVC_CHARGE.DISABLED
+        ):
+            self.start_stop = EVC_CHARGE.ENABLED
+            self._persist_config_to_disk()
+            self.logger.info(
+                f"Auto-start triggered: Set StartStop to ENABLED (mode: {self.current_mode.name})"
+            )
+            target = self._compute_effective_current(time.time())
+            if self._set_current(target, force_verify=True):
+                self.last_current_set_time = time.time()
+                self.last_sent_current = target
+                self.logger.info(f"Auto-start applied current: {target:.2f} A")
+
+        # Energy and charging time calculation
+        # Uses total energy from register 374 (64-bit float, per Alfen spec)
+        energy_regs = self.read_holding_registers(
+            self.config["registers"]["energy"],
+            4,
+            self.config["modbus"]["socket_slave_id"],
+        )
+        total_energy_kwh = self.decode_64bit_float(energy_regs) / 1000.0
+
+        if new_victron_status == 2 and old_victron_status != 2:
+            self.charging_start_time = time.time()
+            self.session_start_energy_kwh = total_energy_kwh
+        elif new_victron_status != 2:
+            self.charging_start_time = 0
+            self.session_start_energy_kwh = 0
+
+        self.service["/ChargingTime"] = (
+            time.time() - self.charging_start_time
+            if self.charging_start_time > 0
+            else 0
+        )
+
+        if self.session_start_energy_kwh > 0:
+            session_energy = total_energy_kwh - self.session_start_energy_kwh
+            self.service["/Ac/Energy/Forward"] = round(session_energy, 3)
+        else:
+            self.service["/Ac/Energy/Forward"] = 0.0
+
     def _read_firmware_version(self) -> None:
-        fw_str = self._read_modbus_string(
+        """
+        Read and update firmware version from Modbus.
+
+        Updates /FirmwareVersion D-Bus path.
+        """
+        fw_str = self.read_modbus_string(
             self.config["registers"]["firmware_version"],
             self.config["registers"]["firmware_version_count"],
             self.config["modbus"]["station_slave_id"],
@@ -1231,7 +1244,12 @@ class AlfenDriver:
         self.service["/FirmwareVersion"] = fw_str
 
     def _read_station_serial(self) -> None:
-        sn_str = self._read_modbus_string(
+        """
+        Read and update station serial from Modbus.
+
+        Updates /Serial D-Bus path.
+        """
+        sn_str = self.read_modbus_string(
             self.config["registers"]["station_serial"],
             self.config["registers"]["station_serial_count"],
             self.config["modbus"]["station_slave_id"],
@@ -1239,27 +1257,173 @@ class AlfenDriver:
         self.service["/Serial"] = sn_str
 
     def _read_product_name(self) -> None:
-        mfg_str = self._read_modbus_string(
+        """
+        Read and update product name from Modbus.
+
+        Combines manufacturer and platform type for /ProductName.
+        """
+        mfg_str = self.read_modbus_string(
             self.config["registers"]["manufacturer"],
             self.config["registers"]["manufacturer_count"],
             self.config["modbus"]["station_slave_id"],
         )
-        pt_str = self._read_modbus_string(
+        pt_str = self.read_modbus_string(
             self.config["registers"]["platform_type"],
             self.config["registers"]["platform_type_count"],
             self.config["modbus"]["station_slave_id"],
         )
         self.service["/ProductName"] = f"{mfg_str} {pt_str}"
 
+    def fetch_raw_data(self) -> Dict[str, List[int]]:
+        """
+        Fetch raw register data from Modbus for AC measurements.
+
+        Returns:
+            Dictionary of raw register lists for voltages, currents, power, phases.
+
+        Raises:
+            ModbusException: If any read fails (propagated to poll).
+        """
+        return {
+            "voltages": self.read_holding_registers(
+                self.config["registers"]["voltages"],
+                6,
+                self.config["modbus"]["socket_slave_id"],
+            ),
+            "currents": self.read_holding_registers(
+                self.config["registers"]["currents"],
+                6,
+                self.config["modbus"]["socket_slave_id"],
+            ),
+            "power": self.read_holding_registers(
+                self.config["registers"]["power"],
+                2,
+                self.config["modbus"]["socket_slave_id"],
+            ),
+            "phases": self.read_holding_registers(
+                self.config["registers"]["phases"],
+                1,
+                self.config["modbus"]["socket_slave_id"],
+            ),
+        }
+
+    def process_logic(self) -> None:
+        """
+        Process business logic including status, energy, max current, and clamping.
+        """
+        self.process_status_and_energy()
+        self._update_station_max_current()
+        if self.current_mode == EVC_MODE.MANUAL:
+            self._clamp_intended_current_to_max()
+
+    def update_dbus_paths(self, raw_data: Dict[str, List[int]]) -> None:
+        """
+        Update D-Bus paths with processed data from raw registers.
+
+        Parameters:
+            raw_data: Dictionary of raw register data.
+        """
+        voltages = self.decode_floats(raw_data["voltages"], 3)
+        self.service["/Ac/L1/Voltage"] = round(voltages[0], 2)
+        self.service["/Ac/L2/Voltage"] = round(voltages[1], 2)
+        self.service["/Ac/L3/Voltage"] = round(voltages[2], 2)
+
+        currents = self.decode_floats(raw_data["currents"], 3)
+        self.service["/Ac/L1/Current"] = round(currents[0], 2)
+        self.service["/Ac/L2/Current"] = round(currents[1], 2)
+        self.service["/Ac/L3/Current"] = round(currents[2], 2)
+
+        current_a = round(max(currents), 2)
+        self.service["/Ac/Current"] = current_a
+        self.service["/Current"] = current_a
+
+        self.service["/Ac/L1/Power"] = round(voltages[0] * currents[0], 2)
+        self.service["/Ac/L2/Power"] = round(voltages[1] * currents[1], 2)
+        self.service["/Ac/L3/Power"] = round(voltages[2] * currents[2], 2)
+
+        power = self.decode_floats(raw_data["power"], 1)[0]
+        self.service["/Ac/Power"] = round(power, 2)
+
+        self.service["/Ac/PhaseCount"] = raw_data["phases"][0]
+
+    def apply_controls(self) -> None:
+        """
+        Apply control actions like setting effective current.
+        """
+        self._set_effective_current()
+
+    def poll(self) -> bool:
+        """
+        Poll the Modbus device for updates and apply logic.
+
+        Returns:
+            Always True (for GLib timeout compatibility).
+
+        Handles reconnection and sets /Connected status.
+        """
+        try:
+            if not self.client.is_socket_open():
+                if not self.reconnect():
+                    self.service["/Connected"] = 0
+                    return True
+
+            raw_data = self.fetch_raw_data()
+            self.process_logic()
+            self.update_dbus_paths(raw_data)
+            self.apply_controls()
+
+            self.service["/Connected"] = 1
+            self.logger.debug("Poll completed successfully")
+
+        except ModbusException as e:
+            self.logger.error(f"Poll error: {e}. Attempting reconnect.")
+            self.reconnect()
+            self.service["/Connected"] = 0
+        except ConnectionError as e:
+            self.logger.error(f"Connection error: {e}. Attempting reconnect.")
+            self.reconnect()
+            self.service["/Connected"] = 0
+        return True
+
     def run(self) -> None:
+        """
+        Run the main GLib loop with periodic polling.
+        """
         GLib.timeout_add(
             self.config.get("poll_interval_ms", self.POLL_INTERVAL_MS), self.poll
         )
         mainloop = GLib.MainLoop()
         mainloop.run()
 
+    def reconnect(self, retries: int = 3) -> bool:
+        """
+        Attempt to reconnect to the Modbus server with retries.
+
+        Parameters:
+            retries: Number of reconnection attempts (default 3).
+
+        Returns:
+            True if reconnected successfully, False otherwise.
+        """
+        self.client.close()
+        for attempt in range(retries):
+            self.logger.info(f"Attempting Modbus reconnect (attempt {attempt + 1})...")
+            if self.client.connect():
+                self.logger.info("Modbus connection re-established.")
+                # Re-read static info after reconnect
+                self._read_firmware_version()
+                self._read_station_serial()
+                self._read_product_name()
+                return True
+            time.sleep(self.RETRY_DELAY)
+        self.logger.error("Failed to reconnect to Modbus after retries.")
+        return False
+
 
 def main() -> None:
+    """
+    Entry point: Set up D-Bus main loop and run the driver.
+    """
     DBusGMainLoop(set_as_default=True)
     driver = AlfenDriver()
     driver.run()
