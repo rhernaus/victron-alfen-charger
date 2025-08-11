@@ -167,6 +167,7 @@ def load_config(logger: logging.Logger) -> Config:
             )
             logging_cfg = LoggingConfig(**loaded_config.get("logging", {}))
             schedules_list = loaded_config.get("schedules", [])
+            logger.debug(f"Raw schedules_list from YAML: {schedules_list}")
             if not schedules_list:
                 schedule_data = loaded_config.get("schedule", {})
                 if schedule_data:
