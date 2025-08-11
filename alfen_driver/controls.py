@@ -134,7 +134,7 @@ def set_effective_current(
             if current_mode == EVC_MODE.MANUAL:
                 log_message += f", intended: {intended_set_current:.2f}"
             log_message += f"). Calculation: {explanation}"
-            logger.debug(log_message)  # Change to debug to reduce info logs
+            logger.info(log_message)
     else:
         logger.debug(
             f"No update needed for effective current (current: {last_sent_current:.2f}A, proposed: {effective_current:.2f}A). Calculation: {explanation}"
