@@ -4,7 +4,7 @@ from typing import Any
 
 import dbus
 
-from .config import Config, ScheduleItem, parse_hhmm_to_minutes
+from .config import Config, ScheduleItem, load_config, parse_hhmm_to_minutes
 from .dbus_utils import EVC_CHARGE, EVC_MODE, get_current_ess_strategy
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
@@ -71,11 +71,22 @@ def get_excess_solar_current() -> float:
             + all_values.get("Ac/Consumption/L2/Power", 0.0)
             + all_values.get("Ac/Consumption/L3/Power", 0.0)
         )
+        # Subtract EV charger power dynamically
+        config = load_config(logging.getLogger(__name__))
+        service_name = f"com.victronenergy.evcharger.alfen_{config.device_instance}"
+        ev_obj = bus.get_object(service_name, "/")
+        ev_values = ev_obj.GetValue()
+        ev_power = (
+            ev_values.get("Ac/L1/Power", 0.0)
+            + ev_values.get("Ac/L2/Power", 0.0)
+            + ev_values.get("Ac/L3/Power", 0.0)
+        )
+        adjusted_consumption = consumption - ev_power
         battery_power = all_values.get(
             "Dc/Battery/Power", 0.0
         )  # Positive: charging, negative: discharging
         # Adjust excess: subtract battery charging (if positive) as it's using solar
-        excess = max(0.0, total_pv - consumption - max(0.0, battery_power))
+        excess = max(0.0, total_pv - adjusted_consumption - max(0.0, battery_power))
         # Calculate current for 3 phases
         current = excess / (3 * NOMINAL_VOLTAGE)
         return clamp_value(current, MIN_CURRENT, MAX_CURRENT)
