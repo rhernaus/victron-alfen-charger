@@ -55,7 +55,7 @@ def register_dbus_service(
         {"path": "/DeviceInstance", "value": device_instance},
         {"path": "/Connected", "value": 0},
         {"path": "/ProductName", "value": "Alfen EV Charger"},
-        {"path": "/ProductId", "value": 0xA142},
+        {"path": "/ProductId", "value": 0xC024},
         {"path": "/FirmwareVersion", "value": "N/A"},
         {"path": "/Serial", "value": "ALFEN-001"},
         {"path": "/Status", "value": 0},
