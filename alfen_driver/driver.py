@@ -33,8 +33,21 @@ except ImportError:  # pragma: no cover
     dbus = None
 
 
+def _persist_config(self) -> None:
+    persist_config_to_disk(
+        self.config_file_path,
+        self.current_mode,
+        self.start_stop,
+        self.auto_start,
+        self.intended_set_current,
+        self.logger,
+    )
+
+
 class AlfenDriver:
     POLL_INTERVAL_MS: int = 1000  # Default
+    IDLE_POLL_MS: int = 5000
+    ACTIVE_POLL_MS: int = 1000
 
     def __init__(self):
         """
@@ -89,6 +102,7 @@ class AlfenDriver:
         self.dbus_bus: Any | None = None
         self.dbus_soc_obj: Any | None = None
         self.station_max_current: float = self.config["defaults"]["station_max_current"]
+        self.max_current_update_counter: int = 0
         modbus_config = self.config["modbus"]
         self.client: ModbusTcpClient = ModbusTcpClient(
             host=modbus_config["ip"], port=modbus_config["port"]
@@ -135,6 +149,9 @@ class AlfenDriver:
         )
 
         self._load_static_info()
+        self._schedule_next_poll(
+            self.config.get("poll_interval_ms", self.POLL_INTERVAL_MS)
+        )
 
     def _load_static_info(self) -> None:
         self._read_firmware_version()
@@ -239,14 +256,7 @@ class AlfenDriver:
     def mode_callback(self, path: str, value: Any) -> bool:
         try:
             self.current_mode = EVC_MODE(int(value))
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
             now = time.time()
             effective_current = compute_effective_current(
                 self.current_mode,
@@ -265,14 +275,7 @@ class AlfenDriver:
                 if self.intended_set_current > self.station_max_current:
                     self.intended_set_current = self.station_max_current
                     self.service["/SetCurrent"] = round(self.intended_set_current, 1)
-                    persist_config_to_disk(
-                        self.config_file_path,
-                        self.current_mode,
-                        self.start_stop,
-                        self.auto_start,
-                        self.intended_set_current,
-                        self.logger,
-                    )
+                    self._persist_config()
                     self.logger.info(
                         f"Clamped /SetCurrent to station max: {self.intended_set_current:.1f} A "
                         f"(on MANUAL mode)"
@@ -297,14 +300,7 @@ class AlfenDriver:
     def startstop_callback(self, path: str, value: Any) -> bool:
         try:
             self.start_stop = EVC_CHARGE(int(value))
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
             if self.current_mode == EVC_MODE.MANUAL:
                 target = (
                     self.intended_set_current
@@ -344,14 +340,7 @@ class AlfenDriver:
             self.logger.info(
                 f"GUI request to set intended current to {self.intended_set_current:.2f} A"
             )
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
 
             if self.current_mode == EVC_MODE.MANUAL:
                 target = (
@@ -384,28 +373,14 @@ class AlfenDriver:
 
     def autostart_callback(self, path: str, value: Any) -> bool:
         self.auto_start = int(value)
-        persist_config_to_disk(
-            self.config_file_path,
-            self.current_mode,
-            self.start_stop,
-            self.auto_start,
-            self.intended_set_current,
-            self.logger,
-        )
+        self._persist_config()
         self.logger.info(f"AutoStart changed to {self.auto_start}")
         return True
 
     def schedule_enabled_callback(self, path: str, value: Any) -> bool:
         try:
             self.schedule_enabled = int(value)
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
             return True
         except (ValueError, TypeError):
             return False
@@ -413,14 +388,7 @@ class AlfenDriver:
     def schedule_days_callback(self, path: str, value: Any) -> bool:
         try:
             self.schedule_days_mask = int(value) & 0x7F
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
             return True
         except (ValueError, TypeError):
             return False
@@ -431,14 +399,7 @@ class AlfenDriver:
 
             _ = parse_hhmm_to_minutes(str(value))
             self.schedule_start = str(value)
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
             return True
         except (ValueError, TypeError):
             return False
@@ -449,14 +410,7 @@ class AlfenDriver:
 
             _ = parse_hhmm_to_minutes(str(value))
             self.schedule_end = str(value)
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
             return True
         except (ValueError, TypeError):
             return False
@@ -464,14 +418,7 @@ class AlfenDriver:
     def low_soc_enabled_callback(self, path: str, value: Any) -> bool:
         try:
             self.low_soc_enabled = int(value)
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
             return True
         except (ValueError, TypeError):
             return False
@@ -479,14 +426,7 @@ class AlfenDriver:
     def low_soc_threshold_callback(self, path: str, value: Any) -> bool:
         try:
             self.low_soc_threshold = float(value)
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
             return True
         except (ValueError, TypeError):
             return False
@@ -494,14 +434,7 @@ class AlfenDriver:
     def low_soc_hysteresis_callback(self, path: str, value: Any) -> bool:
         try:
             self.low_soc_hysteresis = max(0.0, float(value))
-            persist_config_to_disk(
-                self.config_file_path,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.logger,
-            )
+            self._persist_config()
             return True
         except (ValueError, TypeError):
             return False
@@ -571,34 +504,26 @@ class AlfenDriver:
                     self.station_max_current,
                     force_verify,
                 ),
-                lambda: persist_config_to_disk(
-                    self.config_file_path,
-                    self.current_mode,
-                    self.start_stop,
-                    self.auto_start,
-                    self.intended_set_current,
-                    self.logger,
-                ),
+                lambda: self._persist_config(),
                 self._read_battery_soc,
                 self.logger,
             )
         )
-        self.station_max_current = update_station_max_current(
-            self.client, self.config, self.service, self.config["defaults"], self.logger
-        )
+        if self.max_current_update_counter % 10 == 0:
+            self.station_max_current = update_station_max_current(
+                self.client,
+                self.config,
+                self.service,
+                self.config["defaults"],
+                self.logger,
+            )
+        self.max_current_update_counter += 1
         if self.current_mode == EVC_MODE.MANUAL:
             self.intended_set_current = clamp_intended_current_to_max(
                 self.intended_set_current,
                 self.station_max_current,
                 self.service,
-                lambda: persist_config_to_disk(
-                    self.config_file_path,
-                    self.current_mode,
-                    self.start_stop,
-                    self.auto_start,
-                    self.intended_set_current,
-                    self.logger,
-                ),
+                lambda: self._persist_config(),
                 self.logger,
             )
 
@@ -687,14 +612,14 @@ class AlfenDriver:
             self.logger.error(f"Connection error: {e}. Attempting reconnect.")
             reconnect(self.client, self.logger)
             self.service["/Connected"] = 0
-        return True
+        status = self.service["/Status"]
+        next_interval = self.ACTIVE_POLL_MS if status == 2 else self.IDLE_POLL_MS
+        self._schedule_next_poll(next_interval)
+        return False  # One-shot, will be rescheduled
 
     def run(self) -> None:
         """
         Run the main GLib loop with periodic polling.
         """
-        GLib.timeout_add(
-            self.config.get("poll_interval_ms", self.POLL_INTERVAL_MS), self.poll
-        )
         mainloop = GLib.MainLoop()
         mainloop.run()

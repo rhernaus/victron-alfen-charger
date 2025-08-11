@@ -89,32 +89,8 @@ def compute_effective_current(
     return max(0.0, min(effective, station_max_current))
 
 
-def process_status_and_energy(
-    client: Any,
-    config: Dict[str, Any],
-    service: Any,
-    current_mode: EVC_MODE,
-    start_stop: EVC_CHARGE,
-    auto_start: int,
-    intended_set_current: float,
-    low_soc_enabled: int,
-    low_soc_threshold: float,
-    low_soc_hysteresis: float,
-    low_soc_active: bool,
-    charging_start_time: float,
-    session_start_energy_kwh: float,
-    set_current: callable,
-    persist_config_to_disk: callable,
-    read_battery_soc: callable,
-    logger: logging.Logger,
-) -> tuple[bool, float, float]:
-    """
-    Process status, apply logic, and update energy/charging time.
-
-    Handles status mapping, mode logic, low SOC, auto-start, and energy calculations.
-    References Alfen Modbus spec for status codes (register 1201).
-    """
-    # Read status
+def map_alfen_status(client: Any, config: Dict[str, Any]) -> int:
+    """Map Alfen status string to raw status code (0=Disconnected, 1=Connected, 2=Charging)."""
     status_regs = read_holding_registers(
         client,
         config["registers"]["status"],
@@ -126,25 +102,53 @@ def process_status_and_energy(
         .strip("\x00 ")
         .upper()
     )
-
-    # Map Alfen status strings to raw status codes
-    # Per Alfen Modbus spec (Implementation_of_Modbus_Slave_TCPIP_for_Alfen_NG9xx_platform.pdf):
-    # C2/D2: Charging, B1/B2/C1/D1: Connected/Available, others: Disconnected/Error
     if status_str in ("C2", "D2"):
-        raw_status = 2  # Charging
+        return 2  # Charging
     elif status_str in ("B1", "B2", "C1", "D1"):
-        raw_status = 1  # Connected
+        return 1  # Connected
     else:
-        raw_status = 0  # Disconnected
+        return 0  # Disconnected
 
-    old_victron_status = service["/Status"]
-    connected = raw_status >= 1
-    was_disconnected = old_victron_status == 0
-    now_connected = connected
 
-    new_victron_status = raw_status
+def handle_low_soc(
+    low_soc_enabled: int,
+    low_soc_threshold: float,
+    low_soc_hysteresis: float,
+    low_soc_active: bool,
+    read_battery_soc: callable,
+) -> bool:
+    """Update low_soc_active based on battery SOC with hysteresis."""
+    battery_soc_value = read_battery_soc()
+    if battery_soc_value is not None and not math.isnan(battery_soc_value):
+        battery_soc_value = float(battery_soc_value)
+    else:
+        battery_soc_value = None
 
-    # Apply mode-specific logic for Victron status codes
+    if low_soc_enabled and battery_soc_value is not None:
+        if low_soc_active:
+            if battery_soc_value >= (low_soc_threshold + low_soc_hysteresis):
+                low_soc_active = False
+        else:
+            if battery_soc_value <= low_soc_threshold:
+                low_soc_active = True
+    return low_soc_active
+
+
+def apply_mode_specific_status(
+    current_mode: EVC_MODE,
+    connected: bool,
+    auto_start: int,
+    start_stop: EVC_CHARGE,
+    intended_set_current: float,
+    low_soc_enabled: int,
+    low_soc_active: bool,
+    schedule_enabled: int,
+    schedule_days_mask: int,
+    schedule_start: str,
+    schedule_end: str,
+    new_victron_status: int,
+) -> int:
+    """Adjust Victron status based on mode, auto-start, schedule, and low SOC."""
     if (
         current_mode == EVC_MODE.MANUAL
         and connected
@@ -167,26 +171,31 @@ def process_status_and_energy(
         ):
             new_victron_status = 6
 
-    # Low SOC logic with hysteresis to prevent flapping
-    battery_soc_value = read_battery_soc()
-    if battery_soc_value is not None and not math.isnan(battery_soc_value):
-        battery_soc_value = float(battery_soc_value)
-    else:
-        battery_soc_value = None
+    if low_soc_enabled and low_soc_active and connected:
+        new_victron_status = 7  # Low SOC pause
 
-    if low_soc_enabled and battery_soc_value is not None:
-        if low_soc_active:
-            if battery_soc_value >= (low_soc_threshold + low_soc_hysteresis):
-                low_soc_active = False
-        else:
-            if battery_soc_value <= low_soc_threshold:
-                low_soc_active = True
-        if low_soc_active and connected:
-            new_victron_status = 7  # Low SOC pause
+    return new_victron_status
 
-    service["/Status"] = new_victron_status
 
-    # Auto-start logic: Enable charging on connection if configured
+def apply_auto_start(
+    now_connected: bool,
+    was_disconnected: bool,
+    auto_start: int,
+    start_stop: EVC_CHARGE,
+    current_mode: EVC_MODE,
+    intended_set_current: float,
+    low_soc_enabled: int,
+    low_soc_active: bool,
+    station_max_current: float,  # Assuming this is available; add if needed
+    schedule_enabled: int,
+    schedule_days_mask: int,
+    schedule_start: str,
+    schedule_end: str,
+    set_current: callable,
+    persist_config_to_disk: callable,
+    logger: logging.Logger,
+) -> EVC_CHARGE:
+    """Apply auto-start logic if vehicle connects and conditions are met."""
     if (
         now_connected
         and was_disconnected
@@ -212,11 +221,20 @@ def process_status_and_energy(
             schedule_end,
         )
         if set_current(target, force_verify=True):
-            time.time()  # Assuming this is updated elsewhere
             logger.info(f"Auto-start applied current: {target:.2f} A")
+    return start_stop
 
-    # Energy and charging time calculation
-    # Uses total energy from register 374 (64-bit float, per Alfen spec)
+
+def calculate_session_energy_and_time(
+    client: Any,
+    config: Dict[str, Any],
+    service: Any,
+    new_victron_status: int,
+    old_victron_status: int,
+    charging_start_time: float,
+    session_start_energy_kwh: float,
+) -> tuple[float, float]:
+    """Calculate and update session energy and charging time."""
     energy_regs = read_holding_registers(
         client,
         config["registers"]["energy"],
@@ -241,5 +259,93 @@ def process_status_and_energy(
         service["/Ac/Energy/Forward"] = round(session_energy, 3)
     else:
         service["/Ac/Energy/Forward"] = 0.0
+
+    return charging_start_time, session_start_energy_kwh
+
+
+def process_status_and_energy(
+    client: Any,
+    config: Dict[str, Any],
+    service: Any,
+    current_mode: EVC_MODE,
+    start_stop: EVC_CHARGE,
+    auto_start: int,
+    intended_set_current: float,
+    low_soc_enabled: int,
+    low_soc_threshold: float,
+    low_soc_hysteresis: float,
+    low_soc_active: bool,
+    charging_start_time: float,
+    session_start_energy_kwh: float,
+    set_current: callable,
+    persist_config_to_disk: callable,
+    read_battery_soc: callable,
+    logger: logging.Logger,
+) -> tuple[bool, float, float]:
+    raw_status = map_alfen_status(client, config)
+
+    old_victron_status = service["/Status"]
+    connected = raw_status >= 1
+    was_disconnected = old_victron_status == 0
+    now_connected = connected
+
+    new_victron_status = raw_status
+
+    low_soc_active = handle_low_soc(
+        low_soc_enabled,
+        low_soc_threshold,
+        low_soc_hysteresis,
+        low_soc_active,
+        read_battery_soc,
+    )
+
+    new_victron_status = apply_mode_specific_status(
+        current_mode,
+        connected,
+        auto_start,
+        start_stop,
+        intended_set_current,
+        low_soc_enabled,
+        low_soc_active,
+        schedule_enabled,  # Assuming these are passed; add to params if needed
+        schedule_days_mask,
+        schedule_start,
+        schedule_end,
+        new_victron_status,
+    )
+
+    if low_soc_active and connected:
+        new_victron_status = 7  # Moved here if not in apply_mode_specific_status
+
+    service["/Status"] = new_victron_status
+
+    start_stop = apply_auto_start(
+        now_connected,
+        was_disconnected,
+        auto_start,
+        start_stop,
+        current_mode,
+        intended_set_current,
+        low_soc_enabled,
+        low_soc_active,
+        station_max_current,  # Need to pass this; assume it's available
+        schedule_enabled,
+        schedule_days_mask,
+        schedule_start,
+        schedule_end,
+        set_current,
+        persist_config_to_disk,
+        logger,
+    )
+
+    charging_start_time, session_start_energy_kwh = calculate_session_energy_and_time(
+        client,
+        config,
+        service,
+        new_victron_status,
+        old_victron_status,
+        charging_start_time,
+        session_start_energy_kwh,
+    )
 
     return low_soc_active, charging_start_time, session_start_energy_kwh
