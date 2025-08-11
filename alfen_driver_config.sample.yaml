@@ -2,7 +2,7 @@
 # Copy to alfen_driver_config.yaml and edit as needed
 
 modbus:
-  ip: "10.128.0.64" # IP address of the Alfen charger
+  ip: 10.128.0.64 # IP address of the Alfen charger
   port: 502 # Modbus TCP port (default 502)
   socket_slave_id: 1 # Slave ID for socket-related registers
   station_slave_id: 200 # Slave ID for station-related registers
@@ -32,15 +32,15 @@ defaults:
   station_max_current: 32.0 # Default max current if read fails
 
 logging:
-  level: "INFO" # Logging level (DEBUG, INFO, WARNING, ERROR)
-  file: "/var/log/alfen_driver.log" # Path to log file
+  level: INFO # Logging level (DEBUG, INFO, WARNING, ERROR)
+  file: /var/log/alfen_driver.log # Path to log file
 
 schedules:
   # Default schedule: 12:00-15:00 every day (days_mask=127 sums 1+2+4+8+16+32+64 for Sun-Sat). This is normally the cheapest hours with dynamic tariffs.
   - enabled: 1 # 1 to enable this schedule, 0 to disable
     days_mask: 127 # Bitmask for days (Sun=1, Mon=2, ..., Sat=64; sum for multiple)
-    start: "12:00" # Start time in HH:MM (24h format)
-    end: "15:00" # End time in HH:MM
+    start: 12:00 # Start time in HH:MM (24h format)
+    end: 15:00 # End time in HH:MM
 # You can add up to 2 more schedules like the above
 
 controls:
