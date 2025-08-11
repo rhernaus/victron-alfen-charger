@@ -325,7 +325,12 @@ class AlfenDriver:
                         current_phases=self.last_sent_phases,
                     )
                 )
-                if set_current(
+                ok_phases = True
+                if effective_phases != self.last_sent_phases:
+                    ok_phases = set_current(
+                        self.client, self.config, effective_phases, force_verify=True
+                    )
+                if ok_phases and set_current(
                     self.client,
                     self.config,
                     effective_current,
@@ -335,9 +340,43 @@ class AlfenDriver:
                     self.last_current_set_time = time.time()
                     self.last_sent_current = effective_current
                     self.last_sent_phases = effective_phases
-                    self.logger.info(
-                        f"Immediate StartStop change applied: {target:.2f} A (StartStop={EVC_CHARGE(self.start_stop.value).name})"
+                    log_msg = f"Immediate StartStop change applied: {effective_current:.2f} A (MANUAL)"
+                    if not math.isclose(effective_current, target, abs_tol=0.01):
+                        log_msg += f" (clamped from requested {target:.2f} A)"
+                    log_msg += f". Calculation: {explanation}"
+                    self.logger.info(log_msg)
+            else:
+                effective_current, effective_phases, explanation = (
+                    compute_effective_current(
+                        self.current_mode.value,
+                        self.start_stop.value,
+                        self.intended_set_current.value,
+                        self.station_max_current,
+                        time.time(),
+                        self.schedules,
+                        0.0,
+                        self.config.timezone,
+                        current_phases=self.last_sent_phases,
                     )
+                )
+                ok_phases = True
+                if effective_phases != self.last_sent_phases:
+                    ok_phases = set_current(
+                        self.client, self.config, effective_phases, force_verify=True
+                    )
+                if ok_phases and set_current(
+                    self.client,
+                    self.config,
+                    effective_current,
+                    self.station_max_current,
+                    force_verify=True,
+                ):
+                    self.last_current_set_time = time.time()
+                    self.last_sent_current = effective_current
+                    self.last_sent_phases = effective_phases
+                    log_msg = f"Immediate StartStop change applied: {effective_current:.2f} A (mode={EVC_MODE(self.current_mode.value).name}, StartStop={EVC_CHARGE(self.start_stop.value).name})"
+                    log_msg += f". Calculation: {explanation}"
+                    self.logger.info(log_msg)
             self.logger.info(
                 f"StartStop changed to {EVC_CHARGE(self.start_stop.value).name}"
             )
