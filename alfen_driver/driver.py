@@ -151,10 +151,6 @@ class AlfenDriver:
                 self.intended_set_current.value = float(
                     data.get("SetCurrent", self.intended_set_current.value)
                 )
-                schedules_data = data.get("Schedules", [])
-                self.schedules = [ScheduleItem(**d) for d in schedules_data]
-                while len(self.schedules) < 3:
-                    self.schedules.append(ScheduleItem())
 
         self.service = register_dbus_service(
             self.service_name,
@@ -168,7 +164,6 @@ class AlfenDriver:
             self.startstop_callback,
             self.set_current_callback,
             self.autostart_callback,
-            self.schedule_callback,
         )
 
         self._load_static_info()
@@ -237,7 +232,6 @@ class AlfenDriver:
                 "StartStop": self.start_stop.value,
                 "AutoStart": self.auto_start.value,
                 "SetCurrent": self.intended_set_current.value,
-                "Schedules": [asdict(s) for s in self.schedules],
             }
             os.makedirs(os.path.dirname(self.config_file_path), exist_ok=True)
             with open(self.config_file_path, "w", encoding="utf-8") as f:
@@ -377,34 +371,6 @@ class AlfenDriver:
         self._persist_config()
         self.logger.info(f"AutoStart changed to {self.auto_start.value}")
         return True
-
-    def schedule_callback(self, path: str, value: Any) -> bool:
-        parts = path.split("/")
-        if len(parts) != 3:
-            return False
-        if parts[1].startswith("Schedule") and parts[1][8:].isdigit():
-            index = int(parts[1][8:]) - 1
-        else:
-            return False
-        if index < 0 or index >= 3:
-            return False
-        field = parts[2]
-        try:
-            if field == "Enabled":
-                self.schedules[index].enabled = int(value)
-            elif field == "Days":
-                self.schedules[index].days_mask = int(value) & 0x7F
-            elif field == "Start" or field == "End":
-                from .config import parse_hhmm_to_minutes
-
-                _ = parse_hhmm_to_minutes(str(value))
-                setattr(self.schedules[index], field.lower(), str(value))
-            else:
-                return False
-            self._persist_config()
-            return True
-        except ValueError:
-            return False
 
     def fetch_raw_data(self) -> Dict[str, List[int]]:
         """

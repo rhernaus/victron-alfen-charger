@@ -99,34 +99,6 @@ def register_dbus_service(
             writeable=p.get("writeable", False),
             onchangecallback=p.get("callback", None),
         )
-    # Add paths for multiple schedules
-    for i in range(3):
-        prefix = f"/Schedule{i+1}"
-        item = schedules[i]
-        service.add_path(
-            prefix + "/Enabled",
-            item.enabled,
-            writeable=True,
-            onchangecallback=schedule_callback,
-        )
-        service.add_path(
-            prefix + "/Days",
-            item.days_mask,
-            writeable=True,
-            onchangecallback=schedule_callback,
-        )
-        service.add_path(
-            prefix + "/Start",
-            item.start,
-            writeable=True,
-            onchangecallback=schedule_callback,
-        )
-        service.add_path(
-            prefix + "/End",
-            item.end,
-            writeable=True,
-            onchangecallback=schedule_callback,
-        )
     service.register()
     return service
 
