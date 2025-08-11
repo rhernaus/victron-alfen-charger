@@ -3,3 +3,4 @@ pymodbus==3.6.4
 # This file covers pip-installable packages.
 
 pyyaml==6.0.1  # For YAML config parsing
+pytz
