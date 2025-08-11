@@ -132,39 +132,25 @@ def register_dbus_service(
 
 
 def get_current_ess_strategy() -> str:
+    """Determine if Victron is buying, selling (from battery), or idle based on grid and battery power."""
     try:
         bus = dbus.SystemBus()
-        settings_obj = bus.get_object(
-            "com.victronenergy.settings", "/Settings/DynamicEss"
-        )
-        all_values = settings_obj.GetValue()  # Fetch entire dict
-        now = time.time()
-        for i in range(48):  # Up to 48 slots as per user's data
-            start_key = f"Schedule/{i}/Start"
-            duration_key = f"Schedule/{i}/Duration"
-            if start_key not in all_values or duration_key not in all_values:
-                continue
-            start = all_values[start_key]
-            duration = all_values[duration_key]
-            end = start + duration
-            if start <= now < end:
-                strategy_key = f"Schedule/{i}/Strategy"
-                soc_key = f"Schedule/{i}/Soc"
-                if strategy_key not in all_values or soc_key not in all_values:
-                    continue
-                strategy = all_values[strategy_key]
-                soc_target = all_values[soc_key]
-                # Get current battery SOC from system dict
-                system_obj = bus.get_object("com.victronenergy.system", "/")
-                system_values = system_obj.GetValue()
-                current_soc = system_values.get("Dc/Battery/Soc", 0.0)
-                if strategy == 1 and soc_target > current_soc:
-                    return "buying"  # Low price, buying energy
-                elif strategy in [2, 3] and soc_target < current_soc:
-                    return "selling"  # High price, selling energy
-                else:
-                    return "neutral"
-        return "neutral"  # Default if no matching slot
+        system = bus.get_object("com.victronenergy.system", "/")
+        all_values = system.GetValue()
+        grid_l1 = all_values.get("Ac/Grid/L1/Power", 0.0)
+        grid_l2 = all_values.get("Ac/Grid/L2/Power", 0.0)
+        grid_l3 = all_values.get("Ac/Grid/L3/Power", 0.0)
+        grid_total = grid_l1 + grid_l2 + grid_l3
+        battery_power = all_values.get(
+            "Dc/Battery/Power", 0.0
+        )  # Positive: charging, negative: discharging
+        threshold = 250.0  # Watts, to avoid noise around zero
+        if grid_total > threshold:
+            return "buying"
+        elif grid_total < -threshold and battery_power < -threshold:
+            return "selling"
+        else:
+            return "idle"
     except Exception as e:
-        logging.error(f"Error reading ESS DBus: {e}")
-        return "neutral"
+        logging.error(f"Error getting grid strategy: {e}")
+        return "idle"
