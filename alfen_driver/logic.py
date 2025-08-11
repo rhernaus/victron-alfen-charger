@@ -81,8 +81,8 @@ def is_within_any_schedule(
 
 
 def get_excess_solar_current(
-    ev_power: float = 0.0, station_max: float = float("inf")
-) -> tuple[float, str]:
+    ev_power: float = 0.0, station_max: float = float("inf"), current_phases: int = 3
+) -> tuple[float, int, str]:
     global _config
     try:
         bus = dbus.SystemBus()
@@ -106,8 +106,28 @@ def get_excess_solar_current(
         excess = max(0.0, total_pv - adjusted_consumption - max(0.0, battery_power))
         # Calculate current for 3 phases
         current = excess / (3 * NOMINAL_VOLTAGE)
-        clamped_current = min(current, station_max)
+        min_power_1 = MIN_CURRENT * NOMINAL_VOLTAGE
+        min_power_3 = MIN_CURRENT * 3 * NOMINAL_VOLTAGE
+        hysteresis = 500.0
+        new_phases = current_phases
+        current = 0.0
         clamp_reason = ""
+        if current_phases == 3:
+            if excess < min_power_3 - hysteresis:
+                if excess >= min_power_1:
+                    new_phases = 1
+                    current = excess / NOMINAL_VOLTAGE
+                else:
+                    current = 0.0
+            else:
+                current = excess / (3 * NOMINAL_VOLTAGE)
+        elif current_phases == 1:
+            if excess >= min_power_3 + hysteresis:
+                new_phases = 3
+                current = excess / (3 * NOMINAL_VOLTAGE)
+            else:
+                current = excess / NOMINAL_VOLTAGE
+        clamped_current = min(current, station_max)
         if clamped_current < MIN_CURRENT and clamped_current > 0:
             clamped_current = 0.0
             clamp_reason = f" (below min {MIN_CURRENT}A, set to 0)"
@@ -116,12 +136,12 @@ def get_excess_solar_current(
             f"adjusted_consumption={adjusted_consumption:.2f}W (consumption={consumption:.2f}W - ev_power={ev_power:.2f}W), "
             f"battery_charging={max(0.0, battery_power):.2f}W, "
             f"excess={excess:.2f}W, "
-            f"raw_current={current:.2f}A{clamp_reason} -> {clamped_current:.2f}A"
+            f"raw_current={current:.2f}A{clamp_reason} -> {clamped_current:.2f}A, phases={new_phases}"
         )
-        return clamped_current, explanation
+        return clamped_current, new_phases, explanation
     except Exception as e:
         logging.error(f"Error calculating excess solar: {e}")
-        return 0.0, f"Error: {str(e)}"
+        return 0.0, 3, f"Error: {str(e)}"
 
 
 def compute_effective_current(
@@ -133,7 +153,8 @@ def compute_effective_current(
     schedules: list[ScheduleItem],
     ev_power: float = 0.0,  # New parameter
     timezone: str = "UTC",
-) -> tuple[float, str]:
+    current_phases: int = 3,
+) -> tuple[float, int, str]:
     effective = 0.0
     explanation = ""
     if current_mode == EVC_MODE.MANUAL:
@@ -148,6 +169,7 @@ def compute_effective_current(
         if start_stop == EVC_CHARGE.DISABLED:
             effective = 0.0
             explanation = "Auto mode disabled by start_stop"
+            return effective, current_phases, explanation
         else:
             strategy = get_current_ess_strategy()
             if strategy == "buying":
@@ -159,8 +181,8 @@ def compute_effective_current(
                 effective = 0.0
                 explanation = "Auto mode selling strategy, disabled"
             else:
-                effective, excess_exp = get_excess_solar_current(
-                    ev_power, station_max_current
+                effective, effective_phases, excess_exp = get_excess_solar_current(
+                    ev_power, station_max_current, current_phases
                 )
                 explanation = f"Auto mode excess solar: {excess_exp}"
     elif current_mode == EVC_MODE.SCHEDULED:
@@ -183,7 +205,7 @@ def compute_effective_current(
     clamped_effective = max(0.0, min(effective, station_max_current))
     if not math.isclose(clamped_effective, effective, abs_tol=0.01):
         explanation += f" (clamped from {effective:.2f}A to {clamped_effective:.2f}A)"
-    return clamped_effective, explanation
+    return clamped_effective, 3, explanation  # for non-AUTO
 
 
 def map_alfen_status(client: Any, config: Config) -> int:
@@ -263,7 +285,7 @@ def apply_auto_start(
         logger.debug(
             f"Auto-start triggered: Set StartStop to ENABLED (mode: {EVC_MODE(current_mode).name})"
         )
-        target, explanation = compute_effective_current(
+        target, _, explanation = compute_effective_current(
             current_mode,
             start_stop,
             intended_set_current,
@@ -272,6 +294,7 @@ def apply_auto_start(
             schedules,
             0.0,  # Default ev_power
             timezone,
+            3,  # current_phases
         )
         if set_current(target, force_verify=True):
             logger.debug(
@@ -372,7 +395,7 @@ def process_status_and_energy(
         timezone,
     )
 
-    target, explanation = compute_effective_current(
+    target, _, explanation = compute_effective_current(
         current_mode,
         start_stop,
         intended_set_current,
@@ -381,6 +404,7 @@ def process_status_and_energy(
         schedules,
         0.0,  # Default ev_power
         timezone,
+        3,  # current_phases
     )
     if set_current(target, force_verify=True):
         logger.debug(

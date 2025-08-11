@@ -81,12 +81,23 @@ class AlfenDriver:
             self.config.defaults.intended_set_current
         )
         self.last_sent_current = -1.0
+        self.last_sent_phases = 3
         self.just_connected = False
         self.schedules = self.config.schedule.items
         self.station_max_current = self.config.defaults.station_max_current
         self.max_current_update_counter = 0
         modbus_config = self.config.modbus
         self.client = ModbusTcpClient(host=modbus_config.ip, port=modbus_config.port)
+        try:
+            reg = self.client.read_holding_registers(
+                self.config.registers.phases,
+                1,
+                slave=self.config.modbus.socket_slave_id,
+            )
+            if not reg.isError():
+                self.last_sent_phases = reg.registers[0]
+        except:
+            pass
         device_instance = self.config.device_instance
         self.service_name = f"com.victronenergy.evcharger.alfen_{device_instance}"
         self.config_file_path = f"/data/evcharger_alfen_{device_instance}.json"
@@ -256,14 +267,17 @@ class AlfenDriver:
             self._persist_config()
             now = time.time()
             if self.current_mode.value == EVC_MODE.MANUAL.value:
-                effective_current, explanation = compute_effective_current(
-                    self.current_mode.value,
-                    self.start_stop.value,
-                    self.intended_set_current.value,
-                    self.station_max_current,
-                    now,
-                    self.schedules,
-                    self.config.timezone,
+                effective_current, effective_phases, explanation = (
+                    compute_effective_current(
+                        self.current_mode.value,
+                        self.start_stop.value,
+                        self.intended_set_current.value,
+                        self.station_max_current,
+                        now,
+                        self.schedules,
+                        self.config.timezone,
+                        current_phases=self.last_sent_phases,
+                    )
                 )
                 if set_current(
                     self.client,
@@ -274,6 +288,7 @@ class AlfenDriver:
                 ):
                     self.last_current_set_time = now
                     self.last_sent_current = effective_current
+                    self.last_sent_phases = effective_phases
                     self.logger.info(
                         f"Immediate Mode change applied current: {effective_current:.2f} A (mode={EVC_MODE(self.current_mode.value).name}). Calculation: {explanation}"
                     )
@@ -298,15 +313,28 @@ class AlfenDriver:
                     if self.start_stop.value == EVC_CHARGE.ENABLED.value
                     else 0.0
                 )
+                effective_current, effective_phases, explanation = (
+                    compute_effective_current(
+                        self.current_mode.value,
+                        self.start_stop.value,
+                        self.intended_set_current.value,
+                        self.station_max_current,
+                        time.time(),
+                        self.schedules,
+                        self.config.timezone,
+                        current_phases=self.last_sent_phases,
+                    )
+                )
                 if set_current(
                     self.client,
                     self.config,
-                    target,
+                    effective_current,
                     self.station_max_current,
                     force_verify=True,
                 ):
                     self.last_current_set_time = time.time()
-                    self.last_sent_current = target
+                    self.last_sent_current = effective_current
+                    self.last_sent_phases = effective_phases
                     self.logger.info(
                         f"Immediate StartStop change applied: {target:.2f} A (StartStop={EVC_CHARGE(self.start_stop.value).name})"
                     )
@@ -337,14 +365,17 @@ class AlfenDriver:
             self._persist_config()
 
             if self.current_mode.value == EVC_MODE.MANUAL.value:
-                effective_current, explanation = compute_effective_current(
-                    self.current_mode.value,
-                    self.start_stop.value,
-                    self.intended_set_current.value,
-                    self.station_max_current,
-                    time.time(),
-                    self.schedules,
-                    self.config.timezone,
+                effective_current, effective_phases, explanation = (
+                    compute_effective_current(
+                        self.current_mode.value,
+                        self.start_stop.value,
+                        self.intended_set_current.value,
+                        self.station_max_current,
+                        time.time(),
+                        self.schedules,
+                        self.config.timezone,
+                        current_phases=self.last_sent_phases,
+                    )
                 )
                 if set_current(
                     self.client,
@@ -355,6 +386,7 @@ class AlfenDriver:
                 ):
                     self.last_current_set_time = time.time()
                     self.last_sent_current = effective_current
+                    self.last_sent_phases = effective_phases
                     log_msg = f"Immediate SetCurrent applied: {effective_current:.2f} A (MANUAL)"
                     if not math.isclose(effective_current, requested, abs_tol=0.01):
                         log_msg += f" (clamped from requested {requested:.2f} A)"
@@ -501,20 +533,23 @@ class AlfenDriver:
             + self.service["/Ac/L2/Power"]
             + self.service["/Ac/L3/Power"]
         )
-        self.last_sent_current, self.last_current_set_time = set_effective_current(
-            self.client,
-            self.config,
-            self.current_mode.value,
-            self.start_stop.value,
-            self.intended_set_current.value,
-            self.station_max_current,
-            self.last_sent_current,
-            self.last_current_set_time,
-            self.schedules,
-            self.logger,
-            ev_power,  # Pass local ev_power
-            force=self.just_connected,
-            timezone=self.config.timezone,
+        self.last_sent_current, self.last_current_set_time, self.last_sent_phases = (
+            set_effective_current(
+                self.client,
+                self.config,
+                self.current_mode.value,
+                self.start_stop.value,
+                self.intended_set_current.value,
+                self.station_max_current,
+                self.last_sent_current,
+                self.last_current_set_time,
+                self.schedules,
+                self.logger,
+                ev_power,  # Pass local ev_power
+                force=self.just_connected,
+                timezone=self.config.timezone,
+                last_sent_phases=self.last_sent_phases,
+            )
         )
 
     def poll(self) -> bool:
