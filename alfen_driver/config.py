@@ -149,7 +149,6 @@ def load_config(logger: logging.Logger) -> Config:
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 loaded_config = yaml.safe_load(f)
-                logger.info(f"Full parsed YAML config: {loaded_config}")
             if not isinstance(loaded_config, dict):
                 raise ValueError("Config must be a dictionary")
             # Create instances
