@@ -75,30 +75,43 @@ def get_excess_solar_current() -> float:
             + all_values.get("Ac/Consumption/L2/Power", 0.0)
             + all_values.get("Ac/Consumption/L3/Power", 0.0)
         )
-        # Subtract EV charger power dynamically
+        # Subtract EV charger power dynamically with retry
         if _config is None:
             _config = load_config(logging.getLogger(__name__))
         service_name = f"com.victronenergy.evcharger.alfen_{_config.device_instance}"
         # Check if service exists to avoid NoReply during startup
         dbus_obj = bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus")
-        if not dbus_obj.NameHasOwner(service_name):
-            logging.warning(f"Service {service_name} not ready, assuming 0 EV power")
-            ev_power = 0.0
-        else:
-            try:
-                ev_obj = bus.get_object(service_name, "/")
-                ev_values = ev_obj.GetValue()
-                ev_power = (
-                    ev_values.get("Ac/L1/Power", 0.0)
-                    + ev_values.get("Ac/L2/Power", 0.0)
-                    + ev_values.get("Ac/L3/Power", 0.0)
+        retries = 3
+        for attempt in range(retries):
+            if not dbus_obj.NameHasOwner(service_name):
+                if attempt < retries - 1:
+                    time.sleep(1)  # Wait and retry
+                    continue
+                logging.warning(
+                    f"Service {service_name} not ready after retries, assuming 0 EV power"
                 )
-            except DBusException as e:
-                if "NoReply" in str(e):
-                    logging.warning("DBus NoReply for EV service, assuming 0 power")
-                    ev_power = 0.0
-                else:
-                    raise
+                ev_power = 0.0
+                break
+            else:
+                try:
+                    ev_obj = bus.get_object(service_name, "/")
+                    ev_values = ev_obj.GetValue()
+                    ev_power = (
+                        ev_values.get("Ac/L1/Power", 0.0)
+                        + ev_values.get("Ac/L2/Power", 0.0)
+                        + ev_values.get("Ac/L3/Power", 0.0)
+                    )
+                    break
+                except DBusException as e:
+                    if "NoReply" in str(e) or "Introspect" in str(e):
+                        if attempt < retries - 1:
+                            logging.debug(f"Retry {attempt+1} for DBus error: {e}")
+                            time.sleep(1)
+                            continue
+                        logging.warning("DBus error after retries, assuming 0 power")
+                        ev_power = 0.0
+                    else:
+                        raise
         adjusted_consumption = consumption - ev_power
         battery_power = all_values.get(
             "Dc/Battery/Power", 0.0
