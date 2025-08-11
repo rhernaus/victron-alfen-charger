@@ -1,13 +1,13 @@
 import logging
 import math
 import time
-from typing import Any, Dict
+from typing import Any
 
 from pymodbus.constants import Endian
 from pymodbus.exceptions import ModbusException
 from pymodbus.payload import BinaryPayloadBuilder, BinaryPayloadDecoder
 
-from .config import ScheduleItem
+from .config import Config, DefaultsConfig, ScheduleItem
 from .logic import compute_effective_current
 from .modbus_utils import decode_floats, read_holding_registers, retry_modbus_operation
 
@@ -18,7 +18,7 @@ def clamp_value(value: float, min_val: float, max_val: float) -> float:
 
 def set_current(
     client: Any,
-    config: dict,
+    config: Config,
     target_amps: float,
     station_max_current: float,
     force_verify: bool = False,
@@ -43,17 +43,17 @@ def set_current(
         builder.add_32bit_float(float(target_amps))
         payload = builder.to_registers()
         client.write_registers(
-            config["registers"]["amps_config"],
+            config.registers.amps_config,
             payload,
-            slave=config["modbus"]["socket_slave_id"],
+            slave=config.modbus.socket_slave_id,
         )
         if force_verify:
             time.sleep(config.controls.verification_delay)
             regs = read_holding_registers(
                 client,
-                config["registers"]["amps_config"],
+                config.registers.amps_config,
                 2,
-                config["modbus"]["socket_slave_id"],
+                config.modbus.socket_slave_id,
             )
             if len(regs) == 2:
                 dec = BinaryPayloadDecoder.fromRegisters(
@@ -160,9 +160,9 @@ def clamp_intended_current_to_max(
 
 def update_station_max_current(
     client: Any,
-    config: Dict[str, Any],
+    config: Config,
     service: Any,
-    defaults: Dict[str, Any],
+    defaults: DefaultsConfig,
     logger: logging.Logger,
 ) -> float:
     """
@@ -176,9 +176,9 @@ def update_station_max_current(
 
     def read_op():
         rr_max_c = client.read_holding_registers(
-            config["registers"]["station_max_current"],
+            config.registers.station_max_current,
             2,
-            slave=config["modbus"]["station_slave_id"],
+            slave=config.modbus.station_slave_id,
         )
         if not rr_max_c.isError():
             max_current = decode_floats(rr_max_c.registers, 1)[0]
@@ -199,6 +199,6 @@ def update_station_max_current(
         logger.warning(
             "Failed to read station max current after retries. Using fallback."
         )
-        station_max_current = defaults["station_max_current"]
+        station_max_current = defaults.station_max_current
         service["/MaxCurrent"] = round(station_max_current, 1)
         return station_max_current

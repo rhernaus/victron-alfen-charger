@@ -84,13 +84,13 @@ def compute_effective_current(
     return max(0.0, min(effective, station_max_current))
 
 
-def map_alfen_status(client: Any, config: Dict[str, Any]) -> int:
+def map_alfen_status(client: Any, config: Config) -> int:
     """Map Alfen status string to raw status code (0=Disconnected, 1=Connected, 2=Charging)."""
     status_regs = read_holding_registers(
         client,
-        config["registers"]["status"],
+        config.registers.status,
         5,
-        config["modbus"]["socket_slave_id"],
+        config.modbus.socket_slave_id,
     )
     status_str = (
         "".join([chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in status_regs])
@@ -207,7 +207,7 @@ def apply_auto_start(
 
 def calculate_session_energy_and_time(
     client: Any,
-    config: Dict[str, Any],
+    config: Config,
     service: Any,
     new_victron_status: int,
     old_victron_status: int,
@@ -217,9 +217,9 @@ def calculate_session_energy_and_time(
     """Calculate and update session energy and charging time."""
     energy_regs = read_holding_registers(
         client,
-        config["registers"]["energy"],
+        config.registers.energy,
         4,
-        config["modbus"]["socket_slave_id"],
+        config.modbus.socket_slave_id,
     )
     total_energy_kwh = decode_64bit_float(energy_regs) / 1000.0
 
