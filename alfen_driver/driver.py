@@ -153,6 +153,9 @@ class AlfenDriver:
             self.config.get("poll_interval_ms", self.POLL_INTERVAL_MS)
         )
 
+    def _schedule_next_poll(self, interval: int) -> None:
+        GLib.timeout_add(interval, self.poll)
+
     def _load_static_info(self) -> None:
         self._read_firmware_version()
         self._read_station_serial()
