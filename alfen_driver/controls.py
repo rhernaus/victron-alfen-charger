@@ -12,6 +12,8 @@ from .dbus_utils import EVC_MODE
 from .logic import compute_effective_current
 from .modbus_utils import decode_floats, read_holding_registers, retry_modbus_operation
 
+CLAMP_EPSILON = 0.01  # Tolerance for clamping comparison
+
 
 def clamp_value(value: float, min_val: float, max_val: float) -> float:
     return max(min_val, min(value, max_val))
@@ -132,7 +134,11 @@ def set_effective_current(
             if current_mode == EVC_MODE.MANUAL:
                 log_message += f", intended: {intended_set_current:.2f}"
             log_message += f"). Calculation: {explanation}"
-            logger.info(log_message)
+            logger.debug(log_message)  # Change to debug to reduce info logs
+    else:
+        logger.debug(
+            f"No update needed for effective current (current: {last_sent_current:.2f}A, proposed: {effective_current:.2f}A). Calculation: {explanation}"
+        )
     return last_sent_current, last_current_set_time
 
 
