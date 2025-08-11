@@ -5,6 +5,7 @@ import os
 from typing import Any, Dict, Optional
 
 import dbus
+import yaml
 
 
 @dataclasses.dataclass
@@ -139,7 +140,7 @@ DEFAULT_CONFIG = Config(
 )
 
 CONFIG_PATH: str = os.path.join(
-    os.path.dirname(__file__), "../alfen_driver_config.json"
+    os.path.dirname(__file__), "../alfen_driver_config.yaml"
 )
 
 
@@ -155,7 +156,7 @@ def load_config(logger: logging.Logger) -> Config:
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                loaded_config = json.load(f)
+                loaded_config = yaml.safe_load(f)
             if not isinstance(loaded_config, dict):
                 raise ValueError("Config must be a dictionary")
             # Create instances

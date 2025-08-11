@@ -17,7 +17,6 @@ from pymodbus.exceptions import ModbusException
 
 from .config import Config, load_config, load_initial_config, persist_config_to_disk
 from .controls import (
-    MAX_SET_CURRENT,
     clamp_intended_current_to_max,
     set_current,
     set_effective_current,

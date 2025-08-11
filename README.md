@@ -19,7 +19,7 @@ This project provides a Python script to integrate an Alfen Eve Pro Line EV char
   - dbus_utils.py: D-Bus service registration and enums.
   - logic.py: Business logic for modes, scheduling, low SOC, etc.
   - modbus_utils.py: Utilities for Modbus reads, decoding, and reconnections.
-- **alfen_driver_config.json**: Configuration file for Modbus settings, registers, defaults, etc.
+- **alfen_driver_config.yaml**: Configuration file for Modbus settings, registers, defaults, etc. (copy from sample and edit)
 - **requirements.txt**: List of pip dependencies.
 - **test_modbus.py**: Test script for local Modbus verification.
 
@@ -32,20 +32,29 @@ git clone https://github.com/yourusername/victron-alfen-charger.git
 cd victron-alfen-charger
 ```
 
-2. Create and activate a virtual environment:
+2. Copy and configure the sample config:
+
+```bash
+cp alfen_driver_config.sample.yaml alfen_driver_config.yaml
+# Edit alfen_driver_config.yaml with your text editor (e.g., nano alfen_driver_config.yaml)
+# Update at least the modbus.ip to your charger's IP. Review other fields as needed.
+# The sample file includes comments explaining each option. YAML format allows inline comments for better readability.
+```
+
+3. Create and activate a virtual environment:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-3. Install dependencies:
+4. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Update `ALFEN_IP` in the scripts to match your charger's IP address.
+5. Update `ALFEN_IP` in the scripts to match your charger's IP address.
 
 ## Usage
 
