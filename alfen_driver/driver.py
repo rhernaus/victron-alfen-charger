@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -18,12 +19,7 @@ from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
 from .config import Config, ScheduleItem, load_config, load_config_from_disk
-from .controls import (
-    clamp_intended_current_to_max,
-    set_current,
-    set_effective_current,
-    update_station_max_current,
-)
+from .controls import set_current, set_effective_current, update_station_max_current
 from .dbus_utils import EVC_CHARGE, EVC_MODE, register_dbus_service
 from .logic import compute_effective_current, process_status_and_energy
 from .modbus_utils import read_modbus_string, reconnect
