@@ -97,6 +97,18 @@ class AlfenDriver:
     def __init__(self):
         """Initialize the AlfenDriver with default values and setup."""
         self.config: Dict[str, Any] = self._load_config()
+
+        # Set up logging after config is loaded
+        logging.basicConfig(
+            level=self.config["logging"]["level"],
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[
+                logging.FileHandler(self.config["logging"]["file"]),
+                logging.StreamHandler(sys.stdout),
+            ],
+        )
+        self.logger: logging.Logger = logging.getLogger("alfen_driver")
+
         self.charging_start_time: float = 0
         self.last_current_set_time: float = 0
         self.session_start_energy_kwh: float = 0
@@ -126,7 +138,6 @@ class AlfenDriver:
         device_instance = self.config["device_instance"]
         self.service_name: str = f"com.victronenergy.evcharger.alfen_{device_instance}"
         self.service: VeDbusService = VeDbusService(self.service_name, register=False)
-        self.logger: logging.Logger = logging.getLogger("alfen_driver")
         self.config_file_path: str = f"/data/evcharger_alfen_{device_instance}.json"
 
         self._load_initial_config()
@@ -1238,14 +1249,6 @@ class AlfenDriver:
 
 def main() -> None:
     DBusGMainLoop(set_as_default=True)
-    logging.basicConfig(
-        level=self.config["logging"]["level"],
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler(self.config["logging"]["file"]),
-            logging.StreamHandler(sys.stdout),
-        ],
-    )
     driver = AlfenDriver()
     driver.run()
 
