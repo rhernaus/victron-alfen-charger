@@ -1,0 +1,245 @@
+import logging
+import math
+import time
+from typing import Any, Dict
+
+from .config import parse_hhmm_to_minutes
+from .dbus_utils import EVC_CHARGE, EVC_MODE
+from .modbus_utils import decode_64bit_float, read_holding_registers
+
+MIN_CHARGING_CURRENT: float = 0.1
+
+
+def is_within_schedule(
+    schedule_enabled: int,
+    schedule_days_mask: int,
+    schedule_start: str,
+    schedule_end: str,
+    now: float,
+) -> bool:
+    """
+    Check if current time is within the scheduled window.
+
+    Parameters:
+        now: Current time in seconds since epoch.
+
+    Returns:
+        True if within schedule, False otherwise.
+
+    Uses local time, day mask, and start/end times.
+    """
+    if schedule_enabled == 0:
+        return False
+    tm = time.localtime(now)
+    weekday = tm.tm_wday  # Mon=0..Sun=6
+    sun_based_index = (weekday + 1) % 7
+    if (schedule_days_mask & (1 << sun_based_index)) == 0:
+        return False
+    minutes_now = tm.tm_hour * 60 + tm.tm_min
+    start_min = parse_hhmm_to_minutes(schedule_start)
+    end_min = parse_hhmm_to_minutes(schedule_end)
+    if start_min == end_min:
+        return False
+    if start_min < end_min:
+        return start_min <= minutes_now < end_min
+    return minutes_now >= start_min or minutes_now < end_min
+
+
+def compute_effective_current(
+    current_mode: EVC_MODE,
+    start_stop: EVC_CHARGE,
+    intended_set_current: float,
+    low_soc_enabled: int,
+    low_soc_active: bool,
+    station_max_current: float,
+    now: float,
+    schedule_enabled: int,
+    schedule_days_mask: int,
+    schedule_start: str,
+    schedule_end: str,
+) -> float:
+    """
+    Calculate the effective charging current based on mode, schedule, and low SoC conditions.
+
+    Parameters:
+        now: Current time in seconds since epoch.
+
+    Returns:
+        The computed effective current (clamped to 0 - station_max_current).
+    """
+    effective = 0.0
+    if current_mode == EVC_MODE.MANUAL:
+        effective = intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+    elif current_mode == EVC_MODE.AUTO:
+        effective = intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+    elif current_mode == EVC_MODE.SCHEDULED:
+        effective = (
+            intended_set_current
+            if is_within_schedule(
+                schedule_enabled, schedule_days_mask, schedule_start, schedule_end, now
+            )
+            else 0.0
+        )
+    if (
+        low_soc_enabled
+        and low_soc_active
+        and current_mode in (EVC_MODE.AUTO, EVC_MODE.SCHEDULED)
+    ):
+        effective = 0.0
+    return max(0.0, min(effective, station_max_current))
+
+
+def process_status_and_energy(
+    client: Any,
+    config: Dict[str, Any],
+    service: Any,
+    current_mode: EVC_MODE,
+    start_stop: EVC_CHARGE,
+    auto_start: int,
+    intended_set_current: float,
+    low_soc_enabled: int,
+    low_soc_threshold: float,
+    low_soc_hysteresis: float,
+    low_soc_active: bool,
+    charging_start_time: float,
+    session_start_energy_kwh: float,
+    set_current: callable,
+    persist_config_to_disk: callable,
+    read_battery_soc: callable,
+    logger: logging.Logger,
+) -> tuple[bool, float, float]:
+    """
+    Process status, apply logic, and update energy/charging time.
+
+    Handles status mapping, mode logic, low SOC, auto-start, and energy calculations.
+    References Alfen Modbus spec for status codes (register 1201).
+    """
+    # Read status
+    status_regs = read_holding_registers(
+        client,
+        config["registers"]["status"],
+        5,
+        config["modbus"]["socket_slave_id"],
+    )
+    status_str = (
+        "".join([chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in status_regs])
+        .strip("\x00 ")
+        .upper()
+    )
+
+    # Map Alfen status strings to raw status codes
+    # Per Alfen Modbus spec (Implementation_of_Modbus_Slave_TCPIP_for_Alfen_NG9xx_platform.pdf):
+    # C2/D2: Charging, B1/B2/C1/D1: Connected/Available, others: Disconnected/Error
+    if status_str in ("C2", "D2"):
+        raw_status = 2  # Charging
+    elif status_str in ("B1", "B2", "C1", "D1"):
+        raw_status = 1  # Connected
+    else:
+        raw_status = 0  # Disconnected
+
+    old_victron_status = service["/Status"]
+    connected = raw_status >= 1
+    was_disconnected = old_victron_status == 0
+    now_connected = connected
+
+    new_victron_status = raw_status
+
+    # Apply mode-specific logic for Victron status codes
+    if (
+        current_mode == EVC_MODE.MANUAL
+        and connected
+        and auto_start == 0
+        and start_stop == EVC_CHARGE.DISABLED
+    ):
+        new_victron_status = 6  # Wait for start
+    if current_mode == EVC_MODE.AUTO and connected:
+        if start_stop == EVC_CHARGE.DISABLED:
+            new_victron_status = 6
+        elif intended_set_current <= MIN_CHARGING_CURRENT:
+            new_victron_status = 4  # Low current
+    if current_mode == EVC_MODE.SCHEDULED and connected:
+        if not is_within_schedule(
+            schedule_enabled,
+            schedule_days_mask,
+            schedule_start,
+            schedule_end,
+            time.time(),
+        ):
+            new_victron_status = 6
+
+    # Low SOC logic with hysteresis to prevent flapping
+    battery_soc_value = read_battery_soc()
+    if battery_soc_value is not None and not math.isnan(battery_soc_value):
+        battery_soc_value = float(battery_soc_value)
+    else:
+        battery_soc_value = None
+
+    if low_soc_enabled and battery_soc_value is not None:
+        if low_soc_active:
+            if battery_soc_value >= (low_soc_threshold + low_soc_hysteresis):
+                low_soc_active = False
+        else:
+            if battery_soc_value <= low_soc_threshold:
+                low_soc_active = True
+        if low_soc_active and connected:
+            new_victron_status = 7  # Low SOC pause
+
+    service["/Status"] = new_victron_status
+
+    # Auto-start logic: Enable charging on connection if configured
+    if (
+        now_connected
+        and was_disconnected
+        and auto_start == 1
+        and start_stop == EVC_CHARGE.DISABLED
+    ):
+        start_stop = EVC_CHARGE.ENABLED
+        persist_config_to_disk()
+        logger.info(
+            f"Auto-start triggered: Set StartStop to ENABLED (mode: {current_mode.name})"
+        )
+        target = compute_effective_current(
+            current_mode,
+            start_stop,
+            intended_set_current,
+            low_soc_enabled,
+            low_soc_active,
+            station_max_current,
+            time.time(),
+            schedule_enabled,
+            schedule_days_mask,
+            schedule_start,
+            schedule_end,
+        )
+        if set_current(target, force_verify=True):
+            time.time()  # Assuming this is updated elsewhere
+            logger.info(f"Auto-start applied current: {target:.2f} A")
+
+    # Energy and charging time calculation
+    # Uses total energy from register 374 (64-bit float, per Alfen spec)
+    energy_regs = read_holding_registers(
+        client,
+        config["registers"]["energy"],
+        4,
+        config["modbus"]["socket_slave_id"],
+    )
+    total_energy_kwh = decode_64bit_float(energy_regs) / 1000.0
+
+    if new_victron_status == 2 and old_victron_status != 2:
+        charging_start_time = time.time()
+        session_start_energy_kwh = total_energy_kwh
+    elif new_victron_status != 2:
+        charging_start_time = 0
+        session_start_energy_kwh = 0
+
+    service["/ChargingTime"] = (
+        time.time() - charging_start_time if charging_start_time > 0 else 0
+    )
+
+    if session_start_energy_kwh > 0:
+        session_energy = total_energy_kwh - session_start_energy_kwh
+        service["/Ac/Energy/Forward"] = round(session_energy, 3)
+    else:
+        service["/Ac/Energy/Forward"] = 0.0
+
+    return low_soc_active, charging_start_time, session_start_energy_kwh
