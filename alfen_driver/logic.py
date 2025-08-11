@@ -15,6 +15,8 @@ NOMINAL_VOLTAGE = 230.0  # Configurable if needed
 MIN_CURRENT = 6.0
 MAX_CURRENT = 16.0  # Example, make configurable
 
+_config = None  # Module-level cache
+
 
 def clamp_value(value: float, min_val: float, max_val: float) -> float:
     return max(min_val, min(value, max_val))
@@ -58,6 +60,7 @@ def is_within_any_schedule(
 
 
 def get_excess_solar_current() -> float:
+    global _config
     try:
         bus = dbus.SystemBus()
         system = bus.get_object("com.victronenergy.system", "/")
@@ -73,24 +76,29 @@ def get_excess_solar_current() -> float:
             + all_values.get("Ac/Consumption/L3/Power", 0.0)
         )
         # Subtract EV charger power dynamically
-        config = load_config(logging.getLogger(__name__))
-        service_name = f"com.victronenergy.evcharger.alfen_{config.device_instance}"
-        try:
-            ev_obj = bus.get_object(service_name, "/")
-            ev_values = ev_obj.GetValue()
-            ev_power = (
-                ev_values.get("Ac/L1/Power", 0.0)
-                + ev_values.get("Ac/L2/Power", 0.0)
-                + ev_values.get("Ac/L3/Power", 0.0)
-            )
-        except DBusException as e:
-            if "NoReply" in str(e):
-                logging.warning(
-                    "DBus NoReply for EV service during startup, assuming 0 power"
+        if _config is None:
+            _config = load_config(logging.getLogger(__name__))
+        service_name = f"com.victronenergy.evcharger.alfen_{_config.device_instance}"
+        # Check if service exists to avoid NoReply during startup
+        dbus_obj = bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus")
+        if not dbus_obj.NameHasOwner(service_name):
+            logging.warning(f"Service {service_name} not ready, assuming 0 EV power")
+            ev_power = 0.0
+        else:
+            try:
+                ev_obj = bus.get_object(service_name, "/")
+                ev_values = ev_obj.GetValue()
+                ev_power = (
+                    ev_values.get("Ac/L1/Power", 0.0)
+                    + ev_values.get("Ac/L2/Power", 0.0)
+                    + ev_values.get("Ac/L3/Power", 0.0)
                 )
-                ev_power = 0.0
-            else:
-                raise
+            except DBusException as e:
+                if "NoReply" in str(e):
+                    logging.warning("DBus NoReply for EV service, assuming 0 power")
+                    ev_power = 0.0
+                else:
+                    raise
         adjusted_consumption = consumption - ev_power
         battery_power = all_values.get(
             "Dc/Battery/Power", 0.0
