@@ -154,7 +154,17 @@ def load_config(logger: logging.Logger) -> Config:
             # Create instances
             modbus = ModbusConfig(**loaded_config.get("modbus", {}))
             registers = RegistersConfig(**loaded_config.get("registers", {}))
-            defaults = DefaultsConfig(**loaded_config.get("defaults", {}))
+            defaults_data = loaded_config.get("defaults", {})
+            defaults = DefaultsConfig(
+                **{
+                    k: v
+                    for k, v in defaults_data.items()
+                    if k in ["intended_set_current", "station_max_current"]
+                }
+            )
+            timezone = defaults_data.get(
+                "timezone", loaded_config.get("timezone", "UTC")
+            )
             logging_cfg = LoggingConfig(**loaded_config.get("logging", {}))
             schedules_list = loaded_config.get("schedules", [])
             if not schedules_list:
@@ -166,7 +176,6 @@ def load_config(logger: logging.Logger) -> Config:
                 items.append(ScheduleItem())
             schedule = ScheduleConfig(items=items)
             controls = ControlsConfig(**loaded_config.get("controls", {}))
-            timezone = loaded_config.get("timezone", "UTC")
             config = Config(
                 modbus=modbus,
                 device_instance=loaded_config.get("device_instance", 0),

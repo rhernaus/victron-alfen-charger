@@ -147,13 +147,22 @@ def compute_effective_current(
                 )
                 explanation = f"Auto mode excess solar: {excess_exp}"
     elif current_mode == EVC_MODE.SCHEDULED:
+        utc_dt = datetime.utcfromtimestamp(now)
+        local_tz = pytz.timezone(timezone)
+        local_dt = utc_dt.replace(tzinfo=pytz.utc).astimezone(local_tz)
+        weekday = local_dt.weekday()
+        sun_based_index = (weekday + 1) % 7
+        minutes_now = local_dt.hour * 60 + local_dt.minute
+        local_time_str = local_dt.strftime("%H:%M")
+        day_str = local_dt.strftime("%A")
         if start_stop == EVC_CHARGE.DISABLED:
             effective = 0.0
-            explanation = "Scheduled mode disabled by start_stop"
+            explanation = f"Scheduled mode disabled by start_stop (local time: {local_time_str} on {day_str}, timezone: {timezone})"
         else:
             within = is_within_any_schedule(schedules, now, timezone)
             effective = station_max_current if within else 0.0
-            explanation = f"Scheduled mode: {'within' if within else 'not within'} schedule, set to {effective:.2f}A"
+            status = "within" if within else "not within"
+            explanation = f"Scheduled mode: {status} schedule (local time: {local_time_str} on {day_str}, timezone: {timezone}), set to {effective:.2f}A"
     clamped_effective = max(0.0, min(effective, station_max_current))
     if not math.isclose(clamped_effective, effective, abs_tol=0.01):
         explanation += f" (clamped from {effective:.2f}A to {clamped_effective:.2f}A)"
