@@ -3,7 +3,7 @@ import math
 import time
 from typing import Any, Dict
 
-from .config import ScheduleItem, parse_hhmm_to_minutes
+from .config import Config, ScheduleItem, parse_hhmm_to_minutes
 from .dbus_utils import EVC_CHARGE, EVC_MODE
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
