@@ -498,6 +498,11 @@ class AlfenDriver:
                 self.low_soc_threshold,
                 self.low_soc_hysteresis,
                 self.low_soc_active,
+                self.schedule_enabled,
+                self.schedule_days_mask,
+                self.schedule_start,
+                self.schedule_end,
+                self.station_max_current,
                 self.charging_start_time,
                 self.session_start_energy_kwh,
                 lambda target, force_verify: set_current(
