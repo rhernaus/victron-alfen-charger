@@ -86,6 +86,8 @@ class AlfenDriver:
         self.schedules = self.config.schedule.items
         self.station_max_current = self.config.defaults.station_max_current
         self.max_current_update_counter = 0
+        self.last_charging_time: float = 0.0
+        self.last_session_energy: float = 0.0
         modbus_config = self.config.modbus
         self.client = ModbusTcpClient(host=modbus_config.ip, port=modbus_config.port)
         try:
@@ -167,6 +169,10 @@ class AlfenDriver:
                     self.schedules = [ScheduleItem(**d) for d in schedules_data]
                     while len(self.schedules) < 3:
                         self.schedules.append(ScheduleItem())
+                self.last_charging_time = data.get("LastChargingTime", 0.0)
+                self.last_session_energy = data.get("LastSessionEnergy", 0.0)
+                self.charging_start_time = data.get("ChargingStartTime", 0.0)
+                self.session_start_energy_kwh = data.get("SessionStartEnergyKWh", 0.0)
 
         self.service = register_dbus_service(
             self.service_name,
@@ -183,6 +189,7 @@ class AlfenDriver:
         )
 
         self._load_static_info()
+        self._restore_session_state()
         self._schedule_next_poll(self.config.poll_interval_ms)
 
     def _schedule_next_poll(self, interval: int) -> None:
@@ -248,6 +255,10 @@ class AlfenDriver:
                 "StartStop": self.start_stop.value,
                 "AutoStart": self.auto_start.value,
                 "SetCurrent": self.intended_set_current.value,
+                "ChargingStartTime": self.charging_start_time,
+                "SessionStartEnergyKWh": self.session_start_energy_kwh,
+                "LastChargingTime": self.last_charging_time,
+                "LastSessionEnergy": self.last_session_energy,
             }
             os.makedirs(os.path.dirname(self.config_file_path), exist_ok=True)
             with open(self.config_file_path, "w", encoding="utf-8") as f:
@@ -495,30 +506,36 @@ class AlfenDriver:
         """
         Process business logic including status, energy, max current, and clamping.
         """
-        self.charging_start_time, self.session_start_energy_kwh, self.just_connected = (
-            process_status_and_energy(
+        (
+            self.charging_start_time,
+            self.session_start_energy_kwh,
+            self.last_charging_time,
+            self.last_session_energy,
+            self.just_connected,
+        ) = process_status_and_energy(
+            self.client,
+            self.config,
+            self.service,
+            self.current_mode.value,
+            self.start_stop.value,
+            self.auto_start.value,
+            self.intended_set_current.value,
+            self.schedules,
+            self.station_max_current,
+            self.charging_start_time,
+            self.session_start_energy_kwh,
+            self.last_charging_time,
+            self.last_session_energy,
+            lambda target, force_verify: set_current(
                 self.client,
                 self.config,
-                self.service,
-                self.current_mode.value,
-                self.start_stop.value,
-                self.auto_start.value,
-                self.intended_set_current.value,
-                self.schedules,
+                target,
                 self.station_max_current,
-                self.charging_start_time,
-                self.session_start_energy_kwh,
-                lambda target, force_verify: set_current(
-                    self.client,
-                    self.config,
-                    target,
-                    self.station_max_current,
-                    force_verify,
-                ),
-                lambda: self._persist_config(),
-                self.logger,
-                self.config.timezone,
-            )
+                force_verify,
+            ),
+            lambda: self._persist_config(),
+            self.logger,
+            self.config.timezone,
         )
         if self.max_current_update_counter % 10 == 0:
             self.station_max_current = update_station_max_current(
@@ -619,3 +636,65 @@ class AlfenDriver:
         """
         mainloop = GLib.MainLoop()
         mainloop.run()
+
+    def _restore_session_state(self) -> None:
+        if not self.client.connect():
+            self.logger.warning("Failed to connect to Modbus for session restore")
+            return
+        total_energy_regs = read_holding_registers(
+            self.client,
+            self.config.registers.energy,
+            4,
+            self.config.modbus.socket_slave_id,
+        )
+        total_energy_kwh = decode_64bit_float(total_energy_regs) / 1000.0
+        raw_status = map_alfen_status(self.client, self.config)
+        connected = raw_status >= 1
+        new_victron_status = raw_status
+        new_victron_status = apply_mode_specific_status(
+            self.current_mode.value,
+            connected,
+            self.auto_start.value,
+            self.start_stop.value,
+            self.intended_set_current.value,
+            self.schedules,
+            new_victron_status,
+            self.config.timezone,
+        )
+        now = time.time()
+        if self.charging_start_time > 0:
+            if new_victron_status == 2:
+                # Continue session, add approximate downtime
+                downtime = now - (
+                    self.charging_start_time + self.service["/ChargingTime"]
+                )
+                self.service["/ChargingTime"] = (
+                    now - self.charging_start_time
+                )  # Includes downtime
+                energy_delta = max(
+                    0.0, total_energy_kwh - self.session_start_energy_kwh
+                )
+                self.service["/Ac/Energy/Forward"] = round(energy_delta, 3)
+                self.logger.info(
+                    f"Restored ongoing session, added {downtime:.0f}s downtime"
+                )
+            else:
+                # Session ended during downtime
+                downtime = now - (
+                    self.charging_start_time + self.service["/ChargingTime"]
+                )
+                self.last_charging_time = self.service["/ChargingTime"] + downtime
+                energy_delta = max(
+                    0.0, total_energy_kwh - self.session_start_energy_kwh
+                )
+                self.last_session_energy = round(energy_delta, 3)
+                self.service["/ChargingTime"] = self.last_charging_time
+                self.service["/Ac/Energy/Forward"] = self.last_session_energy
+                self.charging_start_time = 0
+                self.session_start_energy_kwh = 0
+                self._persist_config()
+                self.logger.info("Restored ended session with approximate downtime")
+        else:
+            self.service["/ChargingTime"] = self.last_charging_time
+            self.service["/Ac/Energy/Forward"] = self.last_session_energy
+            self.logger.info("Restored last session values")

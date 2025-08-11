@@ -304,8 +304,10 @@ def calculate_session_energy_and_time(
     old_victron_status: int,
     charging_start_time: float,
     session_start_energy_kwh: float,
-) -> tuple[float, float]:
-    """Calculate and update session energy and charging time."""
+    last_charging_time: float,
+    last_session_energy: float,
+    persist_config_to_disk: callable,
+) -> tuple[float, float, float, float]:
     energy_regs = read_holding_registers(
         client,
         config.registers.energy,
@@ -313,25 +315,38 @@ def calculate_session_energy_and_time(
         config.modbus.socket_slave_id,
     )
     total_energy_kwh = decode_64bit_float(energy_regs) / 1000.0
-
     if new_victron_status == 2 and old_victron_status != 2:
+        # New session start: reset to 0
         charging_start_time = time.time()
         session_start_energy_kwh = total_energy_kwh
-    elif new_victron_status != 2:
-        charging_start_time = 0
-        session_start_energy_kwh = 0
-
-    service["/ChargingTime"] = (
-        time.time() - charging_start_time if charging_start_time > 0 else 0
-    )
-
-    if session_start_energy_kwh > 0:
+        service["/ChargingTime"] = 0
+        service["/Ac/Energy/Forward"] = 0.0
+        persist_config_to_disk()
+    elif new_victron_status == 2:
+        # Continuing session
+        service["/ChargingTime"] = time.time() - charging_start_time
         session_energy = total_energy_kwh - session_start_energy_kwh
         service["/Ac/Energy/Forward"] = round(session_energy, 3)
+    elif new_victron_status != 2 and old_victron_status == 2:
+        # Session stop: calculate finals, persist, reset starts
+        last_charging_time = time.time() - charging_start_time
+        session_energy = total_energy_kwh - session_start_energy_kwh
+        last_session_energy = round(session_energy, 3)
+        service["/ChargingTime"] = last_charging_time
+        service["/Ac/Energy/Forward"] = last_session_energy
+        charging_start_time = 0
+        session_start_energy_kwh = 0
+        persist_config_to_disk()
     else:
-        service["/Ac/Energy/Forward"] = 0.0
-
-    return charging_start_time, session_start_energy_kwh
+        # Not charging, no transition: show last values
+        service["/ChargingTime"] = last_charging_time
+        service["/Ac/Energy/Forward"] = last_session_energy
+    return (
+        charging_start_time,
+        session_start_energy_kwh,
+        last_charging_time,
+        last_session_energy,
+    )
 
 
 def process_status_and_energy(
@@ -346,11 +361,13 @@ def process_status_and_energy(
     station_max_current: float,
     charging_start_time: float,
     session_start_energy_kwh: float,
+    last_charging_time: float,
+    last_session_energy: float,
     set_current: callable,
     persist_config_to_disk: callable,
     logger: logging.Logger,
     timezone: str,
-) -> tuple[float, float, bool]:
+) -> tuple[float, float, float, float, bool]:
     raw_status = map_alfen_status(client, config)
 
     old_victron_status = service["/Status"]
@@ -404,7 +421,12 @@ def process_status_and_energy(
             f"Auto-start applied current: {target:.2f} A. Calculation: {explanation}"
         )
 
-    charging_start_time, session_start_energy_kwh = calculate_session_energy_and_time(
+    (
+        charging_start_time,
+        session_start_energy_kwh,
+        last_charging_time,
+        last_session_energy,
+    ) = calculate_session_energy_and_time(
         client,
         config,
         service,
@@ -412,10 +434,14 @@ def process_status_and_energy(
         old_victron_status,
         charging_start_time,
         session_start_energy_kwh,
+        last_charging_time,
+        last_session_energy,
+        persist_config_to_disk,
     )
-
     return (
         charging_start_time,
         session_start_energy_kwh,
+        last_charging_time,
+        last_session_energy,
         (now_connected and was_disconnected),
     )
