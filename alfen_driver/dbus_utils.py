@@ -1,6 +1,5 @@
 import enum
 import logging
-import time
 
 import dbus
 from vedbus import VeDbusService

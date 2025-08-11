@@ -11,7 +11,6 @@ sys.path.insert(
     1, os.path.join(os.path.dirname(__file__), "/opt/victronenergy/dbus-modbus-client")
 )
 
-from dataclasses import asdict
 from typing import Any, Dict, List
 
 from gi.repository import GLib
@@ -108,8 +107,8 @@ class AlfenDriver:
             )
             if not reg.isError():
                 self.last_sent_phases = reg.registers[0]
-        except:
-            pass
+        except ModbusException as e:
+            self.logger.warning(f"Failed to read initial phases: {e}")
         device_instance = self.config.device_instance
         self.service_name = f"com.victronenergy.evcharger.alfen_{device_instance}"
         self.config_file_path = f"/data/evcharger_alfen_{device_instance}.json"

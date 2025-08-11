@@ -8,7 +8,7 @@ import dbus
 import pytz
 
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
-from .dbus_utils import EVC_CHARGE, EVC_MODE, EVC_STATUS, get_current_ess_strategy
+from .dbus_utils import EVC_CHARGE, EVC_MODE, EVC_STATUS
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
 MIN_CHARGING_CURRENT: float = 0.1
@@ -182,9 +182,6 @@ def compute_effective_current(
         utc_dt = datetime.utcfromtimestamp(now)
         local_tz = pytz.timezone(timezone)
         local_dt = utc_dt.replace(tzinfo=pytz.utc).astimezone(local_tz)
-        weekday = local_dt.weekday()
-        sun_based_index = (weekday + 1) % 7
-        minutes_now = local_dt.hour * 60 + local_dt.minute
         local_time_str = local_dt.strftime("%H:%M")
         day_str = local_dt.strftime("%A")
         if start_stop == EVC_CHARGE.DISABLED:
@@ -319,6 +316,7 @@ def calculate_session_energy_and_time(
     raw_status: int,  # Add param
     effective_current: float,  # Add param
     current_mode: EVC_MODE,  # Add param
+    logger: logging.Logger,
 ) -> tuple[float, float, float, float]:
     energy_regs = read_holding_registers(
         client,
@@ -493,6 +491,7 @@ def process_status_and_energy(
         raw_status,  # Pass new params
         effective_current,
         current_mode,
+        logger,
     )
     return (
         charging_start_time,
