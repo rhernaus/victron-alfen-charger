@@ -110,7 +110,6 @@ def get_excess_solar_current(
         min_power_3 = MIN_CURRENT * 3 * NOMINAL_VOLTAGE
         hysteresis = 500.0
         new_phases = current_phases
-        current = 0.0
         clamp_reason = ""
         if current_phases == 3:
             if excess < min_power_3 - hysteresis:
@@ -122,7 +121,7 @@ def get_excess_solar_current(
             else:
                 current = excess / (3 * NOMINAL_VOLTAGE)
         elif current_phases == 1:
-            if excess >= min_power_3 + hysteresis:
+            if excess >= min_power_3:
                 new_phases = 3
                 current = excess / (3 * NOMINAL_VOLTAGE)
             else:
@@ -131,6 +130,10 @@ def get_excess_solar_current(
         if clamped_current < MIN_CURRENT and clamped_current > 0:
             clamped_current = 0.0
             clamp_reason = f" (below min {MIN_CURRENT}A, set to 0)"
+        if clamped_current == 0.0 and new_phases == 1:
+            new_phases = 3
+            current = 0.0
+            clamp_reason = ""
         explanation = (
             f"total_pv={total_pv:.2f}W, "
             f"adjusted_consumption={adjusted_consumption:.2f}W (consumption={consumption:.2f}W - ev_power={ev_power:.2f}W), "
@@ -168,23 +171,13 @@ def compute_effective_current(
     elif current_mode == EVC_MODE.AUTO:
         if start_stop == EVC_CHARGE.DISABLED:
             effective = 0.0
+            effective_phases = current_phases
             explanation = "Auto mode disabled by start_stop"
-            return effective, current_phases, explanation
         else:
-            strategy = get_current_ess_strategy()
-            if strategy == "buying":
-                effective = station_max_current
-                explanation = (
-                    f"Auto mode buying strategy, set to max {station_max_current:.2f}A"
-                )
-            elif strategy == "selling":
-                effective = 0.0
-                explanation = "Auto mode selling strategy, disabled"
-            else:
-                effective, effective_phases, excess_exp = get_excess_solar_current(
-                    ev_power, station_max_current, current_phases
-                )
-                explanation = f"Auto mode excess solar: {excess_exp}"
+            effective, effective_phases, excess_exp = get_excess_solar_current(
+                ev_power, station_max_current, current_phases
+            )
+            explanation = f"Auto mode excess solar: {excess_exp}"
     elif current_mode == EVC_MODE.SCHEDULED:
         utc_dt = datetime.utcfromtimestamp(now)
         local_tz = pytz.timezone(timezone)
