@@ -21,8 +21,18 @@ from pymodbus.exceptions import ModbusException
 from .config import Config, ScheduleItem, load_config, load_config_from_disk
 from .controls import set_current, set_effective_current, update_station_max_current
 from .dbus_utils import EVC_CHARGE, EVC_MODE, register_dbus_service
-from .logic import compute_effective_current, process_status_and_energy
-from .modbus_utils import read_modbus_string, reconnect
+from .logic import (
+    apply_mode_specific_status,
+    compute_effective_current,
+    map_alfen_status,
+    process_status_and_energy,
+)
+from .modbus_utils import (
+    decode_64bit_float,
+    read_holding_registers,
+    read_modbus_string,
+    reconnect,
+)
 
 try:
     import dbus
