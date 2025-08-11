@@ -7,6 +7,7 @@ from typing import Any
 import dbus
 import pytz
 
+from ..reference.ev_charger import EVC_STATUS
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
 from .dbus_utils import EVC_CHARGE, EVC_MODE, get_current_ess_strategy
 from .modbus_utils import decode_64bit_float, read_holding_registers
@@ -231,6 +232,7 @@ def apply_mode_specific_status(
     schedules: list[ScheduleItem],
     new_victron_status: int,
     timezone: str,
+    effective_current: float = 0.0,  # Add param for effective
 ) -> int:
     """Adjust Victron status based on mode, auto-start, schedule, and low SOC."""
     if (
@@ -239,15 +241,23 @@ def apply_mode_specific_status(
         and auto_start == 0
         and start_stop == EVC_CHARGE.DISABLED
     ):
-        new_victron_status = 6  # Wait for start
+        new_victron_status = EVC_STATUS.WAIT_START
     if current_mode == EVC_MODE.AUTO and connected:
         if start_stop == EVC_CHARGE.DISABLED:
-            new_victron_status = 6
-        elif intended_set_current <= MIN_CHARGING_CURRENT:
-            new_victron_status = 4  # Low current
+            new_victron_status = EVC_STATUS.WAIT_START
+        elif effective_current < MIN_CURRENT:
+            new_victron_status = EVC_STATUS.WAIT_SUN  # Not enough excess solar
     if current_mode == EVC_MODE.SCHEDULED and connected:
         if not is_within_any_schedule(schedules, time.time(), timezone):
-            new_victron_status = 6
+            new_victron_status = EVC_STATUS.WAIT_START
+
+    # General: If charging disabled but connected, wait for start
+    charging_disabled = start_stop == EVC_CHARGE.DISABLED or (
+        current_mode == EVC_MODE.SCHEDULED
+        and not is_within_any_schedule(schedules, time.time(), timezone)
+    )
+    if connected and charging_disabled and new_victron_status == EVC_STATUS.CONNECTED:
+        new_victron_status = EVC_STATUS.WAIT_START
 
     return new_victron_status
 
@@ -276,7 +286,7 @@ def apply_auto_start(
         start_stop = EVC_CHARGE.ENABLED
         persist_config_to_disk()
         logger.debug(
-            f"Auto-start triggered: Set StartStop to ENABLED (mode: {EVC_MODE(current_mode).name})"
+            f"Auto-start triggered: Set StartStop to ENABLED (mode: {EVC_MODE(current_mode).name}, bypassing WAIT_START)"
         )
         target, _, explanation = compute_effective_current(
             current_mode,
@@ -307,6 +317,9 @@ def calculate_session_energy_and_time(
     last_charging_time: float,
     last_session_energy: float,
     persist_config_to_disk: callable,
+    raw_status: int,  # Add param
+    effective_current: float,  # Add param
+    current_mode: EVC_MODE,  # Add param
 ) -> tuple[float, float, float, float]:
     energy_regs = read_holding_registers(
         client,
@@ -337,6 +350,19 @@ def calculate_session_energy_and_time(
         charging_start_time = 0
         session_start_energy_kwh = 0
         persist_config_to_disk()
+
+        # Detect charged: Transition from charging to connected while effective current was sufficient
+        if raw_status == EVC_STATUS.CONNECTED:
+            if effective_current >= MIN_CURRENT:
+                service["/Status"] = EVC_STATUS.CHARGED
+            elif current_mode == EVC_MODE.AUTO:
+                service["/Status"] = EVC_STATUS.WAIT_SUN  # Tie-in with WAIT_SUN
+            else:
+                service["/Status"] = EVC_STATUS.CONNECTED  # Fallback
+        logger.info(
+            f"Session finished: Set status to {service['/Status']} (energy: {last_session_energy:.3f} kWh, time: {last_charging_time:.0f}s)"
+        )
+
     else:
         # Not charging, no transition: show last values
         service["/ChargingTime"] = last_charging_time
@@ -375,6 +401,19 @@ def process_status_and_energy(
     was_disconnected = old_victron_status == 0
     now_connected = connected
 
+    # Compute effective early to inform status
+    effective_current, effective_phases, explanation = compute_effective_current(
+        current_mode,
+        start_stop,
+        intended_set_current,
+        station_max_current,
+        time.time(),
+        schedules,
+        0.0,  # Default ev_power
+        timezone,
+        3,  # current_phases
+    )
+
     new_victron_status = raw_status
 
     new_victron_status = apply_mode_specific_status(
@@ -386,6 +425,7 @@ def process_status_and_energy(
         schedules,
         new_victron_status,
         timezone,
+        effective_current,  # Pass effective
     )
 
     service["/Status"] = new_victron_status
@@ -421,6 +461,20 @@ def process_status_and_energy(
             f"Auto-start applied current: {target:.2f} A. Calculation: {explanation}"
         )
 
+    # Re-evaluate status after potential auto-start and current set
+    new_victron_status = apply_mode_specific_status(
+        current_mode,
+        connected,
+        auto_start,
+        start_stop,
+        intended_set_current,
+        schedules,
+        service["/Status"],
+        timezone,
+        effective_current,  # Pass again
+    )
+    service["/Status"] = new_victron_status
+
     (
         charging_start_time,
         session_start_energy_kwh,
@@ -437,6 +491,9 @@ def process_status_and_energy(
         last_charging_time,
         last_session_energy,
         persist_config_to_disk,
+        raw_status,  # Pass new params
+        effective_current,
+        current_mode,
     )
     return (
         charging_start_time,
