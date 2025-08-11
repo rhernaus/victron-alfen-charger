@@ -103,26 +103,19 @@ def reconnect(
     client: ModbusTcpClient,
     logger: logging.Logger,
     retry_delay: float = 0.5,
-    retries: int = 3,
 ) -> bool:
     """
-    Attempt to reconnect to the Modbus server with retries.
-
-    Parameters:
-        retries: Number of reconnection attempts (default 3).
-
-    Returns:
-        True if reconnected successfully, False otherwise.
+    Attempt to reconnect to the Modbus server indefinitely until successful.
     """
     client.close()
-    for attempt in range(retries):
-        logger.info(f"Attempting Modbus reconnect (attempt {attempt + 1})...")
+    attempt = 0
+    while True:
+        attempt += 1
+        logger.info(f"Attempting Modbus reconnect (attempt {attempt})...")
         if client.connect():
             logger.info("Modbus connection re-established.")
             return True
         time.sleep(retry_delay)
-    logger.error("Failed to reconnect to Modbus after retries.")
-    return False
 
 
 def retry_modbus_operation(
