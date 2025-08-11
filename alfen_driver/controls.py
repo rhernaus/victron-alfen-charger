@@ -92,6 +92,7 @@ def set_effective_current(
     logger: logging.Logger,
     ev_power: float = 0.0,  # New parameter for local EV power
     force: bool = False,
+    timezone: str = "UTC",
 ) -> tuple[float, float]:
     """
     Set the effective current based on mode and watchdog.
@@ -109,6 +110,7 @@ def set_effective_current(
         now,
         schedules,
         ev_power,  # Pass to compute
+        timezone,
     )
     current_time = time.time()
     needs_update = (

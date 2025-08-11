@@ -264,6 +264,7 @@ class AlfenDriver:
                     self.station_max_current,
                     now,
                     self.schedules,
+                    self.config.timezone,
                 )
                 if set_current(
                     self.client,
@@ -340,6 +341,7 @@ class AlfenDriver:
                     self.station_max_current,
                     time.time(),
                     self.schedules,
+                    self.config.timezone,
                 )
                 if set_current(
                     self.client,
@@ -536,6 +538,7 @@ class AlfenDriver:
             self.logger,
             ev_power,  # Pass local ev_power
             force=self.just_connected,
+            timezone=self.config.timezone,
         )
 
     def poll(self) -> bool:

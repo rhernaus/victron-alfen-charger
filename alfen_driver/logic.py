@@ -1,9 +1,11 @@
 import logging
 import math
 import time
+from datetime import datetime
 from typing import Any
 
 import dbus
+import pytz
 
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
 from .dbus_utils import EVC_CHARGE, EVC_MODE, get_current_ess_strategy
@@ -24,6 +26,7 @@ def clamp_value(value: float, min_val: float, max_val: float) -> float:
 def is_within_any_schedule(
     schedules: list[ScheduleItem],
     now: float,
+    timezone: str,
 ) -> bool:
     """
     Check if current time is within any of the scheduled windows.
@@ -36,10 +39,12 @@ def is_within_any_schedule(
 
     Uses local time, day mask, and start/end times.
     """
-    tm = time.localtime(now)
-    weekday = tm.tm_wday  # Mon=0..Sun=6
+    utc_dt = datetime.utcfromtimestamp(now)
+    local_tz = pytz.timezone(timezone)
+    local_dt = utc_dt.replace(tzinfo=pytz.utc).astimezone(local_tz)
+    weekday = local_dt.weekday()  # Mon=0..Sun=6
     sun_based_index = (weekday + 1) % 7
-    minutes_now = tm.tm_hour * 60 + tm.tm_min
+    minutes_now = local_dt.hour * 60 + local_dt.minute
     for item in schedules:
         if item.enabled == 0:
             continue

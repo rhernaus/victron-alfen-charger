@@ -88,6 +88,7 @@ class Config:
     schedule: ScheduleConfig
     controls: ControlsConfig
     poll_interval_ms: int
+    timezone: str = "UTC"
 
     def __post_init__(self):
         # Basic validation
@@ -165,6 +166,7 @@ def load_config(logger: logging.Logger) -> Config:
                 items.append(ScheduleItem())
             schedule = ScheduleConfig(items=items)
             controls = ControlsConfig(**loaded_config.get("controls", {}))
+            timezone = loaded_config.get("timezone", "UTC")
             config = Config(
                 modbus=modbus,
                 device_instance=loaded_config.get("device_instance", 0),
@@ -174,6 +176,7 @@ def load_config(logger: logging.Logger) -> Config:
                 schedule=schedule,
                 controls=controls,
                 poll_interval_ms=loaded_config.get("poll_interval_ms", 1000),
+                timezone=timezone,
             )
             # Basic validation
             if not isinstance(config, Config):
