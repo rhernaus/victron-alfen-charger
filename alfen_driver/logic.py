@@ -113,7 +113,7 @@ def compute_effective_current(
                 effective = get_excess_solar_current(ev_power)  # Pass ev_power
     elif current_mode == EVC_MODE.SCHEDULED:
         effective = (
-            intended_set_current if is_within_any_schedule(schedules, now) else 0.0
+            station_max_current if is_within_any_schedule(schedules, now) else 0.0
         )
     return max(0.0, min(effective, station_max_current))
 
