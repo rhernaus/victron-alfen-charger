@@ -3,6 +3,7 @@ import time
 from typing import Any
 
 import dbus
+from dbus.exceptions import DBusException
 
 from .config import Config, ScheduleItem, load_config, parse_hhmm_to_minutes
 from .dbus_utils import EVC_CHARGE, EVC_MODE, get_current_ess_strategy
@@ -74,13 +75,22 @@ def get_excess_solar_current() -> float:
         # Subtract EV charger power dynamically
         config = load_config(logging.getLogger(__name__))
         service_name = f"com.victronenergy.evcharger.alfen_{config.device_instance}"
-        ev_obj = bus.get_object(service_name, "/")
-        ev_values = ev_obj.GetValue()
-        ev_power = (
-            ev_values.get("Ac/L1/Power", 0.0)
-            + ev_values.get("Ac/L2/Power", 0.0)
-            + ev_values.get("Ac/L3/Power", 0.0)
-        )
+        try:
+            ev_obj = bus.get_object(service_name, "/")
+            ev_values = ev_obj.GetValue()
+            ev_power = (
+                ev_values.get("Ac/L1/Power", 0.0)
+                + ev_values.get("Ac/L2/Power", 0.0)
+                + ev_values.get("Ac/L3/Power", 0.0)
+            )
+        except DBusException as e:
+            if "NoReply" in str(e):
+                logging.warning(
+                    "DBus NoReply for EV service during startup, assuming 0 power"
+                )
+                ev_power = 0.0
+            else:
+                raise
         adjusted_consumption = consumption - ev_power
         battery_power = all_values.get(
             "Dc/Battery/Power", 0.0
