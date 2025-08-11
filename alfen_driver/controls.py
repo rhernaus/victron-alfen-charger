@@ -7,6 +7,7 @@ from pymodbus.constants import Endian
 from pymodbus.exceptions import ModbusException
 from pymodbus.payload import BinaryPayloadBuilder, BinaryPayloadDecoder
 
+from .config import ScheduleItem
 from .logic import compute_effective_current
 from .modbus_utils import decode_floats, read_holding_registers, retry_modbus_operation
 
@@ -84,16 +85,13 @@ def set_effective_current(
     current_mode: Any,
     start_stop: Any,
     intended_set_current: float,
-    low_soc_enabled: int,
-    low_soc_active: bool,
     station_max_current: float,
     last_sent_current: float,
     last_current_set_time: float,
-    schedule_enabled: int,
-    schedule_days_mask: int,
-    schedule_start: str,
-    schedule_end: str,
+    schedules: list[ScheduleItem],
     logger: logging.Logger,
+    low_soc_enabled: int = 0,
+    low_soc_active: bool = False,
     force: bool = False,
 ) -> tuple[float, float]:
     """
@@ -107,14 +105,11 @@ def set_effective_current(
         current_mode,
         start_stop,
         intended_set_current,
-        low_soc_enabled,
-        low_soc_active,
         station_max_current,
         now,
-        schedule_enabled,
-        schedule_days_mask,
-        schedule_start,
-        schedule_end,
+        schedules,
+        low_soc_enabled,
+        low_soc_active,
     )
     if effective_current < 0:
         effective_current = 0.0

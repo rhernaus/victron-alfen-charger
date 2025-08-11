@@ -3,60 +3,59 @@ import math
 import time
 from typing import Any, Dict
 
-from .config import parse_hhmm_to_minutes
+from .config import ScheduleItem, parse_hhmm_to_minutes
 from .dbus_utils import EVC_CHARGE, EVC_MODE
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
 MIN_CHARGING_CURRENT: float = 0.1
 
 
-def is_within_schedule(
-    schedule_enabled: int,
-    schedule_days_mask: int,
-    schedule_start: str,
-    schedule_end: str,
+def is_within_any_schedule(
+    schedules: list[ScheduleItem],
     now: float,
 ) -> bool:
     """
-    Check if current time is within the scheduled window.
+    Check if current time is within any of the scheduled windows.
 
     Parameters:
         now: Current time in seconds since epoch.
 
     Returns:
-        True if within schedule, False otherwise.
+        True if within any schedule, False otherwise.
 
     Uses local time, day mask, and start/end times.
     """
-    if schedule_enabled == 0:
-        return False
     tm = time.localtime(now)
     weekday = tm.tm_wday  # Mon=0..Sun=6
     sun_based_index = (weekday + 1) % 7
-    if (schedule_days_mask & (1 << sun_based_index)) == 0:
-        return False
     minutes_now = tm.tm_hour * 60 + tm.tm_min
-    start_min = parse_hhmm_to_minutes(schedule_start)
-    end_min = parse_hhmm_to_minutes(schedule_end)
-    if start_min == end_min:
-        return False
-    if start_min < end_min:
-        return start_min <= minutes_now < end_min
-    return minutes_now >= start_min or minutes_now < end_min
+    for item in schedules:
+        if item.enabled == 0:
+            continue
+        if (item.days_mask & (1 << sun_based_index)) == 0:
+            continue
+        start_min = parse_hhmm_to_minutes(item.start)
+        end_min = parse_hhmm_to_minutes(item.end)
+        if start_min == end_min:
+            continue
+        if start_min < end_min:
+            if start_min <= minutes_now < end_min:
+                return True
+        else:
+            if minutes_now >= start_min or minutes_now < end_min:
+                return True
+    return False
 
 
 def compute_effective_current(
     current_mode: EVC_MODE,
     start_stop: EVC_CHARGE,
     intended_set_current: float,
-    low_soc_enabled: int,
-    low_soc_active: bool,
     station_max_current: float,
     now: float,
-    schedule_enabled: int,
-    schedule_days_mask: int,
-    schedule_start: str,
-    schedule_end: str,
+    schedules: list[ScheduleItem],
+    low_soc_enabled: int = 0,
+    low_soc_active: bool = False,
 ) -> float:
     """
     Calculate the effective charging current based on mode, schedule, and low SoC conditions.
@@ -74,11 +73,7 @@ def compute_effective_current(
         effective = intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
     elif current_mode == EVC_MODE.SCHEDULED:
         effective = (
-            intended_set_current
-            if is_within_schedule(
-                schedule_enabled, schedule_days_mask, schedule_start, schedule_end, now
-            )
-            else 0.0
+            intended_set_current if is_within_any_schedule(schedules, now) else 0.0
         )
     if (
         low_soc_enabled
@@ -140,13 +135,10 @@ def apply_mode_specific_status(
     auto_start: int,
     start_stop: EVC_CHARGE,
     intended_set_current: float,
-    low_soc_enabled: int,
-    low_soc_active: bool,
-    schedule_enabled: int,
-    schedule_days_mask: int,
-    schedule_start: str,
-    schedule_end: str,
+    schedules: list[ScheduleItem],
     new_victron_status: int,
+    low_soc_enabled: int = 0,
+    low_soc_active: bool = False,
 ) -> int:
     """Adjust Victron status based on mode, auto-start, schedule, and low SOC."""
     if (
@@ -162,13 +154,7 @@ def apply_mode_specific_status(
         elif intended_set_current <= MIN_CHARGING_CURRENT:
             new_victron_status = 4  # Low current
     if current_mode == EVC_MODE.SCHEDULED and connected:
-        if not is_within_schedule(
-            schedule_enabled,
-            schedule_days_mask,
-            schedule_start,
-            schedule_end,
-            time.time(),
-        ):
+        if not is_within_any_schedule(schedules, time.time()):
             new_victron_status = 6
 
     if low_soc_enabled and low_soc_active and connected:
@@ -184,16 +170,13 @@ def apply_auto_start(
     start_stop: EVC_CHARGE,
     current_mode: EVC_MODE,
     intended_set_current: float,
-    low_soc_enabled: int,
-    low_soc_active: bool,
-    station_max_current: float,  # Assuming this is available; add if needed
-    schedule_enabled: int,
-    schedule_days_mask: int,
-    schedule_start: str,
-    schedule_end: str,
+    station_max_current: float,
+    schedules: list[ScheduleItem],
     set_current: callable,
     persist_config_to_disk: callable,
     logger: logging.Logger,
+    low_soc_enabled: int = 0,
+    low_soc_active: bool = False,
 ) -> EVC_CHARGE:
     """Apply auto-start logic if vehicle connects and conditions are met."""
     if (
@@ -211,14 +194,11 @@ def apply_auto_start(
             current_mode,
             start_stop,
             intended_set_current,
-            low_soc_enabled,
-            low_soc_active,
             station_max_current,
             time.time(),
-            schedule_enabled,
-            schedule_days_mask,
-            schedule_start,
-            schedule_end,
+            schedules,
+            low_soc_enabled,
+            low_soc_active,
         )
         if set_current(target, force_verify=True):
             logger.info(f"Auto-start applied current: {target:.2f} A")
@@ -271,14 +251,7 @@ def process_status_and_energy(
     start_stop: EVC_CHARGE,
     auto_start: int,
     intended_set_current: float,
-    low_soc_enabled: int,
-    low_soc_threshold: float,
-    low_soc_hysteresis: float,
-    low_soc_active: bool,
-    schedule_enabled: int,
-    schedule_days_mask: int,
-    schedule_start: str,
-    schedule_end: str,
+    schedules: list[ScheduleItem],
     station_max_current: float,
     charging_start_time: float,
     session_start_energy_kwh: float,
@@ -286,6 +259,10 @@ def process_status_and_energy(
     persist_config_to_disk: callable,
     read_battery_soc: callable,
     logger: logging.Logger,
+    low_soc_enabled: int = 0,
+    low_soc_threshold: float = 0.0,
+    low_soc_hysteresis: float = 0.0,
+    low_soc_active: bool = False,
 ) -> tuple[bool, float, float]:
     raw_status = map_alfen_status(client, config)
 
@@ -310,13 +287,10 @@ def process_status_and_energy(
         auto_start,
         start_stop,
         intended_set_current,
+        schedules,
+        new_victron_status,
         low_soc_enabled,
         low_soc_active,
-        schedule_enabled,
-        schedule_days_mask,
-        schedule_start,
-        schedule_end,
-        new_victron_status,
     )
 
     if low_soc_active and connected:
@@ -331,16 +305,13 @@ def process_status_and_energy(
         start_stop,
         current_mode,
         intended_set_current,
-        low_soc_enabled,
-        low_soc_active,
         station_max_current,
-        schedule_enabled,
-        schedule_days_mask,
-        schedule_start,
-        schedule_end,
+        schedules,
         set_current,
         persist_config_to_disk,
         logger,
+        low_soc_enabled,
+        low_soc_active,
     )
 
     charging_start_time, session_start_energy_kwh = calculate_session_energy_and_time(

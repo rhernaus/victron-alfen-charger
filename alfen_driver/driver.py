@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import logging
 import os
 import sys
@@ -9,13 +10,14 @@ sys.path.insert(
     1, os.path.join(os.path.dirname(__file__), "/opt/victronenergy/dbus-modbus-client")
 )
 
+from dataclasses import asdict
 from typing import Any, Dict, List
 
 from gi.repository import GLib
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
-from .config import Config, load_config, load_initial_config, persist_config_to_disk
+from .config import Config, ScheduleItem, load_config, load_config_from_disk
 from .controls import (
     clamp_intended_current_to_max,
     set_current,
@@ -32,15 +34,9 @@ except ImportError:  # pragma: no cover
     dbus = None
 
 
-def _persist_config(self) -> None:
-    persist_config_to_disk(
-        self.config_file_path,
-        self.current_mode,
-        self.start_stop,
-        self.auto_start,
-        self.intended_set_current,
-        self.logger,
-    )
+class MutableValue:
+    def __init__(self, value):
+        self.value = value
 
 
 class AlfenDriver:
@@ -82,67 +78,101 @@ class AlfenDriver:
         self.charging_start_time: float = 0
         self.last_current_set_time: float = 0
         self.session_start_energy_kwh: float = 0
-        self.intended_set_current: float = self.config.defaults.intended_set_current
-        self.current_mode: EVC_MODE = EVC_MODE.AUTO
-        self.start_stop: EVC_CHARGE = EVC_CHARGE.DISABLED
-        self.auto_start: int = 1
-        self.last_sent_current: float = -1.0
-        self.schedule_enabled: int = self.config.schedule.enabled
-        self.schedule_days_mask: int = self.config.schedule.days_mask
-        self.schedule_start: str = self.config.schedule.start
-        self.schedule_end: str = self.config.schedule.end
-        self.low_soc_enabled: int = self.config.low_soc.enabled
-        self.low_soc_threshold: float = self.config.low_soc.threshold
-        self.low_soc_hysteresis: float = self.config.low_soc.hysteresis
-        self.low_soc_active: bool = False
-        self.battery_soc: float | None = None
-        self.dbus_bus: Any | None = None
-        self.dbus_soc_obj: Any | None = None
-        self.station_max_current: float = self.config.defaults.station_max_current
-        self.max_current_update_counter: int = 0
+        self.current_mode = MutableValue(EVC_MODE.AUTO.value)
+        self.start_stop = MutableValue(EVC_CHARGE.DISABLED.value)
+        self.auto_start = MutableValue(1)
+        self.intended_set_current = MutableValue(
+            self.config.defaults.intended_set_current
+        )
+        self.last_sent_current = -1.0
+        self.schedules = self.config.schedule.items
+        self.low_soc_active = False
+        self.station_max_current = self.config.defaults.station_max_current
+        self.max_current_update_counter = 0
         modbus_config = self.config.modbus
-        self.client: ModbusTcpClient = ModbusTcpClient(
-            host=modbus_config.ip, port=modbus_config.port
-        )
+        self.client = ModbusTcpClient(host=modbus_config.ip, port=modbus_config.port)
         device_instance = self.config.device_instance
-        self.service_name: str = f"com.victronenergy.evcharger.alfen_{device_instance}"
-        self.config_file_path: str = f"/data/evcharger_alfen_{device_instance}.json"
+        self.service_name = f"com.victronenergy.evcharger.alfen_{device_instance}"
+        self.config_file_path = f"/data/evcharger_alfen_{device_instance}.json"
 
-        load_initial_config(
-            self.service_name,
-            self.current_mode,
-            self.start_stop,
-            self.auto_start,
-            self.intended_set_current,
-            self.logger,
-            self.config_file_path,
-        )
+        # Moved load initial logic
+        existing_service_found = False
+        if dbus is not None:
+            try:
+                bus = dbus.SystemBus()
+                dbus_proxy = bus.get_object(
+                    "org.freedesktop.DBus", "/org/freedesktop/DBus"
+                )
+                dbus_iface = dbus.Interface(dbus_proxy, "org.freedesktop.DBus")
+                if dbus_iface.NameHasOwner(self.service_name):
+                    self.logger.info(
+                        f"Existing D-Bus service {self.service_name} found. Loading initial values from it."
+                    )
+                    existing_service_found = True
+                    paths_list = [
+                        "/Mode",
+                        "/StartStop",
+                        "/AutoStart",
+                        "/SetCurrent",
+                    ]
+                    for path in paths_list:
+                        try:
+                            obj = bus.get_object(self.service_name, path)
+                            v = obj.GetValue(dbus_interface="com.victronenergy.BusItem")
+                            if v is not None:
+                                if path == "/Mode":
+                                    self.current_mode.value = int(v)
+                                elif path == "/StartStop":
+                                    self.start_stop.value = int(v)
+                                elif path == "/AutoStart":
+                                    self.auto_start.value = int(v)
+                                elif path == "/SetCurrent":
+                                    self.intended_set_current.value = float(v)
+                        except Exception as e:
+                            self.logger.warning(f"Failed to load {path}: {e}")
+            except dbus.DBusException:
+                self.logger.warning(
+                    "Failed to inspect existing D-Bus service state; using defaults."
+                )
+        if not existing_service_found:
+            data = load_config_from_disk(self.config_file_path, self.logger)
+            if data is not None:
+                try:
+                    self.current_mode.value = int(
+                        data.get("Mode", self.current_mode.value)
+                    )
+                except ValueError:
+                    pass
+                try:
+                    self.start_stop.value = int(
+                        data.get("StartStop", self.start_stop.value)
+                    )
+                except ValueError:
+                    pass
+                self.auto_start.value = int(
+                    data.get("AutoStart", self.auto_start.value)
+                )
+                self.intended_set_current.value = float(
+                    data.get("SetCurrent", self.intended_set_current.value)
+                )
+                schedules_data = data.get("Schedules", [])
+                self.schedules = [ScheduleItem(**d) for d in schedules_data]
+                while len(self.schedules) < 3:
+                    self.schedules.append(ScheduleItem())
 
         self.service = register_dbus_service(
             self.service_name,
             self.config,
-            self.current_mode,
-            self.start_stop,
-            self.auto_start,
-            self.intended_set_current,
-            self.schedule_enabled,
-            self.schedule_days_mask,
-            self.schedule_start,
-            self.schedule_end,
-            self.low_soc_enabled,
-            self.low_soc_threshold,
-            self.low_soc_hysteresis,
+            self.current_mode.value,
+            self.start_stop.value,
+            self.auto_start.value,
+            self.intended_set_current.value,
+            self.schedules,
             self.mode_callback,
             self.startstop_callback,
             self.set_current_callback,
             self.autostart_callback,
-            self.schedule_enabled_callback,
-            self.schedule_days_callback,
-            self.schedule_start_callback,
-            self.schedule_end_callback,
-            self.low_soc_enabled_callback,
-            self.low_soc_threshold_callback,
-            self.low_soc_hysteresis_callback,
+            self.schedule_callback,
         )
 
         self._load_static_info()
@@ -204,79 +234,51 @@ class AlfenDriver:
         )
         self.service["/ProductName"] = f"{mfg_str} {pt_str}"
 
-    def _ensure_soc_proxy(self) -> bool:
-        """
-        Ensure D-Bus proxy for battery SOC is initialized.
-
-        Returns:
-            True if proxy is ready, False otherwise.
-
-        Raises:
-            dbus.DBusException: If connection fails (caught and returns False).
-        """
-        if dbus is None:
-            return False
+    def _persist_config(self) -> None:
         try:
-            if self.dbus_bus is None:
-                self.dbus_bus = dbus.SystemBus()
-            if self.dbus_soc_obj is None:
-                soc_path = self.config.low_soc.battery_soc_dbus_path
-                self.dbus_soc_obj = self.dbus_bus.get_object(
-                    "com.victronenergy.system", soc_path
-                )
-            return True
-        except dbus.DBusException:
-            self.dbus_soc_obj = None
-            return False
+            cfg = {
+                "Mode": self.current_mode.value,
+                "StartStop": self.start_stop.value,
+                "AutoStart": self.auto_start.value,
+                "SetCurrent": self.intended_set_current.value,
+                "Schedules": [asdict(s) for s in self.schedules],
+            }
+            os.makedirs(os.path.dirname(self.config_file_path), exist_ok=True)
+            with open(self.config_file_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f)
+        except (OSError, json.JSONDecodeError, ValueError) as e:
+            self.logger.warning(f"Failed to persist config: {e}")
+
+    def _ensure_soc_proxy(self) -> bool:
+        pass
 
     def _read_battery_soc(self) -> float | None:
-        """
-        Read battery SOC from D-Bus.
-
-        Returns:
-            The SOC value as float, or None if unavailable.
-
-        Raises:
-            dbus.DBusException: Handled and logged, returns None.
-        """
-        try:
-            if not self._ensure_soc_proxy():
-                self.logger.warning("Unable to connect to battery SOC D-Bus path.")
-                return None
-            val = self.dbus_soc_obj.GetValue(dbus_interface="com.victronenergy.BusItem")
-            if val is None or not isinstance(val, (int, float)):
-                return None
-            return float(val)
-        except dbus.DBusException as e:
-            self.logger.error(f"Error reading battery SOC: {e}")
-            return None
+        return None
 
     def mode_callback(self, path: str, value: Any) -> bool:
         try:
-            self.current_mode = EVC_MODE(int(value))
+            self.current_mode.value = int(value)
             self._persist_config()
             now = time.time()
             effective_current = compute_effective_current(
-                self.current_mode,
-                self.start_stop,
-                self.intended_set_current,
-                self.low_soc_enabled,
-                self.low_soc_active,
+                self.current_mode.value,
+                self.start_stop.value,
+                self.intended_set_current.value,
+                0,
+                False,
                 self.station_max_current,
                 now,
-                self.schedule_enabled,
-                self.schedule_days_mask,
-                self.schedule_start,
-                self.schedule_end,
+                self.schedules,
             )
-            if self.current_mode == EVC_MODE.MANUAL:
-                if self.intended_set_current > self.station_max_current:
-                    self.intended_set_current = self.station_max_current
-                    self.service["/SetCurrent"] = round(self.intended_set_current, 1)
+            if self.current_mode.value == EVC_MODE.MANUAL.value:
+                if self.intended_set_current.value > self.station_max_current:
+                    self.intended_set_current.value = self.station_max_current
+                    self.service["/SetCurrent"] = round(
+                        self.intended_set_current.value, 1
+                    )
                     self._persist_config()
                     self.logger.info(
-                        f"Clamped /SetCurrent to station max: {self.intended_set_current:.1f} A "
-                        f"(on MANUAL mode)"
+                        f"Clamped /SetCurrent to station max: {self.intended_set_current.value:.1f} A (on MANUAL mode)"
                     )
             if set_current(
                 self.client,
@@ -288,21 +290,23 @@ class AlfenDriver:
                 self.last_current_set_time = now
                 self.last_sent_current = effective_current
                 self.logger.info(
-                    f"Immediate Mode change applied current: {effective_current:.2f} A (mode={self.current_mode.name})"
+                    f"Immediate Mode change applied current: {effective_current:.2f} A (mode={EVC_MODE(self.current_mode.value).name})"
                 )
-            self.logger.info(f"Mode changed to {self.current_mode.name}")
+            self.logger.info(
+                f"Mode changed to {EVC_MODE(self.current_mode.value).name}"
+            )
             return True
         except (ValueError, TypeError):
             return False
 
     def startstop_callback(self, path: str, value: Any) -> bool:
         try:
-            self.start_stop = EVC_CHARGE(int(value))
+            self.start_stop.value = int(value)
             self._persist_config()
-            if self.current_mode == EVC_MODE.MANUAL:
+            if self.current_mode.value == EVC_MODE.MANUAL.value:
                 target = (
-                    self.intended_set_current
-                    if self.start_stop == EVC_CHARGE.ENABLED
+                    self.intended_set_current.value
+                    if self.start_stop.value == EVC_CHARGE.ENABLED.value
                     else 0.0
                 )
                 if set_current(
@@ -315,9 +319,11 @@ class AlfenDriver:
                     self.last_current_set_time = time.time()
                     self.last_sent_current = target
                     self.logger.info(
-                        f"Immediate StartStop change applied: {target:.2f} A (StartStop={self.start_stop.name})"
+                        f"Immediate StartStop change applied: {target:.2f} A (StartStop={EVC_CHARGE(self.start_stop.value).name})"
                     )
-            self.logger.info(f"StartStop changed to {self.start_stop.name}")
+            self.logger.info(
+                f"StartStop changed to {EVC_CHARGE(self.start_stop.value).name}"
+            )
             return True
         except (ValueError, TypeError):
             return False
@@ -335,17 +341,17 @@ class AlfenDriver:
                 self.logger,
             )
             max_allowed = max(0.0, float(self.station_max_current))
-            self.intended_set_current = min(requested, max_allowed)
-            self.service["/SetCurrent"] = round(self.intended_set_current, 1)
+            self.intended_set_current.value = min(requested, max_allowed)
+            self.service["/SetCurrent"] = round(self.intended_set_current.value, 1)
             self.logger.info(
-                f"GUI request to set intended current to {self.intended_set_current:.2f} A"
+                f"GUI request to set intended current to {self.intended_set_current.value:.2f} A"
             )
             self._persist_config()
 
-            if self.current_mode == EVC_MODE.MANUAL:
+            if self.current_mode.value == EVC_MODE.MANUAL.value:
                 target = (
-                    self.intended_set_current
-                    if self.start_stop == EVC_CHARGE.ENABLED
+                    self.intended_set_current.value
+                    if self.start_stop.value == EVC_CHARGE.ENABLED.value
                     else 0.0
                 )
                 if target > self.station_max_current:
@@ -358,7 +364,9 @@ class AlfenDriver:
                     self.logger.info(
                         f"Immediate SetCurrent applied: {target:.2f} A (MANUAL)"
                     )
-            self.logger.info(f"SetCurrent changed to {self.intended_set_current:.2f} A")
+            self.logger.info(
+                f"SetCurrent changed to {self.intended_set_current.value:.2f} A"
+            )
             return True
         except ValueError as e:
             self.logger.error(f"Set current value error: {e}")
@@ -372,71 +380,37 @@ class AlfenDriver:
             return False
 
     def autostart_callback(self, path: str, value: Any) -> bool:
-        self.auto_start = int(value)
+        self.auto_start.value = int(value)
         self._persist_config()
-        self.logger.info(f"AutoStart changed to {self.auto_start}")
+        self.logger.info(f"AutoStart changed to {self.auto_start.value}")
         return True
 
-    def schedule_enabled_callback(self, path: str, value: Any) -> bool:
-        try:
-            self.schedule_enabled = int(value)
-            self._persist_config()
-            return True
-        except (ValueError, TypeError):
+    def schedule_callback(self, path: str, value: Any) -> bool:
+        parts = path.split("/")
+        if len(parts) != 3:
             return False
-
-    def schedule_days_callback(self, path: str, value: Any) -> bool:
-        try:
-            self.schedule_days_mask = int(value) & 0x7F
-            self._persist_config()
-            return True
-        except (ValueError, TypeError):
+        if parts[1].startswith("Schedule") and parts[1][8:].isdigit():
+            index = int(parts[1][8:]) - 1
+        else:
             return False
-
-    def schedule_start_callback(self, path: str, value: Any) -> bool:
-        try:
-            from .config import parse_hhmm_to_minutes
-
-            _ = parse_hhmm_to_minutes(str(value))
-            self.schedule_start = str(value)
-            self._persist_config()
-            return True
-        except (ValueError, TypeError):
+        if index < 0 or index >= 3:
             return False
-
-    def schedule_end_callback(self, path: str, value: Any) -> bool:
+        field = parts[2]
         try:
-            from .config import parse_hhmm_to_minutes
+            if field == "Enabled":
+                self.schedules[index].enabled = int(value)
+            elif field == "Days":
+                self.schedules[index].days_mask = int(value) & 0x7F
+            elif field == "Start" or field == "End":
+                from .config import parse_hhmm_to_minutes
 
-            _ = parse_hhmm_to_minutes(str(value))
-            self.schedule_end = str(value)
+                _ = parse_hhmm_to_minutes(str(value))
+                setattr(self.schedules[index], field.lower(), str(value))
+            else:
+                return False
             self._persist_config()
             return True
-        except (ValueError, TypeError):
-            return False
-
-    def low_soc_enabled_callback(self, path: str, value: Any) -> bool:
-        try:
-            self.low_soc_enabled = int(value)
-            self._persist_config()
-            return True
-        except (ValueError, TypeError):
-            return False
-
-    def low_soc_threshold_callback(self, path: str, value: Any) -> bool:
-        try:
-            self.low_soc_threshold = float(value)
-            self._persist_config()
-            return True
-        except (ValueError, TypeError):
-            return False
-
-    def low_soc_hysteresis_callback(self, path: str, value: Any) -> bool:
-        try:
-            self.low_soc_hysteresis = max(0.0, float(value))
-            self._persist_config()
-            return True
-        except (ValueError, TypeError):
+        except ValueError:
             return False
 
     def fetch_raw_data(self) -> Dict[str, List[int]]:
@@ -487,18 +461,15 @@ class AlfenDriver:
                 self.client,
                 self.config,
                 self.service,
-                self.current_mode,
-                self.start_stop,
-                self.auto_start,
-                self.intended_set_current,
-                self.low_soc_enabled,
-                self.low_soc_threshold,
-                self.low_soc_hysteresis,
+                self.current_mode.value,
+                self.start_stop.value,
+                self.auto_start.value,
+                self.intended_set_current.value,
+                0,
+                0.0,
+                0.0,
                 self.low_soc_active,
-                self.schedule_enabled,
-                self.schedule_days_mask,
-                self.schedule_start,
-                self.schedule_end,
+                self.schedules,
                 self.station_max_current,
                 self.charging_start_time,
                 self.session_start_energy_kwh,
@@ -523,9 +494,9 @@ class AlfenDriver:
                 self.logger,
             )
         self.max_current_update_counter += 1
-        if self.current_mode == EVC_MODE.MANUAL:
-            self.intended_set_current = clamp_intended_current_to_max(
-                self.intended_set_current,
+        if self.current_mode.value == EVC_MODE.MANUAL.value:
+            self.intended_set_current.value = clamp_intended_current_to_max(
+                self.intended_set_current.value,
                 self.station_max_current,
                 self.service,
                 lambda: self._persist_config(),
@@ -571,18 +542,15 @@ class AlfenDriver:
         self.last_sent_current, self.last_current_set_time = set_effective_current(
             self.client,
             self.config,
-            self.current_mode,
-            self.start_stop,
-            self.intended_set_current,
-            self.low_soc_enabled,
-            self.low_soc_active,
+            self.current_mode.value,
+            self.start_stop.value,
+            self.intended_set_current.value,
+            0,
+            False,
             self.station_max_current,
             self.last_sent_current,
             self.last_current_set_time,
-            self.schedule_enabled,
-            self.schedule_days_mask,
-            self.schedule_start,
-            self.schedule_end,
+            self.schedules,
             self.logger,
         )
 
