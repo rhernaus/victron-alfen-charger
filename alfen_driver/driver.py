@@ -274,8 +274,12 @@ class AlfenDriver:
                 ):
                     self.last_current_set_time = now
                     self.last_sent_current = effective_current
-                    self.logger.debug(
+                    self.logger.info(
                         f"Immediate Mode change applied current: {effective_current:.2f} A (mode={EVC_MODE(self.current_mode.value).name}). Calculation: {explanation}"
+                    )
+                else:
+                    self.logger.warning(
+                        "Failed to apply immediate current on mode change"
                     )
             self.logger.info(
                 f"Mode changed to {EVC_MODE(self.current_mode.value).name}"
