@@ -5,11 +5,18 @@ from typing import Any
 import dbus
 
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
-from .controls import clamp_value
 from .dbus_utils import EVC_CHARGE, EVC_MODE, get_current_ess_strategy
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
 MIN_CHARGING_CURRENT: float = 0.1
+
+NOMINAL_VOLTAGE = 230.0  # Configurable if needed
+MIN_CURRENT = 6.0
+MAX_CURRENT = 16.0  # Example, make configurable
+
+
+def clamp_value(value: float, min_val: float, max_val: float) -> float:
+    return max(min_val, min(value, max_val))
 
 
 def is_within_any_schedule(
