@@ -151,6 +151,11 @@ class AlfenDriver:
                 self.intended_set_current.value = float(
                     data.get("SetCurrent", self.intended_set_current.value)
                 )
+                if "Schedules" in data:
+                    schedules_data = data["Schedules"]
+                    self.schedules = [ScheduleItem(**d) for d in schedules_data]
+                    while len(self.schedules) < 3:
+                        self.schedules.append(ScheduleItem())
 
         self.service = register_dbus_service(
             self.service_name,
