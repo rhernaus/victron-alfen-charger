@@ -133,9 +133,14 @@ def set_effective_current(
         if ok:
             last_current_set_time = current_time
             last_sent_current = effective_current
-            logger.info(
-                f"Set effective current to {effective_current:.2f} A (mode: {EVC_MODE(current_mode).name}, intended: {intended_set_current:.2f})"
+            mode_name = EVC_MODE(current_mode).name
+            log_message = (
+                f"Set effective current to {effective_current:.2f} A (mode: {mode_name}"
             )
+            if current_mode == EVC_MODE.MANUAL:
+                log_message += f", intended: {intended_set_current:.2f}"
+            log_message += ")"
+            logger.info(log_message)
     return last_sent_current, last_current_set_time
 
 
