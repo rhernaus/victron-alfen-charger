@@ -78,6 +78,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "hysteresis": 2.0,
         "battery_soc_dbus_path": "/Dc/Battery/Soc",
     },
+    "poll_interval_ms": 1000,
 }
 
 
@@ -91,6 +92,7 @@ class AlfenDriver:
     VERIFICATION_DELAY: float = 0.1
     RETRY_DELAY: float = 0.5
     MAX_RETRIES: int = 3
+    POLL_INTERVAL_MS: int = 1000  # Default
 
     def __init__(self):
         """Initialize the AlfenDriver with default values and setup."""
@@ -129,102 +131,115 @@ class AlfenDriver:
 
         self._load_initial_config()
 
-        self.service.add_path("/Mgmt/ProcessName", __file__)
-        self.service.add_path("/Mgmt/ProcessVersion", "1.4")
-        self.service.add_path(
-            "/Mgmt/Connection", f"Modbus TCP at {modbus_config['ip']}"
-        )
-        self.service.add_path("/DeviceInstance", device_instance)
-        self.service.add_path("/Connected", 0)
-        self.service.add_path("/ProductName", "Alfen EV Charger")
-        self.service.add_path("/ProductId", 0xA142)
-        self.service.add_path("/FirmwareVersion", "N/A")
-        self.service.add_path("/Serial", "ALFEN-001")
-        self.service.add_path("/Status", 0)
-        self.service.add_path(
-            "/Mode",
-            self.current_mode.value,
-            writeable=True,
-            onchangecallback=self.mode_callback,
-        )
-        self.service.add_path(
-            "/StartStop",
-            self.start_stop.value,
-            writeable=True,
-            onchangecallback=self.startstop_callback,
-        )
-        self.service.add_path(
-            "/SetCurrent",
-            self.intended_set_current,
-            writeable=True,
-            onchangecallback=self.set_current_callback,
-        )
-        self.service.add_path("/MaxCurrent", 32.0)
-        self.service.add_path(
-            "/AutoStart",
-            self.auto_start,
-            writeable=True,
-            onchangecallback=self.autostart_callback,
-        )
-        self.service.add_path("/ChargingTime", 0)
-        self.service.add_path("/Current", 0.0)
-        self.service.add_path("/Ac/Current", 0.0)
-        self.service.add_path("/Ac/Power", 0.0)
-        self.service.add_path("/Ac/Energy/Forward", 0.0)
-        self.service.add_path("/Ac/PhaseCount", 0)
-        self.service.add_path("/Position", 0, writeable=True)
-        self.service.add_path("/Ac/L1/Voltage", 0.0)
-        self.service.add_path("/Ac/L1/Current", 0.0)
-        self.service.add_path("/Ac/L1/Power", 0.0)
-        self.service.add_path("/Ac/L2/Voltage", 0.0)
-        self.service.add_path("/Ac/L2/Current", 0.0)
-        self.service.add_path("/Ac/L2/Power", 0.0)
-        self.service.add_path("/Ac/L3/Voltage", 0.0)
-        self.service.add_path("/Ac/L3/Current", 0.0)
-        self.service.add_path("/Ac/L3/Power", 0.0)
-        self.service.add_path(
-            "/Schedule/Enabled",
-            self.schedule_enabled,
-            writeable=True,
-            onchangecallback=self.schedule_enabled_callback,
-        )
-        self.service.add_path(
-            "/Schedule/Days",
-            self.schedule_days_mask,
-            writeable=True,
-            onchangecallback=self.schedule_days_callback,
-        )
-        self.service.add_path(
-            "/Schedule/Start",
-            self.schedule_start,
-            writeable=True,
-            onchangecallback=self.schedule_start_callback,
-        )
-        self.service.add_path(
-            "/Schedule/End",
-            self.schedule_end,
-            writeable=True,
-            onchangecallback=self.schedule_end_callback,
-        )
-        self.service.add_path(
-            "/LowSoc/Enabled",
-            self.low_soc_enabled,
-            writeable=True,
-            onchangecallback=self.low_soc_enabled_callback,
-        )
-        self.service.add_path(
-            "/LowSoc/Threshold",
-            self.low_soc_threshold,
-            writeable=True,
-            onchangecallback=self.low_soc_threshold_callback,
-        )
-        self.service.add_path(
-            "/LowSoc/Hysteresis",
-            self.low_soc_hysteresis,
-            writeable=True,
-            onchangecallback=self.low_soc_hysteresis_callback,
-        )
-        self.service.add_path("/LowSoc/Value", 0.0)
+        # Data-driven D-Bus paths
+        dbus_paths = [
+            {"path": "/Mgmt/ProcessName", "value": __file__},
+            {"path": "/Mgmt/ProcessVersion", "value": "1.4"},
+            {
+                "path": "/Mgmt/Connection",
+                "value": f"Modbus TCP at {modbus_config['ip']}",
+            },
+            {"path": "/DeviceInstance", "value": device_instance},
+            {"path": "/Connected", "value": 0},
+            {"path": "/ProductName", "value": "Alfen EV Charger"},
+            {"path": "/ProductId", "value": 0xA142},
+            {"path": "/FirmwareVersion", "value": "N/A"},
+            {"path": "/Serial", "value": "ALFEN-001"},
+            {"path": "/Status", "value": 0},
+            {
+                "path": "/Mode",
+                "value": self.current_mode.value,
+                "writeable": True,
+                "callback": self.mode_callback,
+            },
+            {
+                "path": "/StartStop",
+                "value": self.start_stop.value,
+                "writeable": True,
+                "callback": self.startstop_callback,
+            },
+            {
+                "path": "/SetCurrent",
+                "value": self.intended_set_current,
+                "writeable": True,
+                "callback": self.set_current_callback,
+            },
+            {"path": "/MaxCurrent", "value": 32.0},
+            {
+                "path": "/AutoStart",
+                "value": self.auto_start,
+                "writeable": True,
+                "callback": self.autostart_callback,
+            },
+            {"path": "/ChargingTime", "value": 0},
+            {"path": "/Current", "value": 0.0},
+            {"path": "/Ac/Current", "value": 0.0},
+            {"path": "/Ac/Power", "value": 0.0},
+            {"path": "/Ac/Energy/Forward", "value": 0.0},
+            {"path": "/Ac/PhaseCount", "value": 0},
+            {"path": "/Position", "value": 0, "writeable": True},
+            {"path": "/Ac/L1/Voltage", "value": 0.0},
+            {"path": "/Ac/L1/Current", "value": 0.0},
+            {"path": "/Ac/L1/Power", "value": 0.0},
+            {"path": "/Ac/L2/Voltage", "value": 0.0},
+            {"path": "/Ac/L2/Current", "value": 0.0},
+            {"path": "/Ac/L2/Power", "value": 0.0},
+            {"path": "/Ac/L3/Voltage", "value": 0.0},
+            {"path": "/Ac/L3/Current", "value": 0.0},
+            {"path": "/Ac/L3/Power", "value": 0.0},
+            {
+                "path": "/Schedule/Enabled",
+                "value": self.schedule_enabled,
+                "writeable": True,
+                "callback": self.schedule_enabled_callback,
+            },
+            {
+                "path": "/Schedule/Days",
+                "value": self.schedule_days_mask,
+                "writeable": True,
+                "callback": self.schedule_days_callback,
+            },
+            {
+                "path": "/Schedule/Start",
+                "value": self.schedule_start,
+                "writeable": True,
+                "callback": self.schedule_start_callback,
+            },
+            {
+                "path": "/Schedule/End",
+                "value": self.schedule_end,
+                "writeable": True,
+                "callback": self.schedule_end_callback,
+            },
+            {
+                "path": "/LowSoc/Enabled",
+                "value": self.low_soc_enabled,
+                "writeable": True,
+                "callback": self.low_soc_enabled_callback,
+            },
+            {
+                "path": "/LowSoc/Threshold",
+                "value": self.low_soc_threshold,
+                "writeable": True,
+                "callback": self.low_soc_threshold_callback,
+            },
+            {
+                "path": "/LowSoc/Hysteresis",
+                "value": self.low_soc_hysteresis,
+                "writeable": True,
+                "callback": self.low_soc_hysteresis_callback,
+            },
+            {"path": "/LowSoc/Value", "value": 0.0},
+            {"path": "/LowSoc/ActiveReason", "value": ""},
+        ]
+
+        for p in dbus_paths:
+            self.service.add_path(
+                p["path"],
+                p["value"],
+                writeable=p.get("writeable", False),
+                onchangecallback=p.get("callback", None),
+            )
 
         self.service.register()
 
@@ -347,7 +362,11 @@ class AlfenDriver:
         return minutes_now >= start_min or minutes_now < end_min
 
     def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from JSON file, falling back to defaults."""
+        """Load configuration from JSON file, falling back to defaults.
+
+        Returns:
+            Dict[str, Any]: The loaded or default configuration.
+        """
         if os.path.exists(CONFIG_PATH):
             try:
                 with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -456,12 +475,9 @@ class AlfenDriver:
         """Handle changes to the set current value from D-Bus."""
         try:
             requested = max(0.0, min(self.MAX_SET_CURRENT, float(value)))
-            if self.current_mode == EVC_MODE.MANUAL:
-                self._update_station_max_current()
-                max_allowed = max(0.0, float(self.station_max_current))
-                self.intended_set_current = min(requested, max_allowed)
-            else:
-                self.intended_set_current = requested
+            self._update_station_max_current()
+            max_allowed = max(0.0, float(self.station_max_current))
+            self.intended_set_current = min(requested, max_allowed)
             self.service["/SetCurrent"] = round(self.intended_set_current, 1)
             self.logger.info(
                 f"GUI request to set intended current to {self.intended_set_current:.2f} A"
@@ -734,6 +750,187 @@ class AlfenDriver:
         )
         self.service["/Ac/PhaseCount"] = rr_ph.registers[0]
 
+    def _fetch_data(self) -> None:
+        """Fetch raw data from Modbus."""
+        # Fetch voltages, currents, power, phases, energy, status, etc.
+        self.rr_v = self.client.read_holding_registers(
+            self.config["registers"]["voltages"],
+            6,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
+        self.rr_c = self.client.read_holding_registers(
+            self.config["registers"]["currents"],
+            6,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
+        self.rr_p = self.client.read_holding_registers(
+            self.config["registers"]["power"],
+            2,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
+        self.rr_ph = self.client.read_holding_registers(
+            self.config["registers"]["phases"],
+            1,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
+        self.rr_e = self.client.read_holding_registers(
+            self.config["registers"]["energy"],
+            4,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
+        self.rr_status = self.client.read_holding_registers(
+            self.config["registers"]["status"],
+            5,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
+
+    def _apply_logic(self) -> None:
+        """Apply business logic to fetched data."""
+        # Status logic
+        if self.rr_status.isError():
+            raise ConnectionError("Modbus error reading status")
+        status_str = (
+            "".join(
+                [chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in self.rr_status.registers]
+            )
+            .strip("\x00 ")
+            .upper()
+        )
+        if status_str in ("C2", "D2"):
+            raw_status = 2
+        elif status_str in ("B1", "B2", "C1", "D1"):
+            raw_status = 1
+        else:
+            raw_status = 0
+
+        old_victron_status = self.service["/Status"]
+        connected = raw_status >= 1
+        was_disconnected = old_victron_status == 0
+        now_connected = connected
+
+        new_victron_status = raw_status
+        if (
+            self.current_mode == EVC_MODE.MANUAL
+            and connected
+            and self.auto_start == 0
+            and self.start_stop == EVC_CHARGE.DISABLED
+        ):
+            new_victron_status = 6
+        if self.current_mode == EVC_MODE.AUTO and connected:
+            if self.start_stop == EVC_CHARGE.DISABLED:
+                new_victron_status = 6
+            elif self.intended_set_current <= self.MIN_CHARGING_CURRENT:
+                new_victron_status = 4
+        if self.current_mode == EVC_MODE.SCHEDULED and connected:
+            if not self._is_within_schedule(time.time()):
+                new_victron_status = 6
+
+        battery_soc_value = self._read_battery_soc()
+        if battery_soc_value is not None and not math.isnan(battery_soc_value):
+            battery_soc_value = float(battery_soc_value)
+        else:
+            battery_soc_value = None
+
+        if self.low_soc_enabled and battery_soc_value is not None:
+            if self.low_soc_active:
+                if battery_soc_value >= (
+                    self.low_soc_threshold + self.low_soc_hysteresis
+                ):
+                    self.low_soc_active = False
+            else:
+                if battery_soc_value <= self.low_soc_threshold:
+                    self.low_soc_active = True
+            if self.low_soc_active and connected:
+                new_victron_status = 7
+
+        self.service["/Status"] = new_victron_status
+
+        # Auto-start logic
+        if (
+            now_connected
+            and was_disconnected
+            and self.auto_start == 1
+            and self.start_stop == EVC_CHARGE.DISABLED
+        ):
+            self.start_stop = EVC_CHARGE.ENABLED
+            self._persist_config_to_disk()
+            self.logger.info(
+                f"Auto-start triggered: Set StartStop to ENABLED (mode: {self.current_mode.name})"
+            )
+            target = self._compute_effective_current(time.time())
+            if self._set_current(target, force_verify=True):
+                self.last_current_set_time = time.time()
+                self.last_sent_current = target
+                self.logger.info(f"Auto-start applied current: {target:.2f} A")
+
+        # Energy and charging time logic
+        total_energy_kwh = (
+            BinaryPayloadDecoder.fromRegisters(
+                self.rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+            ).decode_64bit_float()
+            / 1000.0
+        )
+
+        if new_victron_status == 2 and old_victron_status != 2:
+            self.charging_start_time = time.time()
+            self.session_start_energy_kwh = total_energy_kwh
+        elif new_victron_status != 2:
+            self.charging_start_time = 0
+            self.session_start_energy_kwh = 0
+
+        self.service["/ChargingTime"] = (
+            time.time() - self.charging_start_time
+            if self.charging_start_time > 0
+            else 0
+        )
+
+        if self.session_start_energy_kwh > 0:
+            session_energy = total_energy_kwh - self.session_start_energy_kwh
+            self.service["/Ac/Energy/Forward"] = round(
+                session_energy if not math.isnan(session_energy) else 0, 3
+            )
+        else:
+            self.service["/Ac/Energy/Forward"] = 0.0
+
+    def _update_dbus(self) -> None:
+        """Update D-Bus paths with processed data."""
+        decoder_v = BinaryPayloadDecoder.fromRegisters(
+            self.rr_v.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+        )
+        v1, v2, v3 = (
+            decoder_v.decode_32bit_float(),
+            decoder_v.decode_32bit_float(),
+            decoder_v.decode_32bit_float(),
+        )
+        self.service["/Ac/L1/Voltage"] = round(v1 if not math.isnan(v1) else 0, 2)
+        self.service["/Ac/L2/Voltage"] = round(v2 if not math.isnan(v2) else 0, 2)
+        self.service["/Ac/L3/Voltage"] = round(v3 if not math.isnan(v3) else 0, 2)
+
+        decoder_c = BinaryPayloadDecoder.fromRegisters(
+            self.rr_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+        )
+        i1, i2, i3 = (
+            decoder_c.decode_32bit_float(),
+            decoder_c.decode_32bit_float(),
+            decoder_c.decode_32bit_float(),
+        )
+        self.service["/Ac/L1/Current"] = round(i1 if not math.isnan(i1) else 0, 2)
+        self.service["/Ac/L2/Current"] = round(i2 if not math.isnan(i2) else 0, 2)
+        self.service["/Ac/L3/Current"] = round(i3 if not math.isnan(i3) else 0, 2)
+        current_a = round(max(i1, i2, i3), 2)
+        self.service["/Ac/Current"] = current_a
+        self.service["/Current"] = current_a
+        self.service["/Ac/L1/Power"] = round(v1 * i1, 2)
+        self.service["/Ac/L2/Power"] = round(v2 * i2, 2)
+        self.service["/Ac/L3/Power"] = round(v3 * i3, 2)
+
+        power = BinaryPayloadDecoder.fromRegisters(
+            self.rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+        ).decode_32bit_float()
+        self.service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
+
+        self.service["/Ac/PhaseCount"] = self.rr_ph.registers[0]
+
     def poll(self) -> bool:
         """Poll the Modbus device for updates and apply logic."""
         try:
@@ -752,18 +949,22 @@ class AlfenDriver:
                 self._read_station_serial()
                 self._read_product_name()
 
-            self._update_status_and_apply_logic()
-            self._update_energy_and_charging_time()
+            self._fetch_data()
+            self._apply_logic()
             self._update_station_max_current()
             if self.current_mode == EVC_MODE.MANUAL:
                 self._clamp_intended_current_to_max()
-            self._update_ac_measurements()
+            self._update_dbus()
             self._set_effective_current()
 
             self.service["/Connected"] = 1
             self.logger.debug("Poll completed successfully")
 
-        except (ModbusException, ConnectionError) as e:
+        except ModbusException as e:
+            self.logger.error(f"Poll error: {e}. The connection will be retried.")
+            self.client.close()
+            self.service["/Connected"] = 0
+        except ConnectionError as e:
             self.logger.error(f"Poll error: {e}. The connection will be retried.")
             self.client.close()
             self.service["/Connected"] = 0
@@ -984,72 +1185,53 @@ class AlfenDriver:
                     f"Set effective current to {effective_current:.2f} A (mode: {self.current_mode.name}, intended: {self.intended_set_current:.2f})"
                 )
 
-    def _read_firmware_version(self) -> None:
+    def _read_modbus_string(self, register: int, count: int, slave: int) -> str:
+        """Read a string from Modbus holding registers."""
         try:
-            rr_fw = self.client.read_holding_registers(
-                self.config["registers"]["firmware_version"],
-                self.config["registers"]["firmware_version_count"],
-                slave=self.config["modbus"]["station_slave_id"],
-            )
-            fw_regs = rr_fw.registers if hasattr(rr_fw, "registers") else []
-            bytes_fw = []
-            for reg in fw_regs:
-                bytes_fw.append((reg >> 8) & 0xFF)
-                bytes_fw.append(reg & 0xFF)
-            fw_str = "".join(chr(b) for b in bytes_fw).strip("\x00 ")
-            self.service["/FirmwareVersion"] = fw_str
+            rr = self.client.read_holding_registers(register, count, slave=slave)
+            regs = rr.registers if hasattr(rr, "registers") else []
+            bytes_list = []
+            for reg in regs:
+                bytes_list.append((reg >> 8) & 0xFF)
+                bytes_list.append(reg & 0xFF)
+            return "".join(chr(b) for b in bytes_list).strip("\x00 ")
         except ModbusException as e:
-            self.logger.debug(f"FirmwareVersion read failed: {e}")
+            self.logger.debug(f"Modbus string read failed: {e}")
+            return "N/A"
+
+    def _read_firmware_version(self) -> None:
+        fw_str = self._read_modbus_string(
+            self.config["registers"]["firmware_version"],
+            self.config["registers"]["firmware_version_count"],
+            self.config["modbus"]["station_slave_id"],
+        )
+        self.service["/FirmwareVersion"] = fw_str
 
     def _read_station_serial(self) -> None:
-        try:
-            rr_sn = self.client.read_holding_registers(
-                self.config["registers"]["station_serial"],
-                self.config["registers"]["station_serial_count"],
-                slave=self.config["modbus"]["station_slave_id"],
-            )
-            sn_regs = rr_sn.registers if hasattr(rr_sn, "registers") else []
-            bytes_sn = []
-            for reg in sn_regs:
-                bytes_sn.append((reg >> 8) & 0xFF)
-                bytes_sn.append(reg & 0xFF)
-            sn_str = "".join(chr(b) for b in bytes_sn).strip("\x00 ")
-            self.service["/Serial"] = sn_str
-        except ModbusException as e:
-            self.logger.debug(f"Serial read failed: {e}")
+        sn_str = self._read_modbus_string(
+            self.config["registers"]["station_serial"],
+            self.config["registers"]["station_serial_count"],
+            self.config["modbus"]["station_slave_id"],
+        )
+        self.service["/Serial"] = sn_str
 
     def _read_product_name(self) -> None:
-        try:
-            rr_mfg = self.client.read_holding_registers(
-                self.config["registers"]["manufacturer"],
-                self.config["registers"]["manufacturer_count"],
-                slave=self.config["modbus"]["station_slave_id"],
-            )
-            mfg_regs = rr_mfg.registers if hasattr(rr_mfg, "registers") else []
-            bytes_mfg = []
-            for reg in mfg_regs:
-                bytes_mfg.append((reg >> 8) & 0xFF)
-                bytes_mfg.append(reg & 0xFF)
-            mfg_str = "".join(chr(b) for b in bytes_mfg).strip("\x00 ")
-
-            rr_pt = self.client.read_holding_registers(
-                self.config["registers"]["platform_type"],
-                self.config["registers"]["platform_type_count"],
-                slave=self.config["modbus"]["station_slave_id"],
-            )
-            pt_regs = rr_pt.registers if hasattr(rr_pt, "registers") else []
-            bytes_pt = []
-            for reg in pt_regs:
-                bytes_pt.append((reg >> 8) & 0xFF)
-                bytes_pt.append(reg & 0xFF)
-            pt_str = "".join(chr(b) for b in bytes_pt).strip("\x00 ")
-
-            self.service["/ProductName"] = f"{mfg_str} {pt_str}"
-        except ModbusException as e:
-            self.logger.debug(f"ProductName creation failed: {e}")
+        mfg_str = self._read_modbus_string(
+            self.config["registers"]["manufacturer"],
+            self.config["registers"]["manufacturer_count"],
+            self.config["modbus"]["station_slave_id"],
+        )
+        pt_str = self._read_modbus_string(
+            self.config["registers"]["platform_type"],
+            self.config["registers"]["platform_type_count"],
+            self.config["modbus"]["station_slave_id"],
+        )
+        self.service["/ProductName"] = f"{mfg_str} {pt_str}"
 
     def run(self) -> None:
-        GLib.timeout_add(1000, self.poll)
+        GLib.timeout_add(
+            self.config.get("poll_interval_ms", self.POLL_INTERVAL_MS), self.poll
+        )
         mainloop = GLib.MainLoop()
         mainloop.run()
 
@@ -1057,10 +1239,10 @@ class AlfenDriver:
 def main() -> None:
     DBusGMainLoop(set_as_default=True)
     logging.basicConfig(
-        level=logging.INFO,
+        level=self.config["logging"]["level"],
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
-            logging.FileHandler("/var/log/alfen_driver.log"),
+            logging.FileHandler(self.config["logging"]["file"]),
             logging.StreamHandler(sys.stdout),
         ],
     )
