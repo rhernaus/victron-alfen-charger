@@ -31,7 +31,6 @@ def register_dbus_service(
     startstop_callback: callable,
     set_current_callback: callable,
     autostart_callback: callable,
-    schedule_callback: callable,
 ) -> VeDbusService:
     service = VeDbusService(service_name, register=False)
     modbus_config = config.modbus
