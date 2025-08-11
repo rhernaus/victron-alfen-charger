@@ -531,6 +531,12 @@ class AlfenDriver:
         """
         Apply control actions like setting effective current.
         """
+        # Calculate current ev_power from service
+        ev_power = (
+            self.service["/Ac/L1/Power"]
+            + self.service["/Ac/L2/Power"]
+            + self.service["/Ac/L3/Power"]
+        )
         self.last_sent_current, self.last_current_set_time = set_effective_current(
             self.client,
             self.config,
@@ -542,6 +548,7 @@ class AlfenDriver:
             self.last_current_set_time,
             self.schedules,
             self.logger,
+            ev_power,  # Pass local ev_power
         )
 
     def poll(self) -> bool:

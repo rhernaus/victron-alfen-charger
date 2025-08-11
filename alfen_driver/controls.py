@@ -91,6 +91,7 @@ def set_effective_current(
     last_current_set_time: float,
     schedules: list[ScheduleItem],
     logger: logging.Logger,
+    ev_power: float = 0.0,  # New parameter for local EV power
     force: bool = False,
 ) -> tuple[float, float]:
     """
@@ -98,6 +99,7 @@ def set_effective_current(
 
     Parameters:
         force: If True, force update regardless of thresholds.
+        ev_power: Total power of the EV charger for excess calculation.
     """
     now = time.time()
     effective_current = compute_effective_current(
@@ -107,6 +109,7 @@ def set_effective_current(
         station_max_current,
         now,
         schedules,
+        ev_power,  # Pass to compute
     )
     if effective_current < 0:
         effective_current = 0.0

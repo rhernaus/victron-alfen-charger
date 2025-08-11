@@ -3,9 +3,8 @@ import time
 from typing import Any
 
 import dbus
-from dbus.exceptions import DBusException
 
-from .config import Config, ScheduleItem, load_config, parse_hhmm_to_minutes
+from .config import Config, ScheduleItem, parse_hhmm_to_minutes
 from .dbus_utils import EVC_CHARGE, EVC_MODE, get_current_ess_strategy
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
@@ -59,7 +58,7 @@ def is_within_any_schedule(
     return False
 
 
-def get_excess_solar_current() -> float:
+def get_excess_solar_current(ev_power: float = 0.0) -> float:
     global _config
     try:
         bus = dbus.SystemBus()
@@ -75,43 +74,6 @@ def get_excess_solar_current() -> float:
             + all_values.get("Ac/Consumption/L2/Power", 0.0)
             + all_values.get("Ac/Consumption/L3/Power", 0.0)
         )
-        # Subtract EV charger power dynamically with retry
-        if _config is None:
-            _config = load_config(logging.getLogger(__name__))
-        service_name = f"com.victronenergy.evcharger.alfen_{_config.device_instance}"
-        # Check if service exists to avoid NoReply during startup
-        dbus_obj = bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus")
-        retries = 3
-        for attempt in range(retries):
-            if not dbus_obj.NameHasOwner(service_name):
-                if attempt < retries - 1:
-                    time.sleep(1)  # Wait and retry
-                    continue
-                logging.warning(
-                    f"Service {service_name} not ready after retries, assuming 0 EV power"
-                )
-                ev_power = 0.0
-                break
-            else:
-                try:
-                    ev_obj = bus.get_object(service_name, "/")
-                    ev_values = ev_obj.GetValue()
-                    ev_power = (
-                        ev_values.get("Ac/L1/Power", 0.0)
-                        + ev_values.get("Ac/L2/Power", 0.0)
-                        + ev_values.get("Ac/L3/Power", 0.0)
-                    )
-                    break
-                except DBusException as e:
-                    if "NoReply" in str(e) or "Introspect" in str(e):
-                        if attempt < retries - 1:
-                            logging.debug(f"Retry {attempt+1} for DBus error: {e}")
-                            time.sleep(1)
-                            continue
-                        logging.warning("DBus error after retries, assuming 0 power")
-                        ev_power = 0.0
-                    else:
-                        raise
         adjusted_consumption = consumption - ev_power
         battery_power = all_values.get(
             "Dc/Battery/Power", 0.0
@@ -133,6 +95,7 @@ def compute_effective_current(
     station_max_current: float,
     now: float,
     schedules: list[ScheduleItem],
+    ev_power: float = 0.0,  # New parameter
 ) -> float:
     effective = 0.0
     if current_mode == EVC_MODE.MANUAL:
@@ -147,7 +110,7 @@ def compute_effective_current(
             elif strategy == "selling":
                 effective = 0.0  # Disable
             else:
-                effective = get_excess_solar_current()  # Excess solar
+                effective = get_excess_solar_current(ev_power)  # Pass ev_power
     elif current_mode == EVC_MODE.SCHEDULED:
         effective = (
             intended_set_current if is_within_any_schedule(schedules, now) else 0.0
