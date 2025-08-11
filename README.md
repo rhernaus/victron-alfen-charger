@@ -119,44 +119,13 @@ Victron GX devices run Venus OS, a Linux-based system. You'll need SSH access en
    Check for errors and ensure it connects to the charger and publishes to DBus.
 
 8. Set up as a persistent service:
-   - Option 1: Add to `/data/rc.local` (create if it doesn't exist):
+   - Add to `/data/rc.local` (create if it doesn't exist):
      ```bash
      echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local
      chmod +x /data/rc.local
      ```
-   - Option 2: Create a systemd service (advanced):
-     Create `/etc/systemd/system/alfen-driver.service`:
 
-     ```ini
-     [Unit]
-     Description=Alfen EV Charger Driver
-     After=multi-user.target
-
-     [Service]
-     ExecStart=/data/victron-alfen-charger/main.py
-     Restart=always
-
-     [Install]
-     WantedBy=multi-user.target
-     ```
-
-     Then:
-
-     ```bash
-     systemctl daemon-reload
-     systemctl enable alfen-driver.service
-     systemctl start alfen-driver.service
-     ```
-
-9. Reboot the GX device:
-
-   ```bash
-   reboot
-   ```
-
-10. Verify in the Victron interface: The charger should appear under Devices as "Alfen Eve Pro Line".
-
-If issues arise, check logs with `systemctl status alfen-driver` (if using systemd) or debug manually.
+If issues arise, check logs with `tail -f /var/log/alfen_driver.log` or debug manually.
 
 ## Notes
 
@@ -219,5 +188,5 @@ Common issues and fixes:
 - **General Debugging**:
   - Check logs: tail -f /var/log/alfen_driver.log
   - Test Modbus: Run test_modbus.py on a PC to verify communication.
-  - Restart: systemctl restart alfen-driver (if using systemd) or reboot the GX.
+  - Restart: kill the running process and restart manually, or reboot the GX.
   - If issues persist, enable DEBUG logging in alfen_driver_config.yaml and share logs.
