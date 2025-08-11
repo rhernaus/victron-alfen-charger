@@ -40,8 +40,8 @@ schedules:
   # Default schedule: 12:00-15:00 every day (days_mask=127 sums 1+2+4+8+16+32+64 for Sun-Sat). This is normally the cheapest hours with dynamic tariffs.
   - enabled: 1 # 1 to enable this schedule, 0 to disable
     days_mask: 127 # Bitmask for days (Sun=1, Mon=2, ..., Sat=64; sum for multiple)
-    start: 12:00 # Start time in HH:MM (24h format)
-    end: 15:00 # End time in HH:MM
+    start: "12:00" # Start time in HH:MM (24h format)
+    end: "15:00" # End time in HH:MM
 # You can add up to 2 more schedules like the above
 
 controls:
