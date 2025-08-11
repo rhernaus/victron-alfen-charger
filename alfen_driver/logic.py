@@ -188,6 +188,7 @@ def apply_mode_specific_status(
     intended_set_current: float,
     schedules: list[ScheduleItem],
     new_victron_status: int,
+    timezone: str,
 ) -> int:
     """Adjust Victron status based on mode, auto-start, schedule, and low SOC."""
     if (
@@ -203,7 +204,7 @@ def apply_mode_specific_status(
         elif intended_set_current <= MIN_CHARGING_CURRENT:
             new_victron_status = 4  # Low current
     if current_mode == EVC_MODE.SCHEDULED and connected:
-        if not is_within_any_schedule(schedules, time.time()):
+        if not is_within_any_schedule(schedules, time.time(), timezone):
             new_victron_status = 6
 
     return new_victron_status
@@ -302,6 +303,7 @@ def process_status_and_energy(
     set_current: callable,
     persist_config_to_disk: callable,
     logger: logging.Logger,
+    timezone: str,
 ) -> tuple[float, float, bool]:
     raw_status = map_alfen_status(client, config)
 
@@ -320,6 +322,7 @@ def process_status_and_energy(
         intended_set_current,
         schedules,
         new_victron_status,
+        timezone,
     )
 
     service["/Status"] = new_victron_status

@@ -471,6 +471,7 @@ class AlfenDriver:
                 ),
                 lambda: self._persist_config(),
                 self.logger,
+                self.config.timezone,
             )
         )
         if self.max_current_update_counter % 10 == 0:
