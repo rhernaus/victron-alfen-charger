@@ -610,9 +610,9 @@ class AlfenDriver:
         """
         Main polling loop.
         """
-        if not self.client.is_socket_open():
-            reconnect(self.client, self.logger)
         try:
+            if not self.client.is_socket_open():
+                reconnect(self.client, self.logger)
             raw_data = self.fetch_raw_data()
             self.process_logic()
             self.update_dbus_paths(raw_data)
@@ -623,10 +623,10 @@ class AlfenDriver:
             self.logger.error(f"Modbus error during poll: {e}")
             self.service["/Connected"] = 0
             reconnect(self.client, self.logger)
-            return False
+            return True  # Changed to True to continue polling
         except Exception as e:
             self.logger.error(f"Unexpected error during poll: {e}")
-            return False
+            return True  # Changed to True to continue polling
 
     def run(self) -> None:
         """
