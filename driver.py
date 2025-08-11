@@ -96,9 +96,21 @@ class AlfenDriver:
 
     def __init__(self):
         """Initialize the AlfenDriver with default values and setup."""
+
+        # Initialize default logging before config load
+        logging.basicConfig(
+            level=logging.INFO,  # Default level
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[
+                logging.FileHandler("/var/log/alfen_driver.log"),  # Default file
+                logging.StreamHandler(sys.stdout),
+            ],
+        )
+        self.logger: logging.Logger = logging.getLogger("alfen_driver")
+
         self.config: Dict[str, Any] = self._load_config()
 
-        # Set up logging after config is loaded
+        # Reconfigure logging with loaded config values
         logging.basicConfig(
             level=self.config["logging"]["level"],
             format="%(asctime)s [%(levelname)s] %(message)s",
@@ -106,8 +118,8 @@ class AlfenDriver:
                 logging.FileHandler(self.config["logging"]["file"]),
                 logging.StreamHandler(sys.stdout),
             ],
+            force=True,  # Force reconfiguration
         )
-        self.logger: logging.Logger = logging.getLogger("alfen_driver")
 
         self.charging_start_time: float = 0
         self.last_current_set_time: float = 0
