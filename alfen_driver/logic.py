@@ -7,9 +7,8 @@ from typing import Any
 import dbus
 import pytz
 
-from ..reference.ev_charger import EVC_STATUS
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
-from .dbus_utils import EVC_CHARGE, EVC_MODE, get_current_ess_strategy
+from .dbus_utils import EVC_CHARGE, EVC_MODE, EVC_STATUS, get_current_ess_strategy
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
 MIN_CHARGING_CURRENT: float = 0.1

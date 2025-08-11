@@ -19,6 +19,16 @@ class EVC_CHARGE(enum.IntEnum):
     ENABLED = 1
 
 
+class EVC_STATUS(enum.IntEnum):
+    DISCONNECTED = 0
+    CONNECTED = 1
+    CHARGING = 2
+    CHARGED = 3
+    WAIT_SUN = 4
+    WAIT_START = 6
+    LOW_SOC = 7
+
+
 def register_dbus_service(
     service_name: str,
     config: Config,
