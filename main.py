@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from dbus.mainloop.glib import DBusGMainLoop
 
 from alfen_driver.driver import AlfenDriver
