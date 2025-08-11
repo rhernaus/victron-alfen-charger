@@ -131,8 +131,6 @@ def set_effective_current(
             log_message = (
                 f"Set effective current to {effective_current:.2f} A (mode: {mode_name}"
             )
-            if current_mode == EVC_MODE.MANUAL:
-                log_message += f", intended: {intended_set_current:.2f}"
             log_message += f"). Calculation: {explanation}"
             logger.info(log_message)
     else:
@@ -140,25 +138,6 @@ def set_effective_current(
             f"No update needed for effective current (current: {last_sent_current:.2f}A, proposed: {effective_current:.2f}A). Calculation: {explanation}"
         )
     return last_sent_current, last_current_set_time
-
-
-def clamp_intended_current_to_max(
-    intended_set_current: float,
-    station_max_current: float,
-    service: Any,
-    persist_config_to_disk: callable,
-    logger: logging.Logger,
-) -> float:
-    """Clamp the intended set current to the station max in MANUAL mode."""
-    max_allowed = max(0.0, float(station_max_current))
-    if intended_set_current > max_allowed + CLAMP_EPSILON:
-        intended_set_current = max_allowed
-        service["/SetCurrent"] = round(intended_set_current, 1)
-        persist_config_to_disk()
-        logger.info(
-            f"Clamped DBus /SetCurrent to station max: {intended_set_current:.1f} A (MANUAL mode)"
-        )
-    return intended_set_current
 
 
 def update_station_max_current(

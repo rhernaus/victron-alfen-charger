@@ -261,35 +261,26 @@ class AlfenDriver:
             self._persist_config()
             now = time.time()
             if self.current_mode.value == EVC_MODE.MANUAL.value:
-                if self.intended_set_current.value > self.station_max_current:
-                    self.intended_set_current.value = self.station_max_current
-                    self.service["/SetCurrent"] = round(
-                        self.intended_set_current.value, 1
-                    )
-                    self._persist_config()
-                    self.logger.info(
-                        f"Clamped /SetCurrent to station max: {self.intended_set_current.value:.1f} A (on MANUAL mode)"
-                    )
-            effective_current, explanation = compute_effective_current(
-                self.current_mode.value,
-                self.start_stop.value,
-                self.intended_set_current.value,
-                self.station_max_current,
-                now,
-                self.schedules,
-            )
-            if set_current(
-                self.client,
-                self.config,
-                effective_current,
-                self.station_max_current,
-                force_verify=True,
-            ):
-                self.last_current_set_time = now
-                self.last_sent_current = effective_current
-                self.logger.debug(
-                    f"Immediate Mode change applied current: {effective_current:.2f} A (mode={EVC_MODE(self.current_mode.value).name}). Calculation: {explanation}"
+                effective_current, explanation = compute_effective_current(
+                    self.current_mode.value,
+                    self.start_stop.value,
+                    self.intended_set_current.value,
+                    self.station_max_current,
+                    now,
+                    self.schedules,
                 )
+                if set_current(
+                    self.client,
+                    self.config,
+                    effective_current,
+                    self.station_max_current,
+                    force_verify=True,
+                ):
+                    self.last_current_set_time = now
+                    self.last_sent_current = effective_current
+                    self.logger.debug(
+                        f"Immediate Mode change applied current: {effective_current:.2f} A (mode={EVC_MODE(self.current_mode.value).name}). Calculation: {explanation}"
+                    )
             self.logger.info(
                 f"Mode changed to {EVC_MODE(self.current_mode.value).name}"
             )
@@ -338,30 +329,36 @@ class AlfenDriver:
                 self.config.defaults,
                 self.logger,
             )
-            max_allowed = max(0.0, float(self.station_max_current))
-            self.intended_set_current.value = min(requested, max_allowed)
+            self.intended_set_current.value = requested
             self.service["/SetCurrent"] = round(self.intended_set_current.value, 1)
             self.logger.info(
-                f"GUI request to set intended current to {self.intended_set_current.value:.2f} A"
+                f"GUI request to set intended current to {requested:.2f} A"
             )
             self._persist_config()
 
             if self.current_mode.value == EVC_MODE.MANUAL.value:
-                target = (
-                    self.intended_set_current.value
-                    if self.start_stop.value == EVC_CHARGE.ENABLED.value
-                    else 0.0
+                effective_current, explanation = compute_effective_current(
+                    self.current_mode.value,
+                    self.start_stop.value,
+                    self.intended_set_current.value,
+                    self.station_max_current,
+                    time.time(),
+                    self.schedules,
                 )
-                if target > self.station_max_current:
-                    target = self.station_max_current
                 if set_current(
-                    self.client, self.config, target, self.station_max_current
+                    self.client,
+                    self.config,
+                    effective_current,
+                    self.station_max_current,
+                    force_verify=True,
                 ):
                     self.last_current_set_time = time.time()
-                    self.last_sent_current = target
-                    self.logger.info(
-                        f"Immediate SetCurrent applied: {target:.2f} A (MANUAL)"
-                    )
+                    self.last_sent_current = effective_current
+                    log_msg = f"Immediate SetCurrent applied: {effective_current:.2f} A (MANUAL)"
+                    if not math.isclose(effective_current, requested, abs_tol=0.01):
+                        log_msg += f" (clamped from requested {requested:.2f} A)"
+                    log_msg += f". Calculation: {explanation}"
+                    self.logger.info(log_msg)
             self.logger.info(
                 f"SetCurrent changed to {self.intended_set_current.value:.2f} A"
             )
@@ -487,14 +484,6 @@ class AlfenDriver:
                 self.logger,
             )
         self.max_current_update_counter += 1
-        if self.current_mode.value == EVC_MODE.MANUAL.value:
-            self.intended_set_current.value = clamp_intended_current_to_max(
-                self.intended_set_current.value,
-                self.station_max_current,
-                self.service,
-                lambda: self._persist_config(),
-                self.logger,
-            )
 
     def update_dbus_paths(self, raw_data: Dict[str, List[int]]) -> None:
         """
