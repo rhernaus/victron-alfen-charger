@@ -454,7 +454,7 @@ class AlfenDriver:
         """
         Process business logic including status, energy, max current, and clamping.
         """
-        self.charging_start_time, self.session_start_energy_kwh = (
+        self.charging_start_time, self.session_start_energy_kwh, self.just_connected = (
             process_status_and_energy(
                 self.client,
                 self.config,
