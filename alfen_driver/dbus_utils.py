@@ -18,7 +18,7 @@ class EVC_CHARGE(enum.IntEnum):
 
 def register_dbus_service(
     service_name: str,
-    config: dict,
+    config: Config,
     current_mode: EVC_MODE,
     start_stop: EVC_CHARGE,
     auto_start: int,
@@ -31,14 +31,14 @@ def register_dbus_service(
     schedule_callback: callable,
 ) -> VeDbusService:
     service = VeDbusService(service_name, register=False)
-    modbus_config = config["modbus"]
-    device_instance = config["device_instance"]
+    modbus_config = config.modbus
+    device_instance = config.device_instance
     dbus_paths = [
         {"path": "/Mgmt/ProcessName", "value": __file__},
         {"path": "/Mgmt/ProcessVersion", "value": "1.4"},
         {
             "path": "/Mgmt/Connection",
-            "value": f"Modbus TCP at {modbus_config['ip']}",
+            "value": f"Modbus TCP at {modbus_config.ip}",
         },
         {"path": "/DeviceInstance", "value": device_instance},
         {"path": "/Connected", "value": 0},

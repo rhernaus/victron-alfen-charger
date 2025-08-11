@@ -209,19 +209,9 @@ def load_config(logger: logging.Logger) -> Config:
     return DEFAULT_CONFIG
 
 
-def parse_hhmm_to_minutes(timestr: str) -> int:
-    """
-    Parse HH:MM string to minutes since midnight.
-
-    Parameters:
-        timestr: The time string in HH:MM format.
-
-    Returns:
-        Minutes since midnight, or 0 if invalid.
-
-    Raises:
-        ValueError: If parsing fails (caught and returns 0).
-    """
+def parse_hhmm_to_minutes(timestr: Any) -> int:
+    if not isinstance(timestr, str):
+        return 0
     try:
         parts = timestr.strip().split(":")
         if len(parts) != 2:
