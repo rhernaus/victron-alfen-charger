@@ -18,6 +18,7 @@ from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 from pymodbus.client import ModbusTcpClient
 from pymodbus.constants import Endian
+from pymodbus.exceptions import ModbusException
 from pymodbus.payload import BinaryPayloadBuilder, BinaryPayloadDecoder
 from vedbus import VeDbusService
 
@@ -38,70 +39,102 @@ class EVC_CHARGE(enum.IntEnum):
     ENABLED = 1
 
 
-# --- Configuration ---
-ALFEN_IP: str = "10.128.0.64"
-ALFEN_PORT: int = 502
-SOCKET_SLAVE_ID: int = 1
-STATION_SLAVE_ID: int = 200
-DEVICE_INSTANCE: int = 0
+# --- Configuration File Path ---
+CONFIG_PATH: str = os.path.join(os.path.dirname(__file__), "alfen_driver_config.json")
 
-# --- Modbus Registers ---
-REG_VOLTAGES: int = 306
-REG_CURRENTS: int = 320
-REG_POWER: int = 344
-REG_ENERGY: int = 374
-REG_STATUS: int = 1201
-REG_AMPS_CONFIG: int = 1210
-REG_PHASES: int = 1215
-REG_FIRMWARE_VERSION: int = 123
-REG_FIRMWARE_VERSION_COUNT: int = 17
-REG_STATION_SERIAL: int = 157
-REG_STATION_SERIAL_COUNT: int = 11
-REG_MANUFACTURER: int = 117
-REG_MANUFACTURER_COUNT: int = 5
-REG_PLATFORM_TYPE: int = 140
-REG_PLATFORM_TYPE_COUNT: int = 17
-# Station Active Max Current (FLOAT32, read-only)
-REG_STATION_MAX_CURRENT: int = 1100
+# --- Default Configuration (fallback if file is missing or invalid) ---
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "modbus": {
+        "ip": "10.128.0.64",
+        "port": 502,
+        "socket_slave_id": 1,
+        "station_slave_id": 200,
+    },
+    "device_instance": 0,
+    "registers": {
+        "voltages": 306,
+        "currents": 320,
+        "power": 344,
+        "energy": 374,
+        "status": 1201,
+        "amps_config": 1210,
+        "phases": 1215,
+        "firmware_version": 123,
+        "firmware_version_count": 17,
+        "station_serial": 157,
+        "station_serial_count": 11,
+        "manufacturer": 117,
+        "manufacturer_count": 5,
+        "platform_type": 140,
+        "platform_type_count": 17,
+        "station_max_current": 1100,
+    },
+    "defaults": {"intended_set_current": 6.0, "station_max_current": 32.0},
+    "logging": {"level": "INFO", "file": "/var/log/alfen_driver.log"},
+    "schedule": {"enabled": 0, "days_mask": 0, "start": "00:00", "end": "00:00"},
+    "low_soc": {
+        "enabled": 0,
+        "threshold": 20.0,
+        "hysteresis": 2.0,
+        "battery_soc_dbus_path": "/Dc/Battery/Soc",
+    },
+}
 
 
 class AlfenDriver:
     WATCHDOG_INTERVAL_SECONDS: int = 30
+    MAX_SET_CURRENT: float = 64.0
+    CURRENT_TOLERANCE: float = 0.25
+    CLAMP_EPSILON: float = 1e-6
+    MIN_CHARGING_CURRENT: float = 0.1
+    UPDATE_DIFFERENCE_THRESHOLD: float = 0.1
+    VERIFICATION_DELAY: float = 0.1
+    RETRY_DELAY: float = 0.5
+    MAX_RETRIES: int = 3
 
     def __init__(self):
         """Initialize the AlfenDriver with default values and setup."""
+        self.config: Dict[str, Any] = self._load_config()
         self.charging_start_time: float = 0
         self.last_current_set_time: float = 0
         self.session_start_energy_kwh: float = 0
-        self.intended_set_current: float = 6.0
+        self.intended_set_current: float = self.config["defaults"][
+            "intended_set_current"
+        ]
         self.current_mode: EVC_MODE = EVC_MODE.AUTO
         self.start_stop: EVC_CHARGE = EVC_CHARGE.DISABLED
         self.auto_start: int = 1
         self.last_sent_current: float = -1.0
-        self.schedule_enabled: int = 0
-        self.schedule_days_mask: int = 0
-        self.schedule_start: str = "00:00"
-        self.schedule_end: str = "00:00"
-        self.low_soc_enabled: int = 0
-        self.low_soc_threshold: float = 20.0
-        self.low_soc_hysteresis: float = 2.0
+        self.schedule_enabled: int = self.config["schedule"]["enabled"]
+        self.schedule_days_mask: int = self.config["schedule"]["days_mask"]
+        self.schedule_start: str = self.config["schedule"]["start"]
+        self.schedule_end: str = self.config["schedule"]["end"]
+        self.low_soc_enabled: int = self.config["low_soc"]["enabled"]
+        self.low_soc_threshold: float = self.config["low_soc"]["threshold"]
+        self.low_soc_hysteresis: float = self.config["low_soc"]["hysteresis"]
         self.low_soc_active: bool = False
         self.battery_soc: Optional[float] = None
         self.dbus_bus: Optional[Any] = None
         self.dbus_soc_obj: Optional[Any] = None
-        self.station_max_current: float = 32.0
-        self.client: ModbusTcpClient = ModbusTcpClient(host=ALFEN_IP, port=ALFEN_PORT)
-        self.service_name: str = f"com.victronenergy.evcharger.alfen_{DEVICE_INSTANCE}"
+        self.station_max_current: float = self.config["defaults"]["station_max_current"]
+        modbus_config = self.config["modbus"]
+        self.client: ModbusTcpClient = ModbusTcpClient(
+            host=modbus_config["ip"], port=modbus_config["port"]
+        )
+        device_instance = self.config["device_instance"]
+        self.service_name: str = f"com.victronenergy.evcharger.alfen_{device_instance}"
         self.service: VeDbusService = VeDbusService(self.service_name, register=False)
         self.logger: logging.Logger = logging.getLogger("alfen_driver")
-        self.config_file_path: str = f"/data/evcharger_alfen_{DEVICE_INSTANCE}.json"
+        self.config_file_path: str = f"/data/evcharger_alfen_{device_instance}.json"
 
         self._load_initial_config()
 
         self.service.add_path("/Mgmt/ProcessName", __file__)
         self.service.add_path("/Mgmt/ProcessVersion", "1.4")
-        self.service.add_path("/Mgmt/Connection", f"Modbus TCP at {ALFEN_IP}")
-        self.service.add_path("/DeviceInstance", DEVICE_INSTANCE)
+        self.service.add_path(
+            "/Mgmt/Connection", f"Modbus TCP at {modbus_config['ip']}"
+        )
+        self.service.add_path("/DeviceInstance", device_instance)
         self.service.add_path("/Connected", 0)
         self.service.add_path("/ProductName", "Alfen EV Charger")
         self.service.add_path("/ProductId", 0xA142)
@@ -211,7 +244,7 @@ class AlfenDriver:
                     )
                     existing_service_found = True
                     self._load_from_dbus(bus)
-            except Exception:
+            except dbus.DBusException:
                 self.logger.warning(
                     "Failed to inspect existing D-Bus service state; using defaults."
                 )
@@ -227,24 +260,13 @@ class AlfenDriver:
             "/StartStop": lambda v: setattr(self, "start_stop", EVC_CHARGE(int(v))),
             "/AutoStart": lambda v: setattr(self, "auto_start", int(v)),
             "/SetCurrent": lambda v: setattr(self, "intended_set_current", float(v)),
-            "/Schedule/Enabled": lambda v: setattr(self, "schedule_enabled", int(v)),
-            "/Schedule/Days": lambda v: setattr(
-                self, "schedule_days_mask", int(v) & 0x7F
-            ),
-            "/Schedule/Start": lambda v: setattr(self, "schedule_start", str(v)),
-            "/Schedule/End": lambda v: setattr(self, "schedule_end", str(v)),
-            "/LowSoc/Enabled": lambda v: setattr(self, "low_soc_enabled", int(v)),
-            "/LowSoc/Threshold": lambda v: setattr(self, "low_soc_threshold", float(v)),
-            "/LowSoc/Hysteresis": lambda v: setattr(
-                self, "low_soc_hysteresis", float(v)
-            ),
         }
         for path, setter in paths.items():
             v = self._get_busitem_value(bus, path)
             if v is not None:
                 try:
                     setter(v)
-                except Exception as e:
+                except (ValueError, TypeError) as e:
                     self.logger.warning(f"Failed to parse existing {path}: {v!r} ({e})")
 
     def _get_busitem_value(self, bus: Any, path: str) -> Optional[Any]:
@@ -261,22 +283,11 @@ class AlfenDriver:
                 "StartStop": int(self.start_stop),
                 "AutoStart": int(self.auto_start),
                 "SetCurrent": float(self.intended_set_current),
-                "Schedule": {
-                    "Enabled": int(self.schedule_enabled),
-                    "Days": int(self.schedule_days_mask),
-                    "Start": str(self.schedule_start),
-                    "End": str(self.schedule_end),
-                },
-                "LowSoc": {
-                    "Enabled": int(self.low_soc_enabled),
-                    "Threshold": float(self.low_soc_threshold),
-                    "Hysteresis": float(self.low_soc_hysteresis),
-                },
             }
             os.makedirs(os.path.dirname(self.config_file_path), exist_ok=True)
             with open(self.config_file_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             self.logger.warning(f"Failed to persist config: {e}")
 
     def _load_config_from_disk(self) -> Optional[Dict[str, Any]]:
@@ -285,7 +296,7 @@ class AlfenDriver:
                 return None
             with open(self.config_file_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             self.logger.warning(f"Failed to load persisted config: {e}")
             return None
 
@@ -304,19 +315,9 @@ class AlfenDriver:
         self.intended_set_current = float(
             data.get("SetCurrent", self.intended_set_current)
         )
-        sched = data.get("Schedule", {})
-        self.schedule_enabled = int(sched.get("Enabled", self.schedule_enabled))
-        self.schedule_days_mask = int(sched.get("Days", self.schedule_days_mask)) & 0x7F
-        self.schedule_start = str(sched.get("Start", self.schedule_start))
-        self.schedule_end = str(sched.get("End", self.schedule_end))
-        lowsoc = data.get("LowSoc", {})
-        self.low_soc_enabled = int(lowsoc.get("Enabled", self.low_soc_enabled))
-        self.low_soc_threshold = float(lowsoc.get("Threshold", self.low_soc_threshold))
-        self.low_soc_hysteresis = float(
-            lowsoc.get("Hysteresis", self.low_soc_hysteresis)
-        )
 
     def _parse_hhmm_to_minutes(self, timestr: str) -> int:
+        """Parse HH:MM string to minutes since midnight."""
         try:
             parts = timestr.strip().split(":")
             if len(parts) != 2:
@@ -328,6 +329,7 @@ class AlfenDriver:
             return 0
 
     def _is_within_schedule(self, now: float) -> bool:
+        """Check if current time is within the scheduled window."""
         if self.schedule_enabled == 0:
             return False
         tm = time.localtime(now)
@@ -344,6 +346,54 @@ class AlfenDriver:
             return start_min <= minutes_now < end_min
         return minutes_now >= start_min or minutes_now < end_min
 
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration from JSON file, falling back to defaults."""
+        if os.path.exists(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                    loaded_config = json.load(f)
+                # Basic validation
+                if not isinstance(loaded_config, dict):
+                    raise ValueError("Config must be a dictionary")
+                # Validate specific fields (example)
+                if "modbus" in loaded_config:
+                    modbus = loaded_config["modbus"]
+                    if "ip" in modbus and not isinstance(modbus["ip"], str):
+                        raise ValueError("modbus.ip must be a string")
+                    if "port" in modbus and not isinstance(modbus["port"], int):
+                        raise ValueError("modbus.port must be an integer")
+                if "schedule" in loaded_config:
+                    sched = loaded_config["schedule"]
+                    if "start" in sched:
+                        self._parse_hhmm_to_minutes(
+                            sched["start"]
+                        )  # Will raise if invalid
+                    if "end" in sched:
+                        self._parse_hhmm_to_minutes(sched["end"])
+                # Merge with defaults
+                config = DEFAULT_CONFIG.copy()
+                for key in config:
+                    if key in loaded_config:
+                        if isinstance(config[key], dict) and isinstance(
+                            loaded_config[key], dict
+                        ):
+                            config[key].update(loaded_config[key])
+                        else:
+                            config[key] = loaded_config[key]
+                self.logger.info(f"Loaded and validated config from {CONFIG_PATH}")
+                return config
+            except (ValueError, KeyError) as e:
+                self.logger.warning(
+                    f"Invalid config in {CONFIG_PATH}: {e}. Using defaults."
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to load config from {CONFIG_PATH}: {e}. Using defaults."
+                )
+        else:
+            self.logger.info(f"Config file {CONFIG_PATH} not found. Using defaults.")
+        return DEFAULT_CONFIG
+
     def _ensure_soc_proxy(self) -> bool:
         if dbus is None:
             return False
@@ -351,23 +401,26 @@ class AlfenDriver:
             if self.dbus_bus is None:
                 self.dbus_bus = dbus.SystemBus()
             if self.dbus_soc_obj is None:
+                soc_path = self.config["low_soc"]["battery_soc_dbus_path"]
                 self.dbus_soc_obj = self.dbus_bus.get_object(
-                    "com.victronenergy.system", "/Dc/Battery/Soc"
+                    "com.victronenergy.system", soc_path
                 )
             return True
-        except Exception:
+        except dbus.DBusException:
             self.dbus_soc_obj = None
             return False
 
     def _read_battery_soc(self) -> Optional[float]:
         try:
             if not self._ensure_soc_proxy():
+                self.logger.warning("Unable to connect to battery SOC D-Bus path.")
                 return None
             val = self.dbus_soc_obj.GetValue(dbus_interface="com.victronenergy.BusItem")
-            if val is None:
+            if val is None or not isinstance(val, (int, float)):
                 return None
             return float(val)
-        except Exception:
+        except dbus.DBusException as e:
+            self.logger.error(f"Error reading battery SOC: {e}")
             return None
 
     def _write_current_with_verification(self, target_amps: float) -> bool:
@@ -375,9 +428,15 @@ class AlfenDriver:
             builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
             builder.add_32bit_float(float(target_amps))
             payload = builder.to_registers()
-            self.client.write_registers(REG_AMPS_CONFIG, payload, slave=SOCKET_SLAVE_ID)
+            self.client.write_registers(
+                self.config["registers"]["amps_config"],
+                payload,
+                slave=self.config["modbus"]["socket_slave_id"],
+            )
             rr = self.client.read_holding_registers(
-                REG_AMPS_CONFIG, 2, slave=SOCKET_SLAVE_ID
+                self.config["registers"]["amps_config"],
+                2,
+                slave=self.config["modbus"]["socket_slave_id"],
             )
             regs = rr.registers if hasattr(rr, "registers") else []
             if len(regs) == 2:
@@ -385,7 +444,9 @@ class AlfenDriver:
                     regs, byteorder=Endian.BIG, wordorder=Endian.BIG
                 ).decode_32bit_float()
                 self.logger.info(f"SetCurrent write: raw={regs}, dec={dec:.3f}")
-                if abs(dec - float(target_amps)) < 0.25:
+                if math.isclose(
+                    dec, float(target_amps), abs_tol=self.CURRENT_TOLERANCE
+                ):
                     return True
         except Exception as e:
             self.logger.error(f"SetCurrent write failed: {e}")
@@ -394,7 +455,7 @@ class AlfenDriver:
     def set_current_callback(self, path: str, value: Any) -> bool:
         """Handle changes to the set current value from D-Bus."""
         try:
-            requested = max(0.0, min(64.0, float(value)))
+            requested = max(0.0, min(self.MAX_SET_CURRENT, float(value)))
             if self.current_mode == EVC_MODE.MANUAL:
                 self._update_station_max_current()
                 max_allowed = max(0.0, float(self.station_max_current))
@@ -423,7 +484,7 @@ class AlfenDriver:
                     )
             self.logger.info(f"SetCurrent changed to {self.intended_set_current:.2f} A")
             return True
-        except Exception as e:
+        except (ValueError, TypeError, ModbusException) as e:
             self.logger.error(f"Set current error: {e}\n{traceback.format_exc()}")
             return False
 
@@ -440,7 +501,8 @@ class AlfenDriver:
                     self.service["/SetCurrent"] = round(self.intended_set_current, 1)
                     self._persist_config_to_disk()
                     self.logger.info(
-                        f"Clamped /SetCurrent to station max: {self.intended_set_current:.1f} A (on MANUAL mode)"
+                        f"Clamped /SetCurrent to station max: {self.intended_set_current:.1f} A "
+                        f"(on MANUAL mode)"
                     )
                 effective_current = (
                     self.intended_set_current
@@ -472,7 +534,7 @@ class AlfenDriver:
                 )
             self.logger.info(f"Mode changed to {self.current_mode.name}")
             return True
-        except ValueError:
+        except (ValueError, TypeError):
             return False
 
     def startstop_callback(self, path: str, value: Any) -> bool:
@@ -493,7 +555,7 @@ class AlfenDriver:
                     )
             self.logger.info(f"StartStop changed to {self.start_stop.name}")
             return True
-        except ValueError:
+        except (ValueError, TypeError):
             return False
 
     def autostart_callback(self, path: str, value: Any) -> bool:
@@ -507,7 +569,7 @@ class AlfenDriver:
             self.schedule_enabled = int(value)
             self._persist_config_to_disk()
             return True
-        except ValueError:
+        except (ValueError, TypeError):
             return False
 
     def schedule_days_callback(self, path: str, value: Any) -> bool:
@@ -515,7 +577,7 @@ class AlfenDriver:
             self.schedule_days_mask = int(value) & 0x7F
             self._persist_config_to_disk()
             return True
-        except ValueError:
+        except (ValueError, TypeError):
             return False
 
     def schedule_start_callback(self, path: str, value: Any) -> bool:
@@ -524,7 +586,7 @@ class AlfenDriver:
             self.schedule_start = str(value)
             self._persist_config_to_disk()
             return True
-        except ValueError:
+        except (ValueError, TypeError):
             return False
 
     def schedule_end_callback(self, path: str, value: Any) -> bool:
@@ -533,7 +595,7 @@ class AlfenDriver:
             self.schedule_end = str(value)
             self._persist_config_to_disk()
             return True
-        except ValueError:
+        except (ValueError, TypeError):
             return False
 
     def low_soc_enabled_callback(self, path: str, value: Any) -> bool:
@@ -541,7 +603,7 @@ class AlfenDriver:
             self.low_soc_enabled = int(value)
             self._persist_config_to_disk()
             return True
-        except ValueError:
+        except (ValueError, TypeError):
             return False
 
     def low_soc_threshold_callback(self, path: str, value: Any) -> bool:
@@ -549,7 +611,7 @@ class AlfenDriver:
             self.low_soc_threshold = float(value)
             self._persist_config_to_disk()
             return True
-        except ValueError:
+        except (ValueError, TypeError):
             return False
 
     def low_soc_hysteresis_callback(self, path: str, value: Any) -> bool:
@@ -557,7 +619,7 @@ class AlfenDriver:
             self.low_soc_hysteresis = max(0.0, float(value))
             self._persist_config_to_disk()
             return True
-        except ValueError:
+        except (ValueError, TypeError):
             return False
 
     def _compute_effective_current(self, now: float) -> float:
@@ -588,28 +650,40 @@ class AlfenDriver:
         return max(0.0, min(effective, self.station_max_current))
 
     def _update_station_max_current(self) -> bool:
-        """Update the station max current from Modbus and return True if successful."""
-        try:
-            rr_max_c = self.client.read_holding_registers(
-                REG_STATION_MAX_CURRENT, 2, slave=STATION_SLAVE_ID
-            )
-            if not rr_max_c.isError():
-                max_current = BinaryPayloadDecoder.fromRegisters(
-                    rr_max_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-                ).decode_32bit_float()
-                if not math.isnan(max_current) and max_current > 0:
-                    self.station_max_current = float(max_current)
-                    self.service["/MaxCurrent"] = round(self.station_max_current, 1)
-                    return True
-            return False
-        except Exception as e:
-            self.logger.debug(f"Station MaxCurrent read failed: {e}")
-            return False
+        """Update the station max current from Modbus with retries and return True if successful."""
+        retries = self.MAX_RETRIES
+        for attempt in range(retries):
+            try:
+                rr_max_c = self.client.read_holding_registers(
+                    self.config["registers"]["station_max_current"],
+                    2,
+                    slave=self.config["modbus"]["station_slave_id"],
+                )
+                if not rr_max_c.isError():
+                    max_current = BinaryPayloadDecoder.fromRegisters(
+                        rr_max_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+                    ).decode_32bit_float()
+                    if not math.isnan(max_current) and max_current > 0:
+                        self.station_max_current = float(max_current)
+                        self.service["/MaxCurrent"] = round(self.station_max_current, 1)
+                        return True
+            except ModbusException as e:
+                self.logger.debug(f"Station MaxCurrent read failed: {e}")
+                if attempt < retries - 1:
+                    time.sleep(self.RETRY_DELAY)
+        self.logger.warning(
+            "Failed to read station max current after retries. Using fallback."
+        )
+        self.station_max_current = self.config["defaults"]["station_max_current"]
+        self.service["/MaxCurrent"] = round(self.station_max_current, 1)
+        return False
 
     def _update_ac_measurements(self) -> None:
         """Read and update AC voltages, currents, power, and phase count from Modbus."""
         rr_v = self.client.read_holding_registers(
-            REG_VOLTAGES, 6, slave=SOCKET_SLAVE_ID
+            self.config["registers"]["voltages"],
+            6,
+            slave=self.config["modbus"]["socket_slave_id"],
         )
         decoder_v = BinaryPayloadDecoder.fromRegisters(
             rr_v.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
@@ -623,7 +697,9 @@ class AlfenDriver:
         self.service["/Ac/L2/Voltage"] = round(v2 if not math.isnan(v2) else 0, 2)
         self.service["/Ac/L3/Voltage"] = round(v3 if not math.isnan(v3) else 0, 2)
         rr_c = self.client.read_holding_registers(
-            REG_CURRENTS, 6, slave=SOCKET_SLAVE_ID
+            self.config["registers"]["currents"],
+            6,
+            slave=self.config["modbus"]["socket_slave_id"],
         )
         decoder_c = BinaryPayloadDecoder.fromRegisters(
             rr_c.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
@@ -642,12 +718,20 @@ class AlfenDriver:
         self.service["/Ac/L1/Power"] = round(v1 * i1, 2)
         self.service["/Ac/L2/Power"] = round(v2 * i2, 2)
         self.service["/Ac/L3/Power"] = round(v3 * i3, 2)
-        rr_p = self.client.read_holding_registers(REG_POWER, 2, slave=SOCKET_SLAVE_ID)
+        rr_p = self.client.read_holding_registers(
+            self.config["registers"]["power"],
+            2,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
         power = BinaryPayloadDecoder.fromRegisters(
             rr_p.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
         ).decode_32bit_float()
         self.service["/Ac/Power"] = round(power if not math.isnan(power) else 0)
-        rr_ph = self.client.read_holding_registers(REG_PHASES, 1, slave=SOCKET_SLAVE_ID)
+        rr_ph = self.client.read_holding_registers(
+            self.config["registers"]["phases"],
+            1,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
         self.service["/Ac/PhaseCount"] = rr_ph.registers[0]
 
     def poll(self) -> bool:
@@ -668,171 +752,244 @@ class AlfenDriver:
                 self._read_station_serial()
                 self._read_product_name()
 
-            rr_status = self.client.read_holding_registers(
-                REG_STATUS, 5, slave=SOCKET_SLAVE_ID
-            )
-            if rr_status.isError():
-                raise ConnectionError("Modbus error reading status")
-            status_str = (
-                "".join(
-                    [chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in rr_status.registers]
-                )
-                .strip("\x00 ")
-                .upper()
-            )
-
-            if status_str in ("C2", "D2"):
-                raw_status = 2
-            elif status_str in ("B1", "B2", "C1", "D1"):
-                raw_status = 1
-            else:
-                raw_status = 0
-
-            old_victron_status = self.service["/Status"]
-
-            connected = raw_status >= 1
-
-            # Detect connection event
-            was_disconnected = old_victron_status == 0
-            now_connected = connected
-
-            new_victron_status = raw_status
-            if (
-                self.current_mode == EVC_MODE.MANUAL
-                and connected
-                and self.auto_start == 0
-                and self.start_stop == EVC_CHARGE.DISABLED
-            ):
-                new_victron_status = 6  # WAIT_START
-            if self.current_mode == EVC_MODE.AUTO and connected:
-                if self.start_stop == EVC_CHARGE.DISABLED:
-                    new_victron_status = 6
-                elif self.intended_set_current <= 0.1:
-                    new_victron_status = 4
-            if self.current_mode == EVC_MODE.SCHEDULED and connected:
-                if not self._is_within_schedule(time.time()):
-                    new_victron_status = 6
-
-            battery_soc_value = self._read_battery_soc()
-            if battery_soc_value is not None and not math.isnan(battery_soc_value):
-                battery_soc_value = float(battery_soc_value)
-                self.service["/LowSoc/Value"] = round(battery_soc_value, 1)
-            else:
-                battery_soc_value = None
-
-            if self.low_soc_enabled and battery_soc_value is not None:
-                if self.low_soc_active:
-                    if battery_soc_value >= (
-                        self.low_soc_threshold + self.low_soc_hysteresis
-                    ):
-                        self.low_soc_active = False
-                else:
-                    if battery_soc_value <= self.low_soc_threshold:
-                        self.low_soc_active = True
-                if self.low_soc_active and connected:
-                    new_victron_status = 7
-
-            self.service["/Status"] = new_victron_status
-
-            rr_e = self.client.read_holding_registers(
-                REG_ENERGY, 4, slave=SOCKET_SLAVE_ID
-            )
-            total_energy_kwh = (
-                BinaryPayloadDecoder.fromRegisters(
-                    rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
-                ).decode_64bit_float()
-                / 1000.0
-            )
-
-            if new_victron_status == 2 and old_victron_status != 2:
-                self.charging_start_time = time.time()
-                self.session_start_energy_kwh = total_energy_kwh
-            elif new_victron_status != 2:
-                self.charging_start_time = 0
-                self.session_start_energy_kwh = 0
-
-            self.service["/ChargingTime"] = (
-                time.time() - self.charging_start_time
-                if self.charging_start_time > 0
-                else 0
-            )
-
-            if self.session_start_energy_kwh > 0:
-                session_energy = total_energy_kwh - self.session_start_energy_kwh
-                self.service["/Ac/Energy/Forward"] = round(
-                    session_energy if not math.isnan(session_energy) else 0, 3
-                )
-            else:
-                self.service["/Ac/Energy/Forward"] = 0.0
-
+            self._update_status_and_apply_logic()
+            self._update_energy_and_charging_time()
             self._update_station_max_current()
-
             if self.current_mode == EVC_MODE.MANUAL:
-                max_allowed = max(0.0, float(self.station_max_current))
-                if self.intended_set_current > max_allowed + 1e-6:
-                    self.intended_set_current = max_allowed
-                    self.service["/SetCurrent"] = round(self.intended_set_current, 1)
-                    self._persist_config_to_disk()
-                    self.logger.info(
-                        f"Clamped DBus /SetCurrent to station max: {self.intended_set_current:.1f} A (MANUAL mode)"
-                    )
-
+                self._clamp_intended_current_to_max()
             self._update_ac_measurements()
-
-            effective_current = self._compute_effective_current(time.time())
-            if effective_current < 0:
-                effective_current = 0.0
-            if effective_current > self.station_max_current:
-                effective_current = self.station_max_current
-
-            current_time = time.time()
-            if abs(effective_current - self.last_sent_current) > 0.1 or (
-                current_time - self.last_current_set_time
-                > self.WATCHDOG_INTERVAL_SECONDS
-            ):
-                ok = self._write_current_with_verification(effective_current)
-                if ok:
-                    self.last_current_set_time = current_time
-                    self.last_sent_current = effective_current
-                    self.logger.info(
-                        f"Set effective current to {effective_current:.2f} A (mode: {self.current_mode.name}, intended: {self.intended_set_current:.2f})"
-                    )
-
-            # Auto-start logic: if just connected in ANY mode and auto_start enabled, enable StartStop
-            if (
-                now_connected
-                and was_disconnected
-                and self.auto_start == 1
-                and self.start_stop
-                == EVC_CHARGE.DISABLED  # Avoid re-triggering if already enabled
-            ):
-                self.start_stop = EVC_CHARGE.ENABLED
-                self._persist_config_to_disk()
-                self.logger.info(
-                    f"Auto-start triggered: Set StartStop to ENABLED (mode: {self.current_mode.name})"
-                )
-                # Apply the current immediately
-                target = self._compute_effective_current(time.time())
-                if self._write_current_with_verification(target):
-                    self.last_current_set_time = time.time()
-                    self.last_sent_current = target
-                    self.logger.info(f"Auto-start applied current: {target:.2f} A")
+            self._set_effective_current()
 
             self.service["/Connected"] = 1
             self.logger.debug("Poll completed successfully")
 
-        except Exception as e:
+        except (ModbusException, ConnectionError) as e:
             self.logger.error(f"Poll error: {e}. The connection will be retried.")
             self.client.close()
             self.service["/Connected"] = 0
         return True
 
+    def _update_status_and_apply_logic(self) -> None:
+        """Update status from Modbus and apply logic for victron status, low SOC, and auto-start."""
+        rr_status = self.client.read_holding_registers(
+            self.config["registers"]["status"],
+            5,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
+        if rr_status.isError():
+            raise ConnectionError("Modbus error reading status")
+        status_str = (
+            "".join([chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in rr_status.registers])
+            .strip("\x00 ")
+            .upper()
+        )
+
+        # Map Alfen status strings to raw status codes
+        if status_str in ("C2", "D2"):
+            raw_status = 2  # Charging
+        elif status_str in ("B1", "B2", "C1", "D1"):
+            raw_status = 1  # Connected
+        else:
+            raw_status = 0  # Disconnected
+
+        old_victron_status = self.service["/Status"]
+
+        connected = raw_status >= 1
+
+        # Detect connection event
+        was_disconnected = old_victron_status == 0
+        now_connected = connected
+
+        new_victron_status = raw_status
+        if (
+            self.current_mode == EVC_MODE.MANUAL
+            and connected
+            and self.auto_start == 0
+            and self.start_stop == EVC_CHARGE.DISABLED
+        ):
+            new_victron_status = 6  # WAIT_START
+        if self.current_mode == EVC_MODE.AUTO and connected:
+            if self.start_stop == EVC_CHARGE.DISABLED:
+                new_victron_status = 6
+            elif self.intended_set_current <= self.MIN_CHARGING_CURRENT:
+                new_victron_status = 4
+        if self.current_mode == EVC_MODE.SCHEDULED and connected:
+            if not self._is_within_schedule(time.time()):
+                new_victron_status = 6
+
+        battery_soc_value = self._read_battery_soc()
+        if battery_soc_value is not None and not math.isnan(battery_soc_value):
+            battery_soc_value = float(battery_soc_value)
+        else:
+            battery_soc_value = None
+
+        if self.low_soc_enabled and battery_soc_value is not None:
+            if self.low_soc_active:
+                if battery_soc_value >= (
+                    self.low_soc_threshold + self.low_soc_hysteresis
+                ):
+                    self.low_soc_active = False
+            else:
+                if battery_soc_value <= self.low_soc_threshold:
+                    self.low_soc_active = True
+            if self.low_soc_active and connected:
+                new_victron_status = 7
+
+        self.service["/Status"] = new_victron_status
+
+        # Auto-start logic: if just connected in ANY mode and auto_start enabled, enable StartStop
+        if (
+            now_connected
+            and was_disconnected
+            and self.auto_start == 1
+            and self.start_stop
+            == EVC_CHARGE.DISABLED  # Avoid re-triggering if already enabled
+        ):
+            self.start_stop = EVC_CHARGE.ENABLED
+            self._persist_config_to_disk()
+            self.logger.info(
+                f"Auto-start triggered: Set StartStop to ENABLED (mode: {self.current_mode.name})"
+            )
+            # Apply the current immediately
+            target = self._compute_effective_current(time.time())
+            if self._set_current(target, force_verify=True):
+                self.last_current_set_time = time.time()
+                self.last_sent_current = target
+                self.logger.info(f"Auto-start applied current: {target:.2f} A")
+
+    def _update_energy_and_charging_time(self) -> None:
+        """Update energy readings and charging time from Modbus."""
+        rr_e = self.client.read_holding_registers(
+            self.config["registers"]["energy"],
+            4,
+            slave=self.config["modbus"]["socket_slave_id"],
+        )
+        total_energy_kwh = (
+            BinaryPayloadDecoder.fromRegisters(
+                rr_e.registers, byteorder=Endian.BIG, wordorder=Endian.BIG
+            ).decode_64bit_float()
+            / 1000.0
+        )
+
+        old_victron_status = self.service["/Status"]
+        new_victron_status = self.service[
+            "/Status"
+        ]  # Assuming updated in previous method
+
+        if new_victron_status == 2 and old_victron_status != 2:
+            self.charging_start_time = time.time()
+            self.session_start_energy_kwh = total_energy_kwh
+        elif new_victron_status != 2:
+            self.charging_start_time = 0
+            self.session_start_energy_kwh = 0
+
+        self.service["/ChargingTime"] = (
+            time.time() - self.charging_start_time
+            if self.charging_start_time > 0
+            else 0
+        )
+
+        if self.session_start_energy_kwh > 0:
+            session_energy = total_energy_kwh - self.session_start_energy_kwh
+            self.service["/Ac/Energy/Forward"] = round(
+                session_energy if not math.isnan(session_energy) else 0, 3
+            )
+        else:
+            self.service["/Ac/Energy/Forward"] = 0.0
+
+    def _clamp_intended_current_to_max(self) -> None:
+        """Clamp the intended set current to the station max in MANUAL mode."""
+        max_allowed = max(0.0, float(self.station_max_current))
+        if self.intended_set_current > max_allowed + self.CLAMP_EPSILON:
+            self.intended_set_current = max_allowed
+            self.service["/SetCurrent"] = round(self.intended_set_current, 1)
+            self._persist_config_to_disk()
+            self.logger.info(
+                f"Clamped DBus /SetCurrent to station max: {self.intended_set_current:.1f} A (MANUAL mode)"
+            )
+
+    def _set_current(self, target_amps: float, force_verify: bool = False) -> bool:
+        """Set the current via Modbus with verification and retries."""
+        target_amps = max(0.0, min(target_amps, self.station_max_current))
+        retries = self.MAX_RETRIES
+        for attempt in range(retries):
+            try:
+                builder = BinaryPayloadBuilder(
+                    byteorder=Endian.BIG, wordorder=Endian.BIG
+                )
+                builder.add_32bit_float(float(target_amps))
+                payload = builder.to_registers()
+                self.client.write_registers(
+                    self.config["registers"]["amps_config"],
+                    payload,
+                    slave=self.config["modbus"]["socket_slave_id"],
+                )
+                if force_verify:
+                    time.sleep(self.VERIFICATION_DELAY)  # Small delay for verification
+                    rr = self.client.read_holding_registers(
+                        self.config["registers"]["amps_config"],
+                        2,
+                        slave=self.config["modbus"]["socket_slave_id"],
+                    )
+                    regs = rr.registers if hasattr(rr, "registers") else []
+                    if len(regs) == 2:
+                        dec = BinaryPayloadDecoder.fromRegisters(
+                            regs, byteorder=Endian.BIG, wordorder=Endian.BIG
+                        ).decode_32bit_float()
+                        self.logger.info(
+                            f"SetCurrent write (attempt {attempt+1}): raw={regs}, dec={dec:.3f}"
+                        )
+                        if math.isclose(
+                            dec, float(target_amps), abs_tol=self.CURRENT_TOLERANCE
+                        ):
+                            return True
+                    else:
+                        self.logger.warning(
+                            f"Verification failed on attempt {attempt+1}"
+                        )
+                else:
+                    return True  # Assume success if not verifying
+            except Exception as e:
+                self.logger.error(
+                    f"SetCurrent write failed on attempt {attempt+1}: {e}"
+                )
+                if attempt < retries - 1:
+                    time.sleep(self.RETRY_DELAY)
+        return False
+
+    def _set_effective_current(self, force: bool = False) -> None:
+        """Set the effective current based on mode and watchdog."""
+        effective_current = self._compute_effective_current(time.time())
+        if effective_current < 0:
+            effective_current = 0.0
+        if effective_current > self.station_max_current:
+            effective_current = self.station_max_current
+
+        current_time = time.time()
+        needs_update = (
+            force
+            or abs(effective_current - self.last_sent_current)
+            > self.UPDATE_DIFFERENCE_THRESHOLD
+            or (
+                current_time - self.last_current_set_time
+                > self.WATCHDOG_INTERVAL_SECONDS
+            )
+        )
+        if needs_update:
+            ok = self._set_current(effective_current, force_verify=True)
+            if ok:
+                self.last_current_set_time = current_time
+                self.last_sent_current = effective_current
+                self.logger.info(
+                    f"Set effective current to {effective_current:.2f} A (mode: {self.current_mode.name}, intended: {self.intended_set_current:.2f})"
+                )
+
     def _read_firmware_version(self) -> None:
         try:
             rr_fw = self.client.read_holding_registers(
-                REG_FIRMWARE_VERSION,
-                REG_FIRMWARE_VERSION_COUNT,
-                slave=STATION_SLAVE_ID,
+                self.config["registers"]["firmware_version"],
+                self.config["registers"]["firmware_version_count"],
+                slave=self.config["modbus"]["station_slave_id"],
             )
             fw_regs = rr_fw.registers if hasattr(rr_fw, "registers") else []
             bytes_fw = []
@@ -841,15 +998,15 @@ class AlfenDriver:
                 bytes_fw.append(reg & 0xFF)
             fw_str = "".join(chr(b) for b in bytes_fw).strip("\x00 ")
             self.service["/FirmwareVersion"] = fw_str
-        except Exception as e:
+        except ModbusException as e:
             self.logger.debug(f"FirmwareVersion read failed: {e}")
 
     def _read_station_serial(self) -> None:
         try:
             rr_sn = self.client.read_holding_registers(
-                REG_STATION_SERIAL,
-                REG_STATION_SERIAL_COUNT,
-                slave=STATION_SLAVE_ID,
+                self.config["registers"]["station_serial"],
+                self.config["registers"]["station_serial_count"],
+                slave=self.config["modbus"]["station_slave_id"],
             )
             sn_regs = rr_sn.registers if hasattr(rr_sn, "registers") else []
             bytes_sn = []
@@ -858,13 +1015,15 @@ class AlfenDriver:
                 bytes_sn.append(reg & 0xFF)
             sn_str = "".join(chr(b) for b in bytes_sn).strip("\x00 ")
             self.service["/Serial"] = sn_str
-        except Exception as e:
+        except ModbusException as e:
             self.logger.debug(f"Serial read failed: {e}")
 
     def _read_product_name(self) -> None:
         try:
             rr_mfg = self.client.read_holding_registers(
-                REG_MANUFACTURER, REG_MANUFACTURER_COUNT, slave=STATION_SLAVE_ID
+                self.config["registers"]["manufacturer"],
+                self.config["registers"]["manufacturer_count"],
+                slave=self.config["modbus"]["station_slave_id"],
             )
             mfg_regs = rr_mfg.registers if hasattr(rr_mfg, "registers") else []
             bytes_mfg = []
@@ -874,9 +1033,9 @@ class AlfenDriver:
             mfg_str = "".join(chr(b) for b in bytes_mfg).strip("\x00 ")
 
             rr_pt = self.client.read_holding_registers(
-                REG_PLATFORM_TYPE,
-                REG_PLATFORM_TYPE_COUNT,
-                slave=STATION_SLAVE_ID,
+                self.config["registers"]["platform_type"],
+                self.config["registers"]["platform_type_count"],
+                slave=self.config["modbus"]["station_slave_id"],
             )
             pt_regs = rr_pt.registers if hasattr(rr_pt, "registers") else []
             bytes_pt = []
@@ -886,7 +1045,7 @@ class AlfenDriver:
             pt_str = "".join(chr(b) for b in bytes_pt).strip("\x00 ")
 
             self.service["/ProductName"] = f"{mfg_str} {pt_str}"
-        except Exception as e:
+        except ModbusException as e:
             self.logger.debug(f"ProductName creation failed: {e}")
 
     def run(self) -> None:
