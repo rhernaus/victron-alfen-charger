@@ -13,7 +13,6 @@ MIN_CHARGING_CURRENT: float = 0.1
 
 NOMINAL_VOLTAGE = 230.0  # Configurable if needed
 MIN_CURRENT = 6.0
-MAX_CURRENT = 16.0  # Example, make configurable
 
 _config = None  # Module-level cache
 
@@ -59,7 +58,9 @@ def is_within_any_schedule(
     return False
 
 
-def get_excess_solar_current(ev_power: float = 0.0) -> tuple[float, str]:
+def get_excess_solar_current(
+    ev_power: float = 0.0, station_max: float = float("inf")
+) -> tuple[float, str]:
     global _config
     try:
         bus = dbus.SystemBus()
@@ -83,14 +84,17 @@ def get_excess_solar_current(ev_power: float = 0.0) -> tuple[float, str]:
         excess = max(0.0, total_pv - adjusted_consumption - max(0.0, battery_power))
         # Calculate current for 3 phases
         current = excess / (3 * NOMINAL_VOLTAGE)
-        clamped_current = clamp_value(current, MIN_CURRENT, MAX_CURRENT)
+        clamped_current = min(current, station_max)
+        clamp_reason = ""
+        if clamped_current < MIN_CURRENT and clamped_current > 0:
+            clamped_current = 0.0
+            clamp_reason = f" (below min {MIN_CURRENT}A, set to 0)"
         explanation = (
             f"total_pv={total_pv:.2f}W, "
             f"adjusted_consumption={adjusted_consumption:.2f}W (consumption={consumption:.2f}W - ev_power={ev_power:.2f}W), "
             f"battery_charging={max(0.0, battery_power):.2f}W, "
             f"excess={excess:.2f}W, "
-            f"raw_current={current:.2f}A "
-            f"clamped to [{MIN_CURRENT}-{MAX_CURRENT}] -> {clamped_current:.2f}A"
+            f"raw_current={current:.2f}A{clamp_reason} -> {clamped_current:.2f}A"
         )
         return clamped_current, explanation
     except Exception as e:
@@ -132,12 +136,18 @@ def compute_effective_current(
                 effective = 0.0
                 explanation = "Auto mode selling strategy, disabled"
             else:
-                effective, excess_exp = get_excess_solar_current(ev_power)
+                effective, excess_exp = get_excess_solar_current(
+                    ev_power, station_max_current
+                )
                 explanation = f"Auto mode excess solar: {excess_exp}"
     elif current_mode == EVC_MODE.SCHEDULED:
-        within = is_within_any_schedule(schedules, now)
-        effective = station_max_current if within else 0.0
-        explanation = f"Scheduled mode: {'within' if within else 'not within'} schedule, set to {effective:.2f}A"
+        if start_stop == EVC_CHARGE.DISABLED:
+            effective = 0.0
+            explanation = "Scheduled mode disabled by start_stop"
+        else:
+            within = is_within_any_schedule(schedules, now)
+            effective = station_max_current if within else 0.0
+            explanation = f"Scheduled mode: {'within' if within else 'not within'} schedule, set to {effective:.2f}A"
     clamped_effective = max(0.0, min(effective, station_max_current))
     if not math.isclose(clamped_effective, effective, abs_tol=0.01):
         explanation += f" (clamped from {effective:.2f}A to {clamped_effective:.2f}A)"
@@ -287,7 +297,7 @@ def process_status_and_energy(
     set_current: callable,
     persist_config_to_disk: callable,
     logger: logging.Logger,
-) -> tuple[float, float]:
+) -> tuple[float, float, bool]:
     raw_status = map_alfen_status(client, config)
 
     old_victron_status = service["/Status"]
@@ -346,4 +356,8 @@ def process_status_and_energy(
         session_start_energy_kwh,
     )
 
-    return charging_start_time, session_start_energy_kwh
+    return (
+        charging_start_time,
+        session_start_energy_kwh,
+        (now_connected and was_disconnected),
+    )

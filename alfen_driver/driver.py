@@ -85,6 +85,7 @@ class AlfenDriver:
             self.config.defaults.intended_set_current
         )
         self.last_sent_current = -1.0
+        self.just_connected = False
         self.schedules = self.config.schedule.items
         self.station_max_current = self.config.defaults.station_max_current
         self.max_current_update_counter = 0
@@ -549,6 +550,7 @@ class AlfenDriver:
             self.schedules,
             self.logger,
             ev_power,  # Pass local ev_power
+            force=self.just_connected,
         )
 
     def poll(self) -> bool:
@@ -559,6 +561,32 @@ class AlfenDriver:
             reconnect(self.client, self.logger)
         try:
             raw_data = self.fetch_raw_data()
+            (
+                self.charging_start_time,
+                self.session_start_energy_kwh,
+                self.just_connected,
+            ) = process_status_and_energy(
+                self.client,
+                self.config,
+                self.service,
+                self.current_mode.value,
+                self.start_stop.value,
+                self.auto_start.value,
+                self.intended_set_current.value,
+                self.schedules,
+                self.station_max_current,
+                self.charging_start_time,
+                self.session_start_energy_kwh,
+                lambda target, force_verify: set_current(
+                    self.client,
+                    self.config,
+                    target,
+                    self.station_max_current,
+                    force_verify,
+                ),
+                lambda: self._persist_config(),
+                self.logger,
+            )
             self.process_logic()  # This will now use the updated compute_effective_current
             self.update_dbus_paths(raw_data)
             self.apply_controls()
