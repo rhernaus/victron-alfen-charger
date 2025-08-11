@@ -130,7 +130,7 @@ def set_effective_current(
             last_current_set_time = current_time
             last_sent_current = effective_current
             logger.info(
-                f"Set effective current to {effective_current:.2f} A (mode: {current_mode.name}, intended: {intended_set_current:.2f})"
+                f"Set effective current to {effective_current:.2f} A (mode: {EVC_MODE(current_mode).name}, intended: {intended_set_current:.2f})"
             )
     return last_sent_current, last_current_set_time
 

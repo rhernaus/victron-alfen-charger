@@ -148,7 +148,7 @@ def apply_auto_start(
         start_stop = EVC_CHARGE.ENABLED
         persist_config_to_disk()
         logger.info(
-            f"Auto-start triggered: Set StartStop to ENABLED (mode: {current_mode.name})"
+            f"Auto-start triggered: Set StartStop to ENABLED (mode: {EVC_MODE(current_mode).name})"
         )
         target = compute_effective_current(
             current_mode,
