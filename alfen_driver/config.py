@@ -175,6 +175,10 @@ def load_config(logger: logging.Logger) -> Config:
             while len(items) < 3:
                 items.append(ScheduleItem())
             schedule = ScheduleConfig(items=items)
+            for idx, item in enumerate(items):
+                logger.debug(
+                    f"Loaded schedule {idx+1}: enabled={type(item.enabled).__name__}:{item.enabled}, days_mask={type(item.days_mask).__name__}:{item.days_mask}, start='{item.start}', end='{item.end}'"
+                )
             controls = ControlsConfig(**loaded_config.get("controls", {}))
             config = Config(
                 modbus=modbus,
