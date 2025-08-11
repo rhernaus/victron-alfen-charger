@@ -2,7 +2,7 @@ import enum
 
 from vedbus import VeDbusService
 
-from .config import ScheduleItem
+from .config import Config, ScheduleItem
 
 
 class EVC_MODE(enum.IntEnum):
