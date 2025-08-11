@@ -11,8 +11,17 @@ This project provides a Python script to integrate an Alfen Eve Pro Line EV char
 
 ## Files
 
-- **driver.py**: Main script to run on Victron GX. Connects to Alfen via Modbus and publishes data to DBus.
-- **test_modbus.py**: Test script to verify Modbus communication with Alfen charger locally on your PC.
+- **main.py**: Entry point script that initializes and runs the AlfenDriver.
+- **alfen_driver/**: Package containing the core driver logic:
+  - driver.py: Main AlfenDriver class handling polling, Modbus, and D-Bus.
+  - config.py: Configuration loading and dataclass definitions.
+  - controls.py: Functions for setting currents, clamping, and retries.
+  - dbus_utils.py: D-Bus service registration and enums.
+  - logic.py: Business logic for modes, scheduling, low SOC, etc.
+  - modbus_utils.py: Utilities for Modbus reads, decoding, and reconnections.
+- **alfen_driver_config.json**: Configuration file for Modbus settings, registers, defaults, etc.
+- **requirements.txt**: List of pip dependencies.
+- **test_modbus.py**: Test script for local Modbus verification.
 
 ## Setup
 
@@ -33,7 +42,7 @@ source .venv/bin/activate
 3. Install dependencies:
 
 ```bash
-pip install pymodbus==3.6.4
+pip install -r requirements.txt
 ```
 
 4. Update `ALFEN_IP` in the scripts to match your charger's IP address.
@@ -87,13 +96,13 @@ Victron GX devices run Venus OS, a Linux-based system. You'll need SSH access en
 6. Make the script executable:
 
    ```bash
-   chmod +x driver.py
+   chmod +x main.py
    ```
 
 7. Test the script manually:
 
    ```bash
-   ./driver.py
+   ./main.py
    ```
 
    Check for errors and ensure it connects to the charger and publishes to DBus.
@@ -140,8 +149,9 @@ If issues arise, check logs with `systemctl status alfen-driver` (if using syste
 
 ## Notes
 
-- The script assumes 3-phase configuration; adjust if needed.
-- For production, add error handling, logging, and configuration options.
+- The script assumes 3-phase configuration; adjust registers/defaults in alfen_driver_config.json if needed.
+- Configuration is highly customizable via alfen_driver_config.json, including polling intervals, retries, tolerances, and more.
+- Recent refactoring improved maintainability with dataclasses for config, modular functions, and centralized utilities.
 - Ensure the Alfen charger is set up with Active Load Balancing and Modbus TCP enabled.
 
 ## License
