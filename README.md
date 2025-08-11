@@ -91,16 +91,18 @@ Victron GX devices run Venus OS, a Linux-based system. You'll need SSH access en
    cd victron-alfen-charger
    ```
 
-4. Install pymodbus:
+4. Copy and configure the sample config:
 
    ```bash
-   pip3 install pymodbus==3.6.4
+   cp alfen_driver_config.sample.yaml alfen_driver_config.yaml
+   nano alfen_driver_config.yaml  # Update modbus.ip to your charger's IP, review other fields
    ```
 
-5. Configure the script:
-   - Edit `driver.py` with a text editor (e.g., vi or nano; install nano if needed with `opkg install nano`).
-   - Update `ALFEN_IP` to your charger's IP address.
-   - Adjust other settings like slave ID or registers if necessary.
+5. Install dependencies:
+
+   ```bash
+   pip3 install -r requirements.txt
+   ```
 
 6. Make the script executable:
 
@@ -119,7 +121,7 @@ Victron GX devices run Venus OS, a Linux-based system. You'll need SSH access en
 8. Set up as a persistent service:
    - Option 1: Add to `/data/rc.local` (create if it doesn't exist):
      ```bash
-     echo '/data/victron-alfen-charger/driver.py &' >> /data/rc.local
+     echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local
      chmod +x /data/rc.local
      ```
    - Option 2: Create a systemd service (advanced):
@@ -131,7 +133,7 @@ Victron GX devices run Venus OS, a Linux-based system. You'll need SSH access en
      After=multi-user.target
 
      [Service]
-     ExecStart=/data/victron-alfen-charger/driver.py
+     ExecStart=/data/victron-alfen-charger/main.py
      Restart=always
 
      [Install]
@@ -158,8 +160,8 @@ If issues arise, check logs with `systemctl status alfen-driver` (if using syste
 
 ## Notes
 
-- The script assumes 3-phase configuration; adjust registers/defaults in alfen_driver_config.json if needed.
-- Configuration is highly customizable via alfen_driver_config.json, including polling intervals, retries, tolerances, and more.
+- The script assumes 3-phase configuration; adjust registers/defaults in alfen_driver_config.yaml if needed.
+- Configuration is highly customizable via alfen_driver_config.yaml, including polling intervals, retries, tolerances, and more.
 - Recent refactoring improved maintainability with dataclasses for config, modular functions, and centralized utilities.
 - Ensure the Alfen charger is set up with Active Load Balancing and Modbus TCP enabled.
 
@@ -178,7 +180,7 @@ graph TD
     B -- Processes Logic --> D[Logic & Controls]
     B -- Publishes Data --> E[D-Bus Service]
     E -- Victron UI/System --> F[GX Device]
-    G[Config JSON] -- Loads --> B
+    G[Config YAML] -- Loads --> B
     H[Persistence JSON] -- Saves/Loads State --> B
 ```
 
@@ -200,11 +202,11 @@ Common issues and fixes:
 
 - **Modbus Connection Failures**:
   - Symptom: Logs show "Failed to connect" or "Poll error: ConnectionException".
-  - Fix: Verify ALFEN_IP in config.json, ensure charger Modbus TCP is enabled (port 502), check network (ping the IP). Restart the script or device.
+  - Fix: Verify modbus.ip in alfen_driver_config.yaml, ensure charger Modbus TCP is enabled (port 502), check network (ping the IP). Restart the script or device.
 
 - **Register Read Errors** (e.g., "Error reading registers at X"):
   - Symptom: Data like voltages show 0 or NaN persistently.
-  - Fix: Confirm register addresses match Alfen docs (reference/Implementation_of_Modbus_Slave_TCPIP_for_Alfen_NG9xx_platform.pdf). Slave IDs (1 for socket, 200 for station) may need adjustment in config.json.
+  - Fix: Confirm register addresses match Alfen docs (reference/Implementation_of_Modbus_Slave_TCPIP_for_Alfen_NG9xx_platform.pdf). Slave IDs (1 for socket, 200 for station) may need adjustment in alfen_driver_config.yaml.
 
 - **D-Bus Issues**:
   - Symptom: Charger not appearing in Victron UI, or "Unable to connect to battery SOC D-Bus path".
@@ -218,4 +220,4 @@ Common issues and fixes:
   - Check logs: tail -f /var/log/alfen_driver.log
   - Test Modbus: Run test_modbus.py on a PC to verify communication.
   - Restart: systemctl restart alfen-driver (if using systemd) or reboot the GX.
-  - If issues persist, enable DEBUG logging in config.json and share logs.
+  - If issues persist, enable DEBUG logging in alfen_driver_config.yaml and share logs.
