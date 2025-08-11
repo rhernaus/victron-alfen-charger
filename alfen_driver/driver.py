@@ -85,7 +85,6 @@ class AlfenDriver:
         self.session_start_energy_kwh: float = 0
         self.current_mode = MutableValue(EVC_MODE.AUTO.value)
         self.start_stop = MutableValue(EVC_CHARGE.DISABLED.value)
-        self.auto_start = MutableValue(1)
         self.intended_set_current = MutableValue(
             self.config.defaults.intended_set_current
         )
@@ -130,7 +129,6 @@ class AlfenDriver:
                     paths_list = [
                         "/Mode",
                         "/StartStop",
-                        "/AutoStart",
                         "/SetCurrent",
                     ]
                     for path in paths_list:
@@ -142,8 +140,6 @@ class AlfenDriver:
                                     self.current_mode.value = int(v)
                                 elif path == "/StartStop":
                                     self.start_stop.value = int(v)
-                                elif path == "/AutoStart":
-                                    self.auto_start.value = int(v)
                                 elif path == "/SetCurrent":
                                     self.intended_set_current.value = float(v)
                         except Exception as e:
@@ -167,9 +163,6 @@ class AlfenDriver:
                     )
                 except ValueError:
                     pass
-                self.auto_start.value = int(
-                    data.get("AutoStart", self.auto_start.value)
-                )
                 self.intended_set_current.value = float(
                     data.get("SetCurrent", self.intended_set_current.value)
                 )
@@ -188,13 +181,11 @@ class AlfenDriver:
             self.config,
             self.current_mode.value,
             self.start_stop.value,
-            self.auto_start.value,
             self.intended_set_current.value,
             self.schedules,
             self.mode_callback,
             self.startstop_callback,
             self.set_current_callback,
-            self.autostart_callback,
         )
 
         self._load_static_info()
@@ -262,7 +253,6 @@ class AlfenDriver:
             cfg = {
                 "Mode": self.current_mode.value,
                 "StartStop": self.start_stop.value,
-                "AutoStart": self.auto_start.value,
                 "SetCurrent": self.intended_set_current.value,
                 "ChargingStartTime": self.charging_start_time,
                 "SessionStartEnergyKWh": self.session_start_energy_kwh,
@@ -527,7 +517,6 @@ class AlfenDriver:
             self.service,
             self.current_mode.value,
             self.start_stop.value,
-            self.auto_start.value,
             self.intended_set_current.value,
             self.schedules,
             self.station_max_current,
@@ -663,7 +652,6 @@ class AlfenDriver:
         new_victron_status = apply_mode_specific_status(
             self.current_mode.value,
             connected,
-            self.auto_start.value,
             self.start_stop.value,
             self.intended_set_current.value,
             self.schedules,

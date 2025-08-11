@@ -33,13 +33,11 @@ def register_dbus_service(
     config: Config,
     current_mode: EVC_MODE,
     start_stop: EVC_CHARGE,
-    auto_start: int,
     intended_set_current: float,
     schedules: list[ScheduleItem],
     mode_callback: callable,
     startstop_callback: callable,
     set_current_callback: callable,
-    autostart_callback: callable,
 ) -> VeDbusService:
     service = VeDbusService(service_name, register=False)
     modbus_config = config.modbus
@@ -77,12 +75,6 @@ def register_dbus_service(
             "callback": set_current_callback,
         },
         {"path": "/MaxCurrent", "value": 32.0},
-        {
-            "path": "/AutoStart",
-            "value": auto_start,
-            "writeable": True,
-            "callback": autostart_callback,
-        },
         {"path": "/ChargingTime", "value": 0},
         {"path": "/Current", "value": 0.0},
         {"path": "/Ac/Current", "value": 0.0},

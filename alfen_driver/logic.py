@@ -222,7 +222,6 @@ def map_alfen_status(client: Any, config: Config) -> int:
 def apply_mode_specific_status(
     current_mode: EVC_MODE,
     connected: bool,
-    auto_start: int,
     start_stop: EVC_CHARGE,
     intended_set_current: float,
     schedules: list[ScheduleItem],
@@ -230,11 +229,10 @@ def apply_mode_specific_status(
     timezone: str,
     effective_current: float = 0.0,  # Add param for effective
 ) -> int:
-    """Adjust Victron status based on mode, auto-start, schedule, and low SOC."""
+    """Adjust Victron status based on mode, schedule, and low SOC."""
     if (
         current_mode == EVC_MODE.MANUAL
         and connected
-        and auto_start == 0
         and start_stop == EVC_CHARGE.DISABLED
     ):
         new_victron_status = EVC_STATUS.WAIT_START
@@ -256,50 +254,6 @@ def apply_mode_specific_status(
         new_victron_status = EVC_STATUS.WAIT_START
 
     return new_victron_status
-
-
-def apply_auto_start(
-    now_connected: bool,
-    was_disconnected: bool,
-    auto_start: int,
-    start_stop: EVC_CHARGE,
-    current_mode: EVC_MODE,
-    intended_set_current: float,
-    station_max_current: float,
-    schedules: list[ScheduleItem],
-    set_current: callable,
-    persist_config_to_disk: callable,
-    logger: logging.Logger,
-    timezone: str,
-) -> EVC_CHARGE:
-    """Apply auto-start logic if vehicle connects and conditions are met."""
-    if (
-        now_connected
-        and was_disconnected
-        and auto_start == 1
-        and start_stop == EVC_CHARGE.DISABLED
-    ):
-        start_stop = EVC_CHARGE.ENABLED
-        persist_config_to_disk()
-        logger.debug(
-            f"Auto-start triggered: Set StartStop to ENABLED (mode: {EVC_MODE(current_mode).name}, bypassing WAIT_START)"
-        )
-        target, _, explanation = compute_effective_current(
-            current_mode,
-            start_stop,
-            intended_set_current,
-            station_max_current,
-            time.time(),
-            schedules,
-            0.0,  # Default ev_power
-            timezone,
-            3,  # current_phases
-        )
-        if set_current(target, force_verify=True):
-            logger.debug(
-                f"Auto-start applied current: {target:.2f} A. Calculation: {explanation}"
-            )
-    return start_stop
 
 
 def calculate_session_energy_and_time(
@@ -378,7 +332,6 @@ def process_status_and_energy(
     service: Any,
     current_mode: EVC_MODE,
     start_stop: EVC_CHARGE,
-    auto_start: int,
     intended_set_current: float,
     schedules: list[ScheduleItem],
     station_max_current: float,
@@ -391,6 +344,7 @@ def process_status_and_energy(
     logger: logging.Logger,
     timezone: str,
 ) -> tuple[float, float, float, float, bool]:
+
     raw_status = map_alfen_status(client, config)
 
     old_victron_status = service["/Status"]
@@ -416,7 +370,6 @@ def process_status_and_energy(
     new_victron_status = apply_mode_specific_status(
         current_mode,
         connected,
-        auto_start,
         start_stop,
         intended_set_current,
         schedules,
@@ -427,42 +380,10 @@ def process_status_and_energy(
 
     service["/Status"] = new_victron_status
 
-    start_stop = apply_auto_start(
-        now_connected,
-        was_disconnected,
-        auto_start,
-        start_stop,
-        current_mode,
-        intended_set_current,
-        station_max_current,
-        schedules,
-        set_current,
-        persist_config_to_disk,
-        logger,
-        timezone,
-    )
-
-    target, _, explanation = compute_effective_current(
-        current_mode,
-        start_stop,
-        intended_set_current,
-        station_max_current,
-        time.time(),
-        schedules,
-        0.0,  # Default ev_power
-        timezone,
-        3,  # current_phases
-    )
-    if set_current(target, force_verify=True):
-        logger.debug(
-            f"Auto-start applied current: {target:.2f} A. Calculation: {explanation}"
-        )
-
     # Re-evaluate status after potential auto-start and current set
     new_victron_status = apply_mode_specific_status(
         current_mode,
         connected,
-        auto_start,
         start_stop,
         intended_set_current,
         schedules,
