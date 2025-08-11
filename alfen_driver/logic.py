@@ -332,7 +332,7 @@ def process_status_and_energy(
         schedules,
     )
     if set_current(target, force_verify=True):
-        logger.info(
+        logger.debug(
             f"Auto-start applied current: {target:.2f} A. Calculation: {explanation}"
         )
 
