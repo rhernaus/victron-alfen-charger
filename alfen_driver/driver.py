@@ -546,39 +546,25 @@ class AlfenDriver:
 
     def poll(self) -> bool:
         """
-        Poll the Modbus device for updates and apply logic.
-
-        Returns:
-            Always True (for GLib timeout compatibility).
-
-        Handles reconnection and sets /Connected status.
+        Main polling loop.
         """
+        if not self.client.is_socket_open():
+            reconnect(self.client, self.logger)
         try:
-            if not self.client.is_socket_open():
-                if not reconnect(self.client, self.logger):
-                    self.service["/Connected"] = 0
-                    return True
-
             raw_data = self.fetch_raw_data()
-            self.process_logic()
+            self.process_logic()  # This will now use the updated compute_effective_current
             self.update_dbus_paths(raw_data)
             self.apply_controls()
-
             self.service["/Connected"] = 1
-            self.logger.debug("Poll completed successfully")
-
+            return True
         except ModbusException as e:
-            self.logger.error(f"Poll error: {e}. Attempting reconnect.")
-            reconnect(self.client, self.logger)
+            self.logger.error(f"Modbus error during poll: {e}")
             self.service["/Connected"] = 0
-        except ConnectionError as e:
-            self.logger.error(f"Connection error: {e}. Attempting reconnect.")
             reconnect(self.client, self.logger)
-            self.service["/Connected"] = 0
-        status = self.service["/Status"]
-        next_interval = self.ACTIVE_POLL_MS if status == 2 else self.IDLE_POLL_MS
-        self._schedule_next_poll(next_interval)
-        return False  # One-shot, will be rescheduled
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error during poll: {e}")
+            return False
 
     def run(self) -> None:
         """

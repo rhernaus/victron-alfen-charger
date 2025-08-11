@@ -1,5 +1,8 @@
 import enum
+import logging
+import time
 
+import dbus
 from vedbus import VeDbusService
 
 from .config import Config, ScheduleItem
@@ -126,3 +129,30 @@ def register_dbus_service(
         )
     service.register()
     return service
+
+
+def get_current_ess_strategy() -> str:
+    try:
+        bus = dbus.SystemBus()
+        settings = bus.get_object("com.victronenergy.settings", "/Settings/DynamicEss")
+        now = time.time()
+        for i in range(48):  # Up to 48 slots as per user's data
+            start = settings.GetValue(f"Schedule/{i}/Start")
+            duration = settings.GetValue(f"Schedule/{i}/Duration")
+            end = start + duration
+            if start <= now < end:
+                strategy = settings.GetValue(f"Schedule/{i}/Strategy")
+                soc_target = settings.GetValue(f"Schedule/{i}/Soc")
+                # Get current battery SOC for comparison
+                battery = bus.get_object("com.victronenergy.system", "/Dc/Battery/Soc")
+                current_soc = battery.GetValue()
+                if strategy == 1 and soc_target > current_soc:
+                    return "buying"  # Low price, buying energy
+                elif strategy in [2, 3] and soc_target < current_soc:
+                    return "selling"  # High price, selling energy
+                else:
+                    return "neutral"
+        return "neutral"  # Default if no matching slot
+    except Exception as e:
+        logging.error(f"Error reading ESS DBus: {e}")
+        return "neutral"

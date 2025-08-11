@@ -3,7 +3,7 @@ import time
 from typing import Any
 
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
-from .dbus_utils import EVC_CHARGE, EVC_MODE
+from .dbus_utils import EVC_CHARGE, EVC_MODE, get_current_ess_strategy
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
 MIN_CHARGING_CURRENT: float = 0.1
@@ -46,6 +46,33 @@ def is_within_any_schedule(
     return False
 
 
+def get_excess_solar_current() -> float:
+    try:
+        bus = dbus.SystemBus()
+        system = bus.get_object("com.victronenergy.system", "/")
+        dc_pv = system.GetValue("/Dc/Pv/Power") or 0.0
+        ac_pv_l1 = system.GetValue("/Ac/PvOnOutput/L1/Power") or 0.0
+        ac_pv_l2 = system.GetValue("/Ac/PvOnOutput/L2/Power") or 0.0
+        ac_pv_l3 = system.GetValue("/Ac/PvOnOutput/L3/Power") or 0.0
+        total_pv = dc_pv + ac_pv_l1 + ac_pv_l2 + ac_pv_l3
+        consumption = (
+            (system.GetValue("/Ac/Consumption/L1/Power") or 0.0)
+            + (system.GetValue("/Ac/Consumption/L2/Power") or 0.0)
+            + (system.GetValue("/Ac/Consumption/L3/Power") or 0.0)
+        )
+        battery_power = (
+            system.GetValue("/Dc/Battery/Power") or 0.0
+        )  # Positive: charging, negative: discharging
+        # Adjust excess: subtract battery charging (if positive) as it's using solar
+        excess = max(0.0, total_pv - consumption - max(0.0, battery_power))
+        # Calculate current for 3 phases
+        current = excess / (3 * NOMINAL_VOLTAGE)
+        return clamp_value(current, MIN_CURRENT, MAX_CURRENT)
+    except Exception as e:
+        logging.error(f"Error calculating excess solar: {e}")
+        return 0.0
+
+
 def compute_effective_current(
     current_mode: EVC_MODE,
     start_stop: EVC_CHARGE,
@@ -54,20 +81,20 @@ def compute_effective_current(
     now: float,
     schedules: list[ScheduleItem],
 ) -> float:
-    """
-    Calculate the effective charging current based on mode, schedule, and low SoC conditions.
-
-    Parameters:
-        now: Current time in seconds since epoch.
-
-    Returns:
-        The computed effective current (clamped to 0 - station_max_current).
-    """
     effective = 0.0
     if current_mode == EVC_MODE.MANUAL:
         effective = intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
     elif current_mode == EVC_MODE.AUTO:
-        effective = intended_set_current if start_stop == EVC_CHARGE.ENABLED else 0.0
+        if start_stop == EVC_CHARGE.DISABLED:
+            effective = 0.0
+        else:
+            strategy = get_current_ess_strategy()
+            if strategy == "buying":
+                effective = station_max_current  # Max current
+            elif strategy == "selling":
+                effective = 0.0  # Disable
+            else:
+                effective = get_excess_solar_current()  # Excess solar
     elif current_mode == EVC_MODE.SCHEDULED:
         effective = (
             intended_set_current if is_within_any_schedule(schedules, now) else 0.0
