@@ -24,7 +24,7 @@ from alfen_driver.mocks import (
 class TestInjectableDriverInitialization:
     """Test driver initialization with dependency injection."""
 
-    def test_driver_initialization_with_di_container(self):
+    def test_driver_initialization_with_di_container(self) -> None:
         """Test driver can be initialized through DI container."""
         # Arrange
         container = configure_test_container()
@@ -39,7 +39,7 @@ class TestInjectableDriverInitialization:
         assert driver.dbus_service is not None
         assert driver.logger is not None
 
-    def test_driver_initialization_with_manual_injection(self):
+    def test_driver_initialization_with_manual_injection(self) -> None:
         """Test driver can be initialized with manual dependency injection."""
         # Arrange
         mock_modbus = MockModbusClient(connected=True)
@@ -71,7 +71,7 @@ class TestInjectableDriverInitialization:
         assert driver.time_provider == mock_time
         assert driver.config == config
 
-    def test_driver_initializes_dbus_paths(self):
+    def test_driver_initializes_dbus_paths(self) -> None:
         """Test driver correctly initializes D-Bus paths."""
         # Arrange
         container = configure_test_container()
@@ -89,7 +89,7 @@ class TestInjectableDriverInitialization:
         assert "/Mode" in paths
         assert paths["/Status"] == EVC_STATUS.DISCONNECTED.value
 
-    def test_driver_logs_initialization(self):
+    def test_driver_logs_initialization(self) -> None:
         """Test driver logs initialization properly."""
         # Arrange
         container = configure_test_container()
@@ -106,7 +106,7 @@ class TestInjectableDriverInitialization:
 class TestDriverDataReading:
     """Test driver data reading functionality with mocks."""
 
-    def test_read_voltages(self):
+    def test_read_voltages(self) -> None:
         """Test reading voltage values from Modbus."""
         # Arrange
         container = configure_test_container()
@@ -126,7 +126,7 @@ class TestDriverDataReading:
         assert voltage is not None
         assert voltage > 0
 
-    def test_read_currents(self):
+    def test_read_currents(self) -> None:
         """Test reading current values from Modbus."""
         # Arrange
         container = configure_test_container()
@@ -146,7 +146,7 @@ class TestDriverDataReading:
         assert current is not None
         assert mock_modbus.get_read_count() > 0
 
-    def test_handle_modbus_read_error(self):
+    def test_handle_modbus_read_error(self) -> None:
         """Test driver handles Modbus read errors gracefully."""
         # Arrange
         container = configure_test_container()
@@ -168,7 +168,7 @@ class TestDriverDataReading:
 class TestChargingControl:
     """Test charging control functionality with dependency injection."""
 
-    def test_set_charging_current(self):
+    def test_set_charging_current(self) -> None:
         """Test setting charging current through controller."""
         # Arrange
         container = configure_test_container()
@@ -185,7 +185,7 @@ class TestChargingControl:
         assert mock_dbus.get_value("/SetCurrent") == 10.0
         assert mock_logger.has_message("Charging current updated", "INFO")
 
-    def test_mode_change_callback(self):
+    def test_mode_change_callback(self) -> None:
         """Test mode change callback handling."""
         # Arrange
         container = configure_test_container()
@@ -200,7 +200,7 @@ class TestChargingControl:
         # Assert
         assert mock_logger.has_message("Charging mode changed", "INFO")
 
-    def test_start_stop_callback(self):
+    def test_start_stop_callback(self) -> None:
         """Test start/stop callback handling."""
         # Arrange
         container = configure_test_container()
@@ -215,7 +215,7 @@ class TestChargingControl:
         # Assert
         assert mock_logger.has_message("Start/stop changed", "INFO")
 
-    def test_calculate_auto_current(self):
+    def test_calculate_auto_current(self) -> None:
         """Test auto mode current calculation."""
         # Arrange
         container = configure_test_container()
@@ -227,7 +227,7 @@ class TestChargingControl:
         # Assert
         assert current == driver.config.defaults.intended_set_current
 
-    def test_calculate_scheduled_current(self):
+    def test_calculate_scheduled_current(self) -> None:
         """Test scheduled mode current calculation."""
         # Arrange
         container = configure_test_container()
@@ -247,7 +247,7 @@ class TestChargingControl:
 class TestDriverStatus:
     """Test driver status reporting functionality."""
 
-    def test_get_driver_status(self):
+    def test_get_driver_status(self) -> None:
         """Test getting comprehensive driver status."""
         # Arrange
         container = configure_test_container()
@@ -266,7 +266,7 @@ class TestDriverStatus:
         assert "config" in status
         assert status["modbus_connected"] is True
 
-    def test_get_status_with_error(self):
+    def test_get_status_with_error(self) -> None:
         """Test status reporting when errors occur."""
         # Arrange
         container = configure_test_container()
@@ -291,7 +291,7 @@ class TestDriverStatus:
 class TestDriverCleanup:
     """Test driver cleanup and resource management."""
 
-    def test_cleanup_on_shutdown(self):
+    def test_cleanup_on_shutdown(self) -> None:
         """Test driver properly cleans up resources on shutdown."""
         # Arrange
         container = configure_test_container()
@@ -308,7 +308,7 @@ class TestDriverCleanup:
         assert not mock_modbus.is_connected()
         assert mock_logger.has_message("Driver cleanup completed", "INFO")
 
-    def test_cleanup_sets_current_to_zero(self):
+    def test_cleanup_sets_current_to_zero(self) -> None:
         """Test cleanup stops charging by setting current to zero."""
         # Arrange
         container = configure_test_container()
@@ -331,7 +331,7 @@ class TestDriverCleanup:
 class TestDependencyInjectionBenefits:
     """Test scenarios demonstrating DI benefits for testing."""
 
-    def test_time_dependent_behavior(self):
+    def test_time_dependent_behavior(self) -> None:
         """Test time-dependent behavior with mock time provider."""
         # Arrange
         container = configure_test_container()
@@ -349,7 +349,7 @@ class TestDependencyInjectionBenefits:
         assert later_time == initial_time + 60.0
         assert driver.time_provider.now() == later_time
 
-    def test_modbus_failure_scenarios(self):
+    def test_modbus_failure_scenarios(self) -> None:
         """Test various Modbus failure scenarios."""
         # Arrange
         container = configure_test_container()
@@ -370,7 +370,7 @@ class TestDependencyInjectionBenefits:
         # Assert
         assert mock_logger.has_message("Failed to update charger data", "ERROR")
 
-    def test_isolated_component_testing(self):
+    def test_isolated_component_testing(self) -> None:
         """Test driver components in isolation using mocks."""
         # Arrange
         mock_modbus = MockModbusClient()
@@ -406,7 +406,7 @@ class TestDependencyInjectionBenefits:
         status = mock_controller.get_charging_status()
         assert status["status"] == "charging"
 
-    def test_swappable_implementations(self):
+    def test_swappable_implementations(self) -> None:
         """Test ability to swap implementations for different test scenarios."""
         # Arrange
         container = DIContainer()

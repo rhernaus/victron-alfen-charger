@@ -24,7 +24,7 @@ Example:
     ```
 """
 
-from typing import Optional
+from typing import Any, Optional, Tuple, cast
 
 from .config import Config, load_config
 from .di_container import DIContainer, ServiceLifetime
@@ -177,8 +177,6 @@ def configure_test_container(
     if use_real_config:
         config = load_config("alfen_driver_config.yaml")
     elif config_dict:
-        from .config import Config
-
         config = Config.from_dict(config_dict)
     else:
         # Use default test configuration
@@ -327,7 +325,7 @@ def create_minimal_container() -> DIContainer:
 
 
 # Example usage functions
-def example_production_setup():
+def example_production_setup() -> None:
     """Example of setting up the driver for production use."""
     # Configure container for production
     container = configure_production_container(
@@ -341,25 +339,25 @@ def example_production_setup():
     driver.start()
 
 
-def example_test_setup():
+def example_test_setup() -> Tuple[InjectableAlfenDriver, DIContainer]:
     """Example of setting up the driver for testing."""
     # Configure container for testing
     container = configure_test_container()
 
     # Get mock services for test setup
-    mock_modbus = container.resolve(IModbusClient)
-    mock_logger = container.resolve(ILogger)
-    mock_time = container.resolve(ITimeProvider)
+    mock_modbus: MockModbusClient = container.resolve(IModbusClient)
+    mock_logger: MockLogger = container.resolve(ILogger)
+    mock_time: MockTimeProvider = container.resolve(ITimeProvider)
 
     # Configure mock behavior
     mock_modbus.set_register_values(306, [0x4316, 0x8000])  # Voltage: 230.5V
     mock_time.set_auto_advance(True)
 
     # Create driver instance
-    driver = container.resolve(InjectableAlfenDriver)
+    driver = cast(InjectableAlfenDriver, container.resolve(InjectableAlfenDriver))
 
     # Run test scenarios
-    status = driver.get_status()
+    driver.get_status()
 
     # Verify behavior through mocks
     assert mock_logger.has_message("Injectable Alfen driver initialized")
@@ -368,25 +366,25 @@ def example_test_setup():
     return driver, container
 
 
-def example_custom_registration():
+def example_custom_registration() -> InjectableAlfenDriver:
     """Example of custom service registration."""
     container = DIContainer()
 
     # Register a custom logger implementation
     class CustomLogger(ILogger):
-        def debug(self, message: str, **kwargs) -> None:
+        def debug(self, message: str, **kwargs: Any) -> None:
             print(f"[DEBUG] {message}")
 
-        def info(self, message: str, **kwargs) -> None:
+        def info(self, message: str, **kwargs: Any) -> None:
             print(f"[INFO] {message}")
 
-        def warning(self, message: str, **kwargs) -> None:
+        def warning(self, message: str, **kwargs: Any) -> None:
             print(f"[WARN] {message}")
 
-        def error(self, message: str, **kwargs) -> None:
+        def error(self, message: str, **kwargs: Any) -> None:
             print(f"[ERROR] {message}")
 
-        def exception(self, message: str, **kwargs) -> None:
+        def exception(self, message: str, **kwargs: Any) -> None:
             print(f"[EXCEPTION] {message}")
 
     # Register custom implementation
@@ -402,6 +400,6 @@ def example_custom_registration():
     container.register_instance(Config, config)
 
     # Resolve driver with custom logger
-    driver = container.resolve(InjectableAlfenDriver)
+    driver = cast(InjectableAlfenDriver, container.resolve(InjectableAlfenDriver))
 
     return driver

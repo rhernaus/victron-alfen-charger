@@ -15,7 +15,7 @@ The exception hierarchy follows the pattern:
     ├── ChargingControlError
     ├── ValidationError
     ├── SessionError
-    ├── RetryExhaustedException
+    ├── RetryExhaustedError
     └── ServiceUnavailableError
 
 Example:
@@ -79,7 +79,8 @@ class ConfigurationError(AlfenDriverError):
     fields, contain invalid values, or fail validation checks.
 
     Attributes:
-        config_field (Optional[str]): The specific configuration field that caused the error.
+        config_field (Optional[str]): The specific configuration field that
+            caused the error.
         config_value (Optional[Any]): The invalid value that was provided.
 
     Example:
@@ -188,7 +189,10 @@ class ModbusReadError(AlfenDriverError):
         self.address = address
         self.count = count
         self.slave_id = slave_id
-        message = f"Failed to read {count} registers from address {address} (slave {slave_id})"
+        message = (
+            f"Failed to read {count} registers from address {address} "
+            f"(slave {slave_id})"
+        )
         super().__init__(message, details)
 
 
@@ -274,7 +278,10 @@ class ModbusVerificationError(AlfenDriverError):
         self.expected = expected
         self.actual = actual
         self.tolerance = tolerance
-        message = f"Write verification failed: expected {expected}, got {actual} (tolerance: {tolerance})"
+        message = (
+            f"Write verification failed: expected {expected}, got {actual} "
+            f"(tolerance: {tolerance})"
+        )
         super().__init__(message, details)
 
 
@@ -431,7 +438,10 @@ class ValidationError(AlfenDriverError):
         self.field_name = field_name
         self.value = value
         self.constraint = constraint
-        message = f"Validation failed for '{field_name}': value '{value}' violates constraint '{constraint}'"
+        message = (
+            f"Validation failed for '{field_name}': value '{value}' "
+            f"violates constraint '{constraint}'"
+        )
         super().__init__(message, details)
 
 
@@ -472,7 +482,7 @@ class SessionError(AlfenDriverError):
         super().__init__(message, details)
 
 
-class RetryExhaustedException(AlfenDriverError):
+class RetryExhaustedError(AlfenDriverError):
     """Raised when retry attempts are exhausted.
 
     This exception is thrown by the error recovery system when an operation
@@ -488,7 +498,7 @@ class RetryExhaustedException(AlfenDriverError):
         ```python
         try:
             retry_modbus_operation(read_registers, max_retries=3)
-        except RetryExhaustedException as e:
+        except RetryExhaustedError as e:
             logger.error(f"Giving up on {e.operation} after {e.attempts} attempts")
             if e.last_error:
                 logger.debug(f"Last error: {e.last_error}")

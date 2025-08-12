@@ -1,6 +1,5 @@
 """Tests for custom exceptions."""
 
-
 from alfen_driver.exceptions import (
     AlfenDriverError,
     ChargingControlError,
@@ -10,7 +9,7 @@ from alfen_driver.exceptions import (
     ModbusReadError,
     ModbusVerificationError,
     ModbusWriteError,
-    RetryExhaustedException,
+    RetryExhaustedError,
     ServiceUnavailableError,
     SessionError,
     StatusMappingError,
@@ -21,21 +20,21 @@ from alfen_driver.exceptions import (
 class TestAlfenDriverError:
     """Tests for the base AlfenDriverError class."""
 
-    def test_basic_error(self):
+    def test_basic_error(self) -> None:
         """Test basic error creation."""
         error = AlfenDriverError("Test message")
         assert str(error) == "Test message"
         assert error.message == "Test message"
         assert error.details is None
 
-    def test_error_with_details(self):
+    def test_error_with_details(self) -> None:
         """Test error with details."""
         error = AlfenDriverError("Test message", "Additional details")
         assert str(error) == "Test message: Additional details"
         assert error.message == "Test message"
         assert error.details == "Additional details"
 
-    def test_error_inheritance(self):
+    def test_error_inheritance(self) -> None:
         """Test that it's a proper Exception subclass."""
         error = AlfenDriverError("Test")
         assert isinstance(error, Exception)
@@ -44,21 +43,21 @@ class TestAlfenDriverError:
 class TestConfigurationError:
     """Tests for ConfigurationError."""
 
-    def test_basic_config_error(self):
+    def test_basic_config_error(self) -> None:
         """Test basic configuration error."""
         error = ConfigurationError("Invalid config")
         assert "Invalid config" in str(error)
         assert error.config_field is None
         assert error.config_value is None
 
-    def test_config_error_with_field(self):
+    def test_config_error_with_field(self) -> None:
         """Test configuration error with field context."""
         error = ConfigurationError("Invalid value", config_field="modbus.port")
         assert "Invalid value" in str(error)
         assert "field 'modbus.port'" in str(error)
         assert error.config_field == "modbus.port"
 
-    def test_config_error_with_field_and_value(self):
+    def test_config_error_with_field_and_value(self) -> None:
         """Test configuration error with field and value context."""
         error = ConfigurationError(
             "Invalid value", config_field="modbus.port", config_value="invalid"
@@ -73,20 +72,20 @@ class TestConfigurationError:
 class TestModbusErrors:
     """Tests for Modbus-related errors."""
 
-    def test_connection_error(self):
+    def test_connection_error(self) -> None:
         """Test Modbus connection error."""
         error = ModbusConnectionError("192.168.1.100", 502)
         assert "Failed to connect to Modbus server at 192.168.1.100:502" in str(error)
         assert error.host == "192.168.1.100"
         assert error.port == 502
 
-    def test_connection_error_with_details(self):
+    def test_connection_error_with_details(self) -> None:
         """Test Modbus connection error with details."""
         error = ModbusConnectionError("192.168.1.100", 502, "Timeout occurred")
         assert "192.168.1.100:502" in str(error)
         assert "Timeout occurred" in str(error)
 
-    def test_read_error(self):
+    def test_read_error(self) -> None:
         """Test Modbus read error."""
         error = ModbusReadError(123, 5, 1)
         assert "Failed to read 5 registers from address 123 (slave 1)" in str(error)
@@ -94,7 +93,7 @@ class TestModbusErrors:
         assert error.count == 5
         assert error.slave_id == 1
 
-    def test_write_error(self):
+    def test_write_error(self) -> None:
         """Test Modbus write error."""
         error = ModbusWriteError(456, 12.5, 200)
         assert "Failed to write value '12.5' to address 456 (slave 200)" in str(error)
@@ -102,7 +101,7 @@ class TestModbusErrors:
         assert error.value == 12.5
         assert error.slave_id == 200
 
-    def test_verification_error(self):
+    def test_verification_error(self) -> None:
         """Test Modbus verification error."""
         error = ModbusVerificationError(10.0, 9.5, 0.1)
         assert (
@@ -117,7 +116,7 @@ class TestModbusErrors:
 class TestDBusError:
     """Tests for D-Bus errors."""
 
-    def test_basic_dbus_error(self):
+    def test_basic_dbus_error(self) -> None:
         """Test basic D-Bus error."""
         error = DBusError("com.victronenergy.evcharger.test")
         assert "D-Bus error for service 'com.victronenergy.evcharger.test'" in str(
@@ -126,7 +125,7 @@ class TestDBusError:
         assert error.service_name == "com.victronenergy.evcharger.test"
         assert error.path is None
 
-    def test_dbus_error_with_path(self):
+    def test_dbus_error_with_path(self) -> None:
         """Test D-Bus error with path."""
         error = DBusError("com.victronenergy.evcharger.test", "/Status")
         assert "com.victronenergy.evcharger.test" in str(error)
@@ -137,7 +136,7 @@ class TestDBusError:
 class TestStatusMappingError:
     """Tests for status mapping errors."""
 
-    def test_status_mapping_error(self):
+    def test_status_mapping_error(self) -> None:
         """Test status mapping error."""
         error = StatusMappingError("UNKNOWN_STATUS")
         assert "Failed to map status value: 'UNKNOWN_STATUS'" in str(error)
@@ -147,7 +146,7 @@ class TestStatusMappingError:
 class TestChargingControlError:
     """Tests for charging control errors."""
 
-    def test_charging_control_error(self):
+    def test_charging_control_error(self) -> None:
         """Test charging control error."""
         error = ChargingControlError("set_current", 15.5)
         assert "Charging control 'set_current' failed for current 15.5A" in str(error)
@@ -158,7 +157,7 @@ class TestChargingControlError:
 class TestValidationError:
     """Tests for validation errors."""
 
-    def test_validation_error(self):
+    def test_validation_error(self) -> None:
         """Test validation error."""
         error = ValidationError("current_setting", -5.0, "must be non-negative")
         expected = (
@@ -174,34 +173,34 @@ class TestValidationError:
 class TestSessionError:
     """Tests for session errors."""
 
-    def test_basic_session_error(self):
+    def test_basic_session_error(self) -> None:
         """Test basic session error."""
         error = SessionError()
         assert "Charging session error" in str(error)
         assert error.session_id is None
 
-    def test_session_error_with_id(self):
+    def test_session_error_with_id(self) -> None:
         """Test session error with session ID."""
         error = SessionError("session_123")
         assert "Charging session error (session: session_123)" in str(error)
         assert error.session_id == "session_123"
 
 
-class TestRetryExhaustedException:
-    """Tests for retry exhausted exceptions."""
+class TestRetryExhaustedError:
+    """Tests for retry exhausted errors."""
 
-    def test_basic_retry_exhausted(self):
-        """Test basic retry exhausted exception."""
-        error = RetryExhaustedException("test_operation", 3)
+    def test_basic_retry_exhausted(self) -> None:
+        """Test basic retry exhausted error."""
+        error = RetryExhaustedError("test_operation", 3)
         assert "Operation 'test_operation' failed after 3 attempts" in str(error)
         assert error.operation == "test_operation"
         assert error.attempts == 3
         assert error.last_error is None
 
-    def test_retry_exhausted_with_last_error(self):
+    def test_retry_exhausted_with_last_error(self) -> None:
         """Test retry exhausted with last error."""
         original_error = ValueError("Original error")
-        error = RetryExhaustedException("test_operation", 5, original_error)
+        error = RetryExhaustedError("test_operation", 5, original_error)
         assert "Operation 'test_operation' failed after 5 attempts" in str(error)
         assert "Original error" in str(error)
         assert error.last_error == original_error
@@ -210,7 +209,7 @@ class TestRetryExhaustedException:
 class TestServiceUnavailableError:
     """Tests for service unavailable errors."""
 
-    def test_service_unavailable_error(self):
+    def test_service_unavailable_error(self) -> None:
         """Test service unavailable error."""
         error = ServiceUnavailableError("test_service")
         assert "Service 'test_service' is unavailable" in str(error)

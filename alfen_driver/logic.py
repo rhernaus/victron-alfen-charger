@@ -23,40 +23,41 @@ _config = None  # Module-level cache
 
 # Schedule check cache to reduce excessive logging
 _schedule_cache = {
-    'last_check_time': 0,
-    'last_result': False,
-    'last_log_time': 0,
+    "last_check_time": 0,
+    "last_result": False,
+    "last_log_time": 0,
 }
 SCHEDULE_LOG_INTERVAL = 60  # Only log schedule checks every 60 seconds
 
 
 class AlfenStatus(Enum):
     """Alfen charger status codes."""
-    A = "A"          # Disconnected
-    B1 = "B1"        # Connected
-    B2 = "B2"        # Connected
-    C1 = "C1"        # Connected
-    C2 = "C2"        # Charging
-    D1 = "D1"        # Connected
-    D2 = "D2"        # Charging
-    E = "E"          # Disconnected
-    F = "F"          # Fault
+
+    A = "A"  # Disconnected
+    B1 = "B1"  # Connected
+    B2 = "B2"  # Connected
+    C1 = "C1"  # Connected
+    C2 = "C2"  # Charging
+    D1 = "D1"  # Connected
+    D2 = "D2"  # Charging
+    E = "E"  # Disconnected
+    F = "F"  # Fault
 
     @property
     def is_disconnected(self) -> bool:
         """Check if status represents disconnected state."""
         return self in (AlfenStatus.A, AlfenStatus.E)
-    
+
     @property
     def is_connected(self) -> bool:
         """Check if status represents connected state."""
         return self in (AlfenStatus.B1, AlfenStatus.B2, AlfenStatus.C1, AlfenStatus.D1)
-    
+
     @property
     def is_charging(self) -> bool:
         """Check if status represents charging state."""
         return self in (AlfenStatus.C2, AlfenStatus.D2)
-    
+
     @property
     def is_fault(self) -> bool:
         """Check if status represents fault state."""
@@ -98,12 +99,11 @@ def is_within_any_schedule(
     weekday = local_dt.weekday()  # Mon=0..Sun=6
     sun_based_index = (weekday + 1) % 7
     minutes_now = local_dt.hour * 60 + local_dt.minute
-    
+
     # Throttle schedule checking logs to reduce spam
     logger = get_logger("alfen_driver.logic")
-    current_minute = int(now // 60)  # Round to minute for caching
-    should_log = (now - _schedule_cache['last_log_time']) >= SCHEDULE_LOG_INTERVAL
-    
+    should_log = (now - _schedule_cache["last_log_time"]) >= SCHEDULE_LOG_INTERVAL
+
     if should_log:
         logger.debug(
             "Checking charging schedules",
@@ -113,7 +113,7 @@ def is_within_any_schedule(
             timezone=timezone,
             total_schedules=len(schedules),
         )
-        _schedule_cache['last_log_time'] = now
+        _schedule_cache["last_log_time"] = int(now)
     for idx, item in enumerate(schedules):
         if item.enabled == 0:
             if should_log:
@@ -123,7 +123,8 @@ def is_within_any_schedule(
         if not mask_check:
             if should_log:
                 logger.debug(
-                    f"Schedule {idx + 1} skipped: day not matched (mask={item.days_mask}, required bit={1 << sun_based_index})"
+                    f"Schedule {idx + 1} skipped: day not matched "
+                    f"(mask={item.days_mask}, required bit={1 << sun_based_index})"
                 )
             continue
         start_min = parse_hhmm_to_minutes(item.start)
@@ -140,7 +141,8 @@ def is_within_any_schedule(
         )
         if should_log:
             logger.debug(
-                f"Schedule {idx + 1}: start_min={start_min}, end_min={end_min}, overnight={is_overnight}, condition={condition}"
+                f"Schedule {idx + 1}: start_min={start_min}, end_min={end_min}, "
+                f"overnight={is_overnight}, condition={condition}"
             )
         if condition:
             if should_log:
@@ -211,21 +213,25 @@ def get_excess_solar_current(
             clamp_reason = ""
         explanation = (
             f"total_pv={total_pv:.2f}W, "
-            f"adjusted_consumption={adjusted_consumption:.2f}W (consumption={consumption:.2f}W - ev_power={ev_power:.2f}W), "
+            f"adjusted_consumption={adjusted_consumption:.2f}W "
+            f"(consumption={consumption:.2f}W - ev_power={ev_power:.2f}W), "
             f"battery_charging={max(0.0, battery_power):.2f}W, "
             f"excess={excess:.2f}W, "
-            f"raw_current={current:.2f}A{clamp_reason} -> {clamped_current:.2f}A, phases={new_phases}"
+            f"raw_current={current:.2f}A{clamp_reason} -> "
+            f"{clamped_current:.2f}A, phases={new_phases}"
         )
 
+        time_since_start = time.time() - charging_start_time
         if (
             clamped_current == 0.0
             and charging_start_time > 0
-            and (time.time() - charging_start_time) < min_charge_duration_seconds
+            and time_since_start < min_charge_duration_seconds
         ):
             clamped_current = MIN_CURRENT
             new_phases = 1
             explanation += (
-                f" (forced to {MIN_CURRENT}A on 1 phase due to minimum charge duration)"
+                f" (forced to {MIN_CURRENT}A on 1 phase due to "
+                f"minimum charge duration)"
             )
 
         return clamped_current, new_phases, explanation
@@ -256,7 +262,10 @@ def compute_effective_current(
         else:
             effective = 0.0
             state = "disabled"
-        explanation = f"Manual mode {state}, intended_current={intended_set_current:.2f}A -> {effective:.2f}A"
+        explanation = (
+            f"Manual mode {state}, intended_current={intended_set_current:.2f}A "
+            f"-> {effective:.2f}A"
+        )
     elif current_mode == EVC_MODE.AUTO:
         if start_stop == EVC_CHARGE.DISABLED:
             effective = 0.0
@@ -279,12 +288,19 @@ def compute_effective_current(
         day_str = local_dt.strftime("%A")
         if start_stop == EVC_CHARGE.DISABLED:
             effective = 0.0
-            explanation = f"Scheduled mode disabled by start_stop (local time: {local_time_str} on {day_str}, timezone: {timezone})"
+            explanation = (
+                f"Scheduled mode disabled by start_stop "
+                f"(local time: {local_time_str} on {day_str}, timezone: {timezone})"
+            )
         else:
             within = is_within_any_schedule(schedules, now, timezone)
             effective = station_max_current if within else 0.0
             status = "within" if within else "not within"
-            explanation = f"Scheduled mode: {status} schedule (local time: {local_time_str} on {day_str}, timezone: {timezone}), set to {effective:.2f}A"
+            explanation = (
+                f"Scheduled mode: {status} schedule "
+                f"(local time: {local_time_str} on {day_str}, timezone: {timezone}), "
+                f"set to {effective:.2f}A"
+            )
     clamped_effective = max(0.0, min(effective, station_max_current))
     if not math.isclose(clamped_effective, effective, abs_tol=0.01):
         explanation += f" (clamped from {effective:.2f}A to {clamped_effective:.2f}A)"
@@ -292,7 +308,11 @@ def compute_effective_current(
 
 
 def map_alfen_status(client: Any, config: Config) -> int:
-    """Map Alfen status string to raw status code (0=Disconnected, 1=Connected, 2=Charging)."""
+    """Map Alfen status string to raw status code.
+
+    Returns:
+        0=Disconnected, 1=Connected, 2=Charging
+    """
     try:
         status_regs = read_holding_registers(
             client,
@@ -312,7 +332,7 @@ def map_alfen_status(client: Any, config: Config) -> int:
                 "Empty status string received, assuming disconnected"
             )
             return 0
-        
+
         # Try to map to AlfenStatus enum
         try:
             alfen_status = AlfenStatus(status_str)
@@ -327,7 +347,7 @@ def map_alfen_status(client: Any, config: Config) -> int:
         logging.getLogger("alfen_driver.logic").error(
             f"Failed to map Alfen status: {e}"
         )
-        raise StatusMappingError(f"Failed to read status registers: {e}")
+        raise StatusMappingError(f"Failed to read status registers: {e}") from e
 
 
 def apply_mode_specific_status(
@@ -356,7 +376,7 @@ def apply_mode_specific_status(
     within_schedule = None
     if current_mode == EVC_MODE.SCHEDULED:
         within_schedule = is_within_any_schedule(schedules, time.time(), timezone)
-    
+
     if current_mode == EVC_MODE.SCHEDULED and connected:
         if not within_schedule:
             new_victron_status = EVC_STATUS.WAIT_START
@@ -387,6 +407,8 @@ def calculate_session_energy_and_time(
     current_mode: EVC_MODE,  # Add param
     logger: Any,
 ) -> tuple[float, float, float, float]:
+    from .dbus_utils import EVC_STATUS
+
     energy_regs = read_holding_registers(
         client,
         config.registers.energy,
@@ -394,7 +416,15 @@ def calculate_session_energy_and_time(
         config.modbus.socket_slave_id,
     )
     total_energy_kwh = decode_64bit_float(energy_regs) / 1000.0
-    if new_victron_status == 2 and old_victron_status != 2:
+
+    # Define active session states: CHARGING and WAIT_SUN
+    is_active_session = new_victron_status in (EVC_STATUS.CHARGING, EVC_STATUS.WAIT_SUN)
+    was_active_session = old_victron_status in (
+        EVC_STATUS.CHARGING,
+        EVC_STATUS.WAIT_SUN,
+    )
+
+    if is_active_session and not was_active_session:
         # New session start: reset to 0
         charging_start_time = time.time()
         session_start_energy_kwh = total_energy_kwh
@@ -402,14 +432,15 @@ def calculate_session_energy_and_time(
         service["/Ac/Energy/Forward"] = 0.0
         persist_config_to_disk()
         logger.info(
-            f"New charging session started (status changed to {new_victron_status})"
+            "New charging session started (status changed to "
+            f"{EVC_STATUS(new_victron_status).name})"
         )
-    elif new_victron_status == 2:
-        # Continuing session
+    elif is_active_session:
+        # Continuing session (could be CHARGING or WAIT_SUN)
         service["/ChargingTime"] = time.time() - charging_start_time
         session_energy = total_energy_kwh - session_start_energy_kwh
         service["/Ac/Energy/Forward"] = round(session_energy, 3)
-    elif new_victron_status != 2 and old_victron_status == 2:
+    elif not is_active_session and was_active_session:
         # Session stop: calculate finals, persist, reset starts
         last_charging_time = time.time() - charging_start_time
         session_energy = total_energy_kwh - session_start_energy_kwh
@@ -420,7 +451,8 @@ def calculate_session_energy_and_time(
         session_start_energy_kwh = 0
         persist_config_to_disk()
 
-        # Detect charged: Transition from charging to connected while effective current was sufficient
+        # Detect charged: Transition from charging to connected while
+        # effective current was sufficient
         if raw_status == EVC_STATUS.CONNECTED:
             if effective_current >= MIN_CURRENT:
                 new_status = EVC_STATUS.CHARGED
@@ -431,10 +463,13 @@ def calculate_session_energy_and_time(
             if new_status != new_victron_status:
                 service["/Status"] = new_status
                 logger.info(
-                    f"Status changed to {EVC_STATUS(new_status).name} after session finish"
+                    f"Status changed to {EVC_STATUS(new_status).name} "
+                    "after session finish"
                 )
         logger.info(
-            f"Session finished: Set status to {service['/Status']} (energy: {last_session_energy:.3f} kWh, time: {last_charging_time:.0f}s)"
+            f"Session finished: Set status to {service['/Status']} "
+            f"(energy: {last_session_energy:.3f} kWh, "
+            f"time: {last_charging_time:.0f}s)"
         )
 
     else:
@@ -506,7 +541,8 @@ def process_status_and_energy(
 
     if new_victron_status != old_victron_status:
         logger.info(
-            f"Status changed from {EVC_STATUS(old_victron_status).name} to {EVC_STATUS(new_victron_status).name}"
+            f"Status changed from {EVC_STATUS(old_victron_status).name} "
+            f"to {EVC_STATUS(new_victron_status).name}"
         )
 
     old_victron_status = new_victron_status  # Update for re-evaluation check
@@ -526,7 +562,8 @@ def process_status_and_energy(
 
     if new_victron_status != old_victron_status:
         logger.info(
-            f"Status changed from {EVC_STATUS(old_victron_status).name} to {EVC_STATUS(new_victron_status).name}"
+            f"Status changed from {EVC_STATUS(old_victron_status).name} "
+            f"to {EVC_STATUS(new_victron_status).name}"
         )
 
     (

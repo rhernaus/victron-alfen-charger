@@ -6,33 +6,42 @@ import os
 import sys
 import time
 import uuid
+from typing import Any, Dict, List, Optional, cast
 
 sys.path.insert(
     1, os.path.join(os.path.dirname(__file__), "/opt/victronenergy/dbus-modbus-client")
 )
 
-from typing import Any, Dict, List, Optional
+from gi.repository import GLib  # noqa: E402
+from pymodbus.client import ModbusTcpClient  # noqa: E402
+from pymodbus.exceptions import ModbusException  # noqa: E402
+from pymodbus.pdu import ModbusResponse  # noqa: E402
 
-from gi.repository import GLib
-from pymodbus.client import ModbusTcpClient
-from pymodbus.exceptions import ModbusException
-
-from .config import Config, ScheduleItem, load_config, load_config_from_disk
-from .controls import set_current, set_effective_current, update_station_max_current
-from .dbus_utils import EVC_CHARGE, EVC_MODE, register_dbus_service
-from .exceptions import (
+from .config import (  # noqa: E402
+    Config,
+    ScheduleItem,
+    load_config,
+    load_config_from_disk,
+)
+from .controls import (  # noqa: E402
+    set_current,
+    set_effective_current,
+    update_station_max_current,
+)
+from .dbus_utils import EVC_CHARGE, EVC_MODE, register_dbus_service  # noqa: E402
+from .exceptions import (  # noqa: E402
     ChargingControlError,
     ModbusConnectionError,
     ModbusReadError,
 )
-from .logging_utils import LogContext, get_logger, setup_root_logging
-from .logic import (
+from .logging_utils import LogContext, get_logger, setup_root_logging  # noqa: E402
+from .logic import (  # noqa: E402
     apply_mode_specific_status,
     compute_effective_current,
     map_alfen_status,
     process_status_and_energy,
 )
-from .modbus_utils import (
+from .modbus_utils import (  # noqa: E402
     decode_64bit_float,
     read_holding_registers,
     read_modbus_string,
@@ -114,10 +123,13 @@ class AlfenDriver:
         # Try to read initial phases configuration
         try:
             start_time = time.time()
-            reg = self.client.read_holding_registers(
-                self.config.registers.phases,
-                1,
-                slave=self.config.modbus.socket_slave_id,
+            reg = cast(
+                ModbusResponse,
+                self.client.read_holding_registers(
+                    self.config.registers.phases,
+                    1,
+                    slave=self.config.modbus.socket_slave_id,
+                ),
             )
             duration_ms = (time.time() - start_time) * 1000
 
@@ -162,7 +174,8 @@ class AlfenDriver:
                 dbus_iface = dbus.Interface(dbus_proxy, "org.freedesktop.DBus")
                 if dbus_iface.NameHasOwner(self.service_name):
                     self.logger.info(
-                        f"Existing D-Bus service {self.service_name} found. Loading initial values from it."
+                        f"Existing D-Bus service {self.service_name} found. "
+                        "Loading initial values from it."
                     )
                     existing_service_found = True
                     paths_list = [
@@ -188,7 +201,8 @@ class AlfenDriver:
                     "Failed to inspect existing D-Bus service state; using defaults."
                 )
         if not existing_service_found:
-            data = load_config_from_disk(self.config_file_path, self.logger)
+            # Pass underlying stdlib logger for typing compatibility
+            data = load_config_from_disk(self.config_file_path, self.logger.logger)
             if data is not None:
                 try:
                     self.current_mode.value = int(
@@ -321,8 +335,8 @@ class AlfenDriver:
                     effective_phases,
                     explanation,
                 ) = compute_effective_current(
-                    self.current_mode.value,
-                    self.start_stop.value,
+                    EVC_MODE(self.current_mode.value),
+                    EVC_CHARGE(self.start_stop.value),
                     self.intended_set_current.value,
                     self.station_max_current,
                     now,
@@ -344,7 +358,9 @@ class AlfenDriver:
                     self.last_sent_current = effective_current
                     self.last_sent_phases = effective_phases
                     self.logger.info(
-                        f"Immediate Mode change applied current: {effective_current:.2f} A (mode={EVC_MODE(self.current_mode.value).name}). Calculation: {explanation}"
+                        f"Mode change applied current: {effective_current:.2f} A "
+                        f"(mode={EVC_MODE(self.current_mode.value).name}). "
+                        f"Calculation: {explanation}"
                     )
                 else:
                     self.logger.warning(
@@ -372,8 +388,8 @@ class AlfenDriver:
                     effective_phases,
                     explanation,
                 ) = compute_effective_current(
-                    self.current_mode.value,
-                    self.start_stop.value,
+                    EVC_MODE(self.current_mode.value),
+                    EVC_CHARGE(self.start_stop.value),
                     self.intended_set_current.value,
                     self.station_max_current,
                     time.time(),
@@ -403,7 +419,10 @@ class AlfenDriver:
                     self.last_current_set_time = time.time()
                     self.last_sent_current = effective_current
                     self.last_sent_phases = effective_phases
-                    log_msg = f"Immediate StartStop change applied: {effective_current:.2f} A (MANUAL)"
+                    log_msg = (
+                        f"StartStop change applied: {effective_current:.2f} A "
+                        "(MANUAL)"
+                    )
                     if not math.isclose(effective_current, target, abs_tol=0.01):
                         log_msg += f" (clamped from requested {target:.2f} A)"
                     log_msg += f". Calculation: {explanation}"
@@ -414,8 +433,8 @@ class AlfenDriver:
                     effective_phases,
                     explanation,
                 ) = compute_effective_current(
-                    self.current_mode.value,
-                    self.start_stop.value,
+                    EVC_MODE(self.current_mode.value),
+                    EVC_CHARGE(self.start_stop.value),
                     self.intended_set_current.value,
                     self.station_max_current,
                     time.time(),
@@ -445,7 +464,11 @@ class AlfenDriver:
                     self.last_current_set_time = time.time()
                     self.last_sent_current = effective_current
                     self.last_sent_phases = effective_phases
-                    log_msg = f"Immediate StartStop change applied: {effective_current:.2f} A (mode={EVC_MODE(self.current_mode.value).name}, StartStop={EVC_CHARGE(self.start_stop.value).name})"
+                    log_msg = (
+                        f"StartStop change applied: {effective_current:.2f} A "
+                        f"(mode={EVC_MODE(self.current_mode.value).name}, "
+                        f"StartStop={EVC_CHARGE(self.start_stop.value).name})"
+                    )
                     log_msg += f". Calculation: {explanation}"
                     self.logger.info(log_msg)
             self.logger.info(
@@ -480,8 +503,8 @@ class AlfenDriver:
                     effective_phases,
                     explanation,
                 ) = compute_effective_current(
-                    self.current_mode.value,
-                    self.start_stop.value,
+                    EVC_MODE(self.current_mode.value),
+                    EVC_CHARGE(self.start_stop.value),
                     self.intended_set_current.value,
                     self.station_max_current,
                     time.time(),
@@ -502,7 +525,10 @@ class AlfenDriver:
                     self.last_current_set_time = time.time()
                     self.last_sent_current = effective_current
                     self.last_sent_phases = effective_phases
-                    log_msg = f"Immediate SetCurrent applied: {effective_current:.2f} A (MANUAL)"
+                    log_msg = (
+                        f"Immediate SetCurrent applied: {effective_current:.2f} A "
+                        "(MANUAL)"
+                    )
                     if not math.isclose(effective_current, requested, abs_tol=0.01):
                         log_msg += f" (clamped from requested {requested:.2f} A)"
                     log_msg += f". Calculation: {explanation}"
@@ -715,6 +741,8 @@ class AlfenDriver:
         mainloop.run()
 
     def _restore_session_state(self) -> None:
+        from .dbus_utils import EVC_STATUS
+
         if not self.client.connect():
             self.logger.warning("Failed to connect to Modbus for session restore")
             return
@@ -738,8 +766,15 @@ class AlfenDriver:
             self.config.timezone,
         )
         now = time.time()
+
+        # Check if current status represents an active session (CHARGING or WAIT_SUN)
+        is_active_session = new_victron_status in (
+            EVC_STATUS.CHARGING,
+            EVC_STATUS.WAIT_SUN,
+        )
+
         if self.charging_start_time > 0:
-            if new_victron_status == 2:
+            if is_active_session:
                 # Continue session, add approximate downtime
                 downtime = now - (
                     self.charging_start_time + self.service["/ChargingTime"]
@@ -752,7 +787,8 @@ class AlfenDriver:
                 )
                 self.service["/Ac/Energy/Forward"] = round(energy_delta, 3)
                 self.logger.info(
-                    f"Restored ongoing session, added {downtime:.0f}s downtime"
+                    f"Restored session in {EVC_STATUS(new_victron_status).name} "
+                    f"state, added {downtime:.0f}s downtime"
                 )
             else:
                 # Session ended during downtime

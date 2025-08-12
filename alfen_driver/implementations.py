@@ -28,11 +28,12 @@ Example:
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 import yaml
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
+from pymodbus.pdu import ModbusResponse
 
 from .config import Config
 from .exceptions import (
@@ -81,7 +82,7 @@ class ModbusTcpClientWrapper(IModbusClient):
     def connect(self) -> bool:
         """Establish connection to the Modbus server."""
         try:
-            return self._client.connect()
+            return bool(self._client.connect())
         except Exception:
             return False
 
@@ -89,43 +90,54 @@ class ModbusTcpClientWrapper(IModbusClient):
         """Close the Modbus connection."""
         try:
             self._client.close()
-        except Exception:
-            # Ignore close errors
-            pass
+        except Exception as e:
+            # Log close errors but don't raise
+            import logging
+
+            logging.getLogger(__name__).debug(f"Error closing Modbus client: {e}")
 
     def is_connected(self) -> bool:
         """Check if the client is currently connected."""
-        return getattr(self._client, "is_socket_open", lambda: False)()
+        return bool(getattr(self._client, "is_socket_open", lambda: False)())
 
     def read_holding_registers(self, address: int, count: int, slave: int) -> List[int]:
         """Read holding registers from the Modbus device."""
         try:
-            result = self._client.read_holding_registers(address, count, slave=slave)
+            result = cast(
+                ModbusResponse,
+                self._client.read_holding_registers(address, count, slave=slave),
+            )
             if result.isError():
                 raise ModbusReadError(address, count, slave, str(result))
             return list(result.registers)
         except ModbusException as e:
-            raise ModbusReadError(address, count, slave, str(e))
+            raise ModbusReadError(address, count, slave, str(e)) from e
 
     def write_register(self, address: int, value: int, slave: int) -> bool:
         """Write a single register to the Modbus device."""
         try:
-            result = self._client.write_register(address, value, slave=slave)
+            result = cast(
+                ModbusResponse,
+                self._client.write_register(address, value, slave=slave),
+            )
             if result.isError():
                 raise ModbusWriteError(address, value, slave, str(result))
             return True
         except ModbusException as e:
-            raise ModbusWriteError(address, value, slave, str(e))
+            raise ModbusWriteError(address, value, slave, str(e)) from e
 
     def write_registers(self, address: int, values: List[int], slave: int) -> bool:
         """Write multiple registers to the Modbus device."""
         try:
-            result = self._client.write_registers(address, values, slave=slave)
+            result = cast(
+                ModbusResponse,
+                self._client.write_registers(address, values, slave=slave),
+            )
             if result.isError():
                 raise ModbusWriteError(address, values, slave, str(result))
             return True
         except ModbusException as e:
-            raise ModbusWriteError(address, values, slave, str(e))
+            raise ModbusWriteError(address, values, slave, str(e)) from e
 
     @property
     def host(self) -> str:
@@ -167,7 +179,7 @@ class DBusServiceWrapper(IDBusService):
             # D-Bus not available (testing environment)
             pass
         except Exception as e:
-            raise DBusError(service_name, details=str(e))
+            raise DBusError(service_name, details=str(e)) from e
 
     def add_path(self, path: str, value: Any) -> None:
         """Add a path to the D-Bus service."""
@@ -177,7 +189,7 @@ class DBusServiceWrapper(IDBusService):
             try:
                 self._service.add_path(path, value)
             except Exception as e:
-                raise DBusError(self._service_name, path, str(e))
+                raise DBusError(self._service_name, path, str(e)) from e
 
     def set_value(self, path: str, value: Any) -> None:
         """Set a value for a D-Bus path."""
@@ -187,7 +199,7 @@ class DBusServiceWrapper(IDBusService):
             try:
                 self._service[path] = value
             except Exception as e:
-                raise DBusError(self._service_name, path, str(e))
+                raise DBusError(self._service_name, path, str(e)) from e
 
     def get_value(self, path: str) -> Any:
         """Get the current value of a D-Bus path."""
@@ -195,11 +207,13 @@ class DBusServiceWrapper(IDBusService):
             try:
                 return self._service[path]
             except Exception as e:
-                raise DBusError(self._service_name, path, str(e))
+                raise DBusError(self._service_name, path, str(e)) from e
 
         return self._paths.get(path)
 
-    def register_callback(self, path: str, callback) -> None:
+    def register_callback(
+        self, path: str, callback: Callable[[str, Any], None]
+    ) -> None:
         """Register a callback for path changes."""
         self._callbacks[path] = callback
 
@@ -209,7 +223,7 @@ class DBusServiceWrapper(IDBusService):
                     path, None, writeable=True, onchangecallback=callback
                 )
             except Exception as e:
-                raise DBusError(self._service_name, path, str(e))
+                raise DBusError(self._service_name, path, str(e)) from e
 
 
 class StructuredLoggerWrapper(ILogger):
@@ -228,23 +242,23 @@ class StructuredLoggerWrapper(ILogger):
         """
         self._logger = get_logger(name, config)
 
-    def debug(self, message: str, **kwargs) -> None:
+    def debug(self, message: str, **kwargs: Any) -> None:
         """Log a debug message."""
         self._logger.debug(message, **kwargs)
 
-    def info(self, message: str, **kwargs) -> None:
+    def info(self, message: str, **kwargs: Any) -> None:
         """Log an info message."""
         self._logger.info(message, **kwargs)
 
-    def warning(self, message: str, **kwargs) -> None:
+    def warning(self, message: str, **kwargs: Any) -> None:
         """Log a warning message."""
         self._logger.warning(message, **kwargs)
 
-    def error(self, message: str, **kwargs) -> None:
+    def error(self, message: str, **kwargs: Any) -> None:
         """Log an error message."""
         self._logger.error(message, **kwargs)
 
-    def exception(self, message: str, **kwargs) -> None:
+    def exception(self, message: str, **kwargs: Any) -> None:
         """Log an exception with traceback."""
         self._logger.exception(message, **kwargs)
 
@@ -281,7 +295,7 @@ class FileSystemProvider(IFileSystem):
         except FileNotFoundError:
             raise
         except Exception as e:
-            raise OSError(f"Failed to read {file_path}: {e}")
+            raise OSError(f"Failed to read {file_path}: {e}") from e
 
     def write_text(self, file_path: str, content: str) -> None:
         """Write text content to a file."""
@@ -294,7 +308,7 @@ class FileSystemProvider(IFileSystem):
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
         except Exception as e:
-            raise OSError(f"Failed to write {file_path}: {e}")
+            raise OSError(f"Failed to write {file_path}: {e}") from e
 
     def exists(self, file_path: str) -> bool:
         """Check if a file exists."""
@@ -305,7 +319,7 @@ class FileSystemProvider(IFileSystem):
         try:
             os.makedirs(dir_path, exist_ok=True)
         except Exception as e:
-            raise OSError(f"Failed to create directory {dir_path}: {e}")
+            raise OSError(f"Failed to create directory {dir_path}: {e}") from e
 
 
 class YamlConfigProvider(IConfigProvider):
@@ -348,9 +362,9 @@ class YamlConfigProvider(IConfigProvider):
             return config
 
         except yaml.YAMLError as e:
-            raise ConfigurationError(f"Invalid YAML in {self._config_path}: {e}")
+            raise ConfigurationError(f"Invalid YAML in {self._config_path}: {e}") from e
         except Exception as e:
-            raise ConfigurationError(f"Failed to load configuration: {e}")
+            raise ConfigurationError(f"Failed to load configuration: {e}") from e
 
     def save_config(self, config: Dict[str, Any]) -> None:
         """Save configuration to JSON file (for runtime persistence)."""
@@ -363,7 +377,7 @@ class YamlConfigProvider(IConfigProvider):
 
             self._logger.info("Configuration saved successfully", config_path=json_path)
         except Exception as e:
-            raise ConfigurationError(f"Failed to save configuration: {e}")
+            raise ConfigurationError(f"Failed to save configuration: {e}") from e
 
     def get_config_path(self) -> str:
         """Get the path to the configuration file."""
@@ -397,7 +411,8 @@ class ChargingControllerImpl(IChargingController):
                 raise ChargingControlError(
                     "set_current",
                     current,
-                    f"Current must be between 0 and {self._config.controls.max_set_current}A",
+                    f"Current must be between 0 and "
+                    f"{self._config.controls.max_set_current}A",
                 )
 
             # Convert current to register value (implementation specific)
@@ -426,7 +441,8 @@ class ChargingControllerImpl(IChargingController):
                     raise ChargingControlError(
                         "verify_current",
                         current,
-                        f"Verification failed: expected {current}A, got {actual_current}A",
+                        f"Verification failed: expected {current}A, "
+                        f"got {actual_current}A",
                     )
 
             self._logger.info(
@@ -440,7 +456,7 @@ class ChargingControllerImpl(IChargingController):
             )
             if isinstance(e, ChargingControlError):
                 raise
-            raise ChargingControlError("set_current", current, str(e))
+            raise ChargingControlError("set_current", current, str(e)) from e
 
     def set_phase_count(self, phases: int, verify: bool = True) -> bool:
         """Set the number of charging phases."""
@@ -468,7 +484,8 @@ class ChargingControllerImpl(IChargingController):
                     raise ChargingControlError(
                         "verify_phases",
                         phases,
-                        f"Verification failed: expected {phases}, got {actual_values[0]}",
+                        f"Verification failed: expected {phases}, "
+                        f"got {actual_values[0]}",
                     )
 
             self._logger.info(
@@ -480,7 +497,7 @@ class ChargingControllerImpl(IChargingController):
             self._logger.error("Failed to set phase count", phases=phases, error=str(e))
             if isinstance(e, ChargingControlError):
                 raise
-            raise ChargingControlError("set_phases", phases, str(e))
+            raise ChargingControlError("set_phases", phases, str(e)) from e
 
     def get_charging_status(self) -> Dict[str, Any]:
         """Get the current charging status."""

@@ -17,7 +17,7 @@ from alfen_driver.logging_utils import (
 )
 
 
-def demo_basic_logging():
+def demo_basic_logging() -> None:
     """Demonstrate basic structured logging features."""
     print("=== Basic Structured Logging ===")
 
@@ -53,7 +53,7 @@ def demo_basic_logging():
     print("\n")
 
 
-def demo_domain_specific_logging():
+def demo_domain_specific_logging() -> None:
     """Demonstrate domain-specific logging methods."""
     print("=== Domain-Specific Logging ===")
 
@@ -121,7 +121,7 @@ def demo_domain_specific_logging():
     print("\n")
 
 
-def demo_context_management():
+def demo_context_management() -> None:
     """Demonstrate logging context management."""
     print("=== Context Management ===")
 
@@ -150,7 +150,7 @@ def demo_context_management():
     print("\n")
 
 
-def demo_error_and_exception_logging():
+def demo_error_and_exception_logging() -> None:
     """Demonstrate error and exception logging."""
     print("=== Error and Exception Logging ===")
 
@@ -184,7 +184,7 @@ def demo_error_and_exception_logging():
     print("\n")
 
 
-def demo_data_sanitization():
+def demo_data_sanitization() -> None:
     """Demonstrate sensitive data sanitization."""
     print("=== Data Sanitization ===")
 
@@ -222,7 +222,7 @@ def demo_data_sanitization():
     print("\n")
 
 
-def main():
+def main() -> None:
     """Run all logging demonstrations."""
     print("Alfen Driver - Structured Logging Demonstration")
     print("=" * 50)

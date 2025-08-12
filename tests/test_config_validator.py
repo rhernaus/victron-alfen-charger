@@ -5,7 +5,6 @@ validates all configuration fields, provides helpful error messages,
 and catches common configuration mistakes.
 """
 
-
 import pytest
 
 from alfen_driver.config_validator import ConfigValidator
@@ -15,7 +14,7 @@ from alfen_driver.exceptions import ConfigurationError
 class TestConfigValidatorBasics:
     """Test basic validation functionality."""
 
-    def test_valid_minimal_config(self):
+    def test_valid_minimal_config(self) -> None:
         """Test validation passes for minimal valid configuration."""
         # Arrange
         validator = ConfigValidator()
@@ -28,11 +27,11 @@ class TestConfigValidatorBasics:
         assert is_valid is True
         assert len(errors) == 0
 
-    def test_missing_required_section(self):
+    def test_missing_required_section(self) -> None:
         """Test validation fails when required section is missing."""
         # Arrange
         validator = ConfigValidator()
-        config = {}  # Missing modbus section
+        config: dict[str, object] = {}  # Missing modbus section
 
         # Act
         is_valid, errors = validator.validate(config)
@@ -42,7 +41,7 @@ class TestConfigValidatorBasics:
         assert any(e.field == "modbus" for e in errors)
         assert any("Required configuration section" in e.message for e in errors)
 
-    def test_validate_or_raise_with_valid_config(self):
+    def test_validate_or_raise_with_valid_config(self) -> None:
         """Test validate_or_raise doesn't raise for valid config."""
         # Arrange
         validator = ConfigValidator()
@@ -51,11 +50,11 @@ class TestConfigValidatorBasics:
         # Act & Assert (should not raise)
         validator.validate_or_raise(config)
 
-    def test_validate_or_raise_with_invalid_config(self):
+    def test_validate_or_raise_with_invalid_config(self) -> None:
         """Test validate_or_raise raises ConfigurationError for invalid config."""
         # Arrange
         validator = ConfigValidator()
-        config = {
+        config: dict[str, object] = {
             "modbus": {
                 # Missing required 'ip' field
             }
@@ -72,7 +71,7 @@ class TestConfigValidatorBasics:
 class TestModbusValidation:
     """Test Modbus configuration validation."""
 
-    def test_missing_ip_address(self):
+    def test_missing_ip_address(self) -> None:
         """Test validation fails when IP address is missing."""
         # Arrange
         validator = ConfigValidator()
@@ -88,7 +87,7 @@ class TestModbusValidation:
         assert "required" in error.message.lower()
         assert error.suggestion is not None
 
-    def test_invalid_ip_address_format(self):
+    def test_invalid_ip_address_format(self) -> None:
         """Test validation fails for invalid IP address format."""
         # Arrange
         validator = ConfigValidator()
@@ -104,7 +103,7 @@ class TestModbusValidation:
             assert is_valid is False, f"Should fail for IP: {ip}"
             assert any("Invalid IP address" in e.message for e in errors)
 
-    def test_valid_ip_addresses(self):
+    def test_valid_ip_addresses(self) -> None:
         """Test validation passes for valid IP addresses."""
         # Arrange
         validator = ConfigValidator()
@@ -119,7 +118,7 @@ class TestModbusValidation:
             # Assert
             assert is_valid is True, f"Should pass for IP: {ip}"
 
-    def test_invalid_port_range(self):
+    def test_invalid_port_range(self) -> None:
         """Test validation fails for port outside valid range."""
         # Arrange
         validator = ConfigValidator()
@@ -135,7 +134,7 @@ class TestModbusValidation:
             assert is_valid is False, f"Should fail for port: {port}"
             assert any("out of valid range" in e.message for e in errors)
 
-    def test_invalid_slave_ids(self):
+    def test_invalid_slave_ids(self) -> None:
         """Test validation fails for invalid slave IDs."""
         # Arrange
         validator = ConfigValidator()
@@ -159,7 +158,7 @@ class TestModbusValidation:
 class TestDefaultsValidation:
     """Test defaults configuration validation."""
 
-    def test_invalid_current_values(self):
+    def test_invalid_current_values(self) -> None:
         """Test validation fails for current values out of range."""
         # Arrange
         validator = ConfigValidator()
@@ -179,7 +178,7 @@ class TestDefaultsValidation:
         assert any("intended_set_current" in e.field for e in errors)
         assert any("station_max_current" in e.field for e in errors)
 
-    def test_non_numeric_current_values(self):
+    def test_non_numeric_current_values(self) -> None:
         """Test validation fails for non-numeric current values."""
         # Arrange
         validator = ConfigValidator()
@@ -202,7 +201,7 @@ class TestDefaultsValidation:
 class TestControlsValidation:
     """Test controls configuration validation."""
 
-    def test_negative_tolerance(self):
+    def test_negative_tolerance(self) -> None:
         """Test validation fails for negative tolerance."""
         # Arrange
         validator = ConfigValidator()
@@ -218,7 +217,7 @@ class TestControlsValidation:
         assert is_valid is False
         assert any("cannot be negative" in e.message for e in errors)
 
-    def test_large_tolerance_warning(self):
+    def test_large_tolerance_warning(self) -> None:
         """Test validation warns about large tolerance values."""
         # Arrange
         validator = ConfigValidator()
@@ -241,7 +240,7 @@ class TestControlsValidation:
 class TestScheduleValidation:
     """Test schedule configuration validation."""
 
-    def test_invalid_time_format(self):
+    def test_invalid_time_format(self) -> None:
         """Test validation fails for invalid time format."""
         # Arrange
         validator = ConfigValidator()
@@ -264,7 +263,7 @@ class TestScheduleValidation:
             assert is_valid is False, f"Should fail for time: {time_str}"
             assert any("Invalid time format" in e.message for e in errors)
 
-    def test_valid_time_formats(self):
+    def test_valid_time_formats(self) -> None:
         """Test validation passes for valid time formats."""
         # Arrange
         validator = ConfigValidator()
@@ -291,7 +290,7 @@ class TestScheduleValidation:
             # Assert
             assert is_valid is True, f"Should pass for time: {time_str}"
 
-    def test_invalid_day_values(self):
+    def test_invalid_day_values(self) -> None:
         """Test validation fails for invalid day values."""
         # Arrange
         validator = ConfigValidator()
@@ -320,7 +319,7 @@ class TestScheduleValidation:
 class TestGlobalSettingsValidation:
     """Test global settings validation."""
 
-    def test_invalid_device_instance(self):
+    def test_invalid_device_instance(self) -> None:
         """Test validation fails for device instance out of range."""
         # Arrange
         validator = ConfigValidator()
@@ -337,7 +336,7 @@ class TestGlobalSettingsValidation:
         assert any("device_instance" in e.field for e in errors)
         assert any("out of valid range" in e.message for e in errors)
 
-    def test_very_short_poll_interval_warning(self):
+    def test_very_short_poll_interval_warning(self) -> None:
         """Test validation warns about very short poll intervals."""
         # Arrange
         validator = ConfigValidator()
@@ -355,7 +354,7 @@ class TestGlobalSettingsValidation:
         assert len(warnings) > 0
         assert any("high CPU usage" in w.message for w in warnings)
 
-    def test_invalid_timezone(self):
+    def test_invalid_timezone(self) -> None:
         """Test validation fails for invalid timezone."""
         # Arrange
         validator = ConfigValidator()
@@ -371,7 +370,7 @@ class TestGlobalSettingsValidation:
             assert is_valid is False, f"Should fail for timezone: {tz}"
             assert any("Invalid timezone" in e.message for e in errors)
 
-    def test_valid_timezones(self):
+    def test_valid_timezones(self) -> None:
         """Test validation passes for valid timezones."""
         # Arrange
         validator = ConfigValidator()
@@ -390,7 +389,7 @@ class TestGlobalSettingsValidation:
 class TestRelationshipValidation:
     """Test validation of relationships between configuration values."""
 
-    def test_intended_exceeds_max_current(self):
+    def test_intended_exceeds_max_current(self) -> None:
         """Test validation fails when intended current exceeds max."""
         # Arrange
         validator = ConfigValidator()
@@ -409,7 +408,7 @@ class TestRelationshipValidation:
         assert error is not None
         assert error.suggestion is not None
 
-    def test_max_set_exceeds_station_max_warning(self):
+    def test_max_set_exceeds_station_max_warning(self) -> None:
         """Test validation warns when max set exceeds station max."""
         # Arrange
         validator = ConfigValidator()
@@ -432,7 +431,7 @@ class TestRelationshipValidation:
 class TestLoggingValidation:
     """Test logging configuration validation."""
 
-    def test_invalid_log_level(self):
+    def test_invalid_log_level(self) -> None:
         """Test validation fails for invalid log level."""
         # Arrange
         validator = ConfigValidator()
@@ -448,7 +447,7 @@ class TestLoggingValidation:
         assert is_valid is False
         assert any("Invalid log level" in e.message for e in errors)
 
-    def test_valid_log_levels(self):
+    def test_valid_log_levels(self) -> None:
         """Test validation passes for valid log levels."""
         # Arrange
         validator = ConfigValidator()
@@ -463,7 +462,7 @@ class TestLoggingValidation:
             # Assert
             assert is_valid is True, f"Should pass for level: {level}"
 
-    def test_empty_log_file_path(self):
+    def test_empty_log_file_path(self) -> None:
         """Test validation fails for empty log file path."""
         # Arrange
         validator = ConfigValidator()
@@ -480,7 +479,7 @@ class TestLoggingValidation:
 class TestConfigSchema:
     """Test configuration schema documentation."""
 
-    def test_get_config_schema(self):
+    def test_get_config_schema(self) -> None:
         """Test getting configuration schema."""
         # Arrange
         validator = ConfigValidator()
@@ -495,7 +494,7 @@ class TestConfigSchema:
         assert "ip" in schema["modbus"]["fields"]
         assert schema["modbus"]["fields"]["ip"]["required"] is True
 
-    def test_schema_completeness(self):
+    def test_schema_completeness(self) -> None:
         """Test schema covers all major configuration sections."""
         # Arrange
         validator = ConfigValidator()
@@ -512,7 +511,7 @@ class TestConfigSchema:
 class TestErrorMessages:
     """Test quality of error messages and suggestions."""
 
-    def test_error_messages_have_suggestions(self):
+    def test_error_messages_have_suggestions(self) -> None:
         """Test that error messages include helpful suggestions."""
         # Arrange
         validator = ConfigValidator()
@@ -540,7 +539,7 @@ class TestErrorMessages:
                     len(error.suggestion) > 0
                 ), f"Error '{error.field}' has empty suggestion"
 
-    def test_error_messages_are_specific(self):
+    def test_error_messages_are_specific(self) -> None:
         """Test that error messages are specific and actionable."""
         # Arrange
         validator = ConfigValidator()
@@ -556,4 +555,6 @@ class TestErrorMessages:
         # Check message specificity
         assert "999.999.999.999" in error.message  # Shows the bad value
         assert "Invalid IP address" in error.message  # Describes the problem
-        assert "192.168" in error.suggestion  # Gives example of correct format
+        assert (
+            error.suggestion and "192.168" in error.suggestion
+        )  # Gives example of correct format

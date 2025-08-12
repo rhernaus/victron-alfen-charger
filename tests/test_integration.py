@@ -8,7 +8,7 @@ import pytest
 class TestBasicIntegration:
     """Basic integration tests to ensure components work together."""
 
-    def test_can_import_all_modules(self):
+    def test_can_import_all_modules(self) -> None:
         """Test that all modules can be imported without errors."""
         # This test ensures all imports work and there are no circular dependencies
         from alfen_driver import (
@@ -23,7 +23,7 @@ class TestBasicIntegration:
         assert ModbusConnectionError is not None
         assert Config is not None
 
-    def test_exception_hierarchy(self):
+    def test_exception_hierarchy(self) -> None:
         """Test that exception hierarchy works correctly."""
         from alfen_driver.exceptions import (
             AlfenDriverError,
@@ -42,7 +42,7 @@ class TestBasicIntegration:
 
     @patch("dbus.SystemBus")
     @patch("vedbus.VeDbusService")
-    def test_driver_can_be_instantiated(self, mock_vedbus, mock_dbus):
+    def test_driver_can_be_instantiated(self, mock_vedbus, mock_dbus) -> None:
         """Test that the driver can be instantiated with mocked dependencies."""
         # This is a basic smoke test to ensure the driver class can be created
 
@@ -75,7 +75,7 @@ class TestBasicIntegration:
                 # If there are import errors, that's what we're testing for
                 pytest.fail(f"Failed to import AlfenDriver: {e}")
 
-    def test_config_validation_chain(self):
+    def test_config_validation_chain(self) -> None:
         """Test that configuration validation works correctly."""
         from alfen_driver.config import Config, DefaultsConfig, ModbusConfig
         from alfen_driver.exceptions import ValidationError
@@ -103,7 +103,7 @@ class TestBasicIntegration:
 
         assert "modbus.port" in str(exc_info.value)
 
-    def test_error_recovery_patterns_work(self):
+    def test_error_recovery_patterns_work(self) -> None:
         """Test that error recovery patterns can be applied."""
         from alfen_driver.error_recovery import CircuitBreaker, with_error_recovery
 
@@ -146,24 +146,26 @@ class TestBasicIntegration:
 class TestDocumentationExamples:
     """Test that examples from documentation work correctly."""
 
-    def test_basic_exception_usage(self):
+    def test_basic_exception_usage(self) -> None:
         """Test basic exception usage from documentation."""
         from alfen_driver.exceptions import ModbusReadError, ValidationError
 
         # Test ModbusReadError
-        error = ModbusReadError(123, 5, 1, "Connection timeout")
-        assert "Failed to read 5 registers from address 123" in str(error)
-        assert error.address == 123
-        assert error.count == 5
-        assert error.slave_id == 1
+        modbus_error = ModbusReadError(123, 5, 1, "Connection timeout")
+        assert "Failed to read 5 registers from address 123" in str(modbus_error)
+        assert modbus_error.address == 123
+        assert modbus_error.count == 5
+        assert modbus_error.slave_id == 1
 
         # Test ValidationError
-        error = ValidationError("current_setting", -5.0, "must be non-negative")
-        assert "current_setting" in str(error)
-        assert "-5.0" in str(error)
-        assert "must be non-negative" in str(error)
+        validation_error = ValidationError(
+            "current_setting", -5.0, "must be non-negative"
+        )
+        assert "current_setting" in str(validation_error)
+        assert "-5.0" in str(validation_error)
+        assert "must be non-negative" in str(validation_error)
 
-    def test_config_structure(self, sample_config):
+    def test_config_structure(self, sample_config) -> None:
         """Test that configuration structure is correct."""
         # This uses the sample_config fixture from conftest.py
         assert sample_config.modbus.ip == "192.168.1.100"

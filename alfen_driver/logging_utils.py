@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional, cast
 
 
 @dataclasses.dataclass
@@ -130,13 +130,13 @@ class StructuredLogger:
         """Sanitize sensitive information from log data."""
         sensitive_keys = {"password", "token", "key", "secret", "auth", "credential"}
 
-        sanitized = {}
+        sanitized: Dict[str, Any] = {}
         for key, value in data.items():
             key_lower = key.lower()
             if any(sensitive in key_lower for sensitive in sensitive_keys):
                 sanitized[key] = "***REDACTED***"
             elif isinstance(value, dict):
-                sanitized[key] = self._sanitize_data(value)  # type: ignore
+                sanitized[key] = self._sanitize_data(cast(Dict[str, Any], value))
             else:
                 sanitized[key] = value
 
@@ -209,7 +209,7 @@ class StructuredLogger:
         if power is not None:
             message_parts.append(f"power={power:.1f}W")
         message = " ".join(message_parts)
-        
+
         self._log_with_context(
             logging.INFO,
             message,
@@ -282,7 +282,7 @@ class StructuredLogger:
         max_attempts: int,
         success: bool,
         error: Optional[str] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Log error recovery attempts."""
         if success:
@@ -314,9 +314,9 @@ class StructuredLogger:
 class StructuredFormatter(logging.Formatter):
     """Custom formatter for structured logging."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Set consistent datetime format
-        super().__init__(datefmt='%Y-%m-%d %H:%M:%S')
+        super().__init__(datefmt="%Y-%m-%d %H:%M:%S")
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record with structured data."""
@@ -358,7 +358,10 @@ class StructuredFormatter(logging.Formatter):
     ) -> str:
         """Format log entry in human-readable format."""
         # Base message
-        base = f"{log_entry['timestamp']} [{log_entry['level']:8}] {log_entry['logger']}: {log_entry['message']}"
+        base = (
+            f"{log_entry['timestamp']} [{log_entry['level']:8}] "
+            f"{log_entry['logger']}: {log_entry['message']}"
+        )
 
         # Add context if available
         context_parts = []
@@ -381,7 +384,7 @@ class StructuredFormatter(logging.Formatter):
 
 
 @contextmanager
-def log_context(**context_kwargs):
+def log_context(**context_kwargs: Any) -> Iterator[LogContext]:
     """Context manager for setting logging context."""
     # Get current logger (this is a simplified approach)
     # In practice, you'd want to manage this more carefully
@@ -390,12 +393,12 @@ def log_context(**context_kwargs):
     # Store context in thread-local storage for the duration
     current_thread = threading.current_thread()
     old_context = getattr(current_thread, "_log_context", None)
-    current_thread._log_context = context
+    setattr(current_thread, "_log_context", context)
 
     try:
         yield context
     finally:
-        current_thread._log_context = old_context
+        setattr(current_thread, "_log_context", old_context)
 
 
 def get_logger(name: str, config: Optional[Any] = None) -> StructuredLogger:

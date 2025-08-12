@@ -99,6 +99,7 @@ class InjectableAlfenDriver:
         self.config = config
 
         # Initialize charging controller if not provided
+        self.charging_controller: IChargingController
         if charging_controller is None:
             from .implementations import ChargingControllerImpl
 
@@ -179,7 +180,7 @@ class InjectableAlfenDriver:
 
         except Exception as e:
             self.logger.error("Failed to initialize D-Bus paths", error=str(e))
-            raise DBusError("Failed to initialize D-Bus service", str(e))
+            raise DBusError("Failed to initialize D-Bus service", str(e)) from e
 
     def start(self) -> None:
         """Start the driver main loop.

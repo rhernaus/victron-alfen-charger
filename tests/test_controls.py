@@ -22,23 +22,23 @@ from alfen_driver.exceptions import (
 class TestClampValue:
     """Tests for clamp_value utility function."""
 
-    def test_value_within_range(self):
+    def test_value_within_range(self) -> None:
         """Test value within min/max range."""
         assert clamp_value(5.0, 0.0, 10.0) == 5.0
         assert clamp_value(0.0, 0.0, 10.0) == 0.0
         assert clamp_value(10.0, 0.0, 10.0) == 10.0
 
-    def test_value_below_minimum(self):
+    def test_value_below_minimum(self) -> None:
         """Test value below minimum gets clamped."""
         assert clamp_value(-5.0, 0.0, 10.0) == 0.0
         assert clamp_value(-100.0, -50.0, 50.0) == -50.0
 
-    def test_value_above_maximum(self):
+    def test_value_above_maximum(self) -> None:
         """Test value above maximum gets clamped."""
         assert clamp_value(15.0, 0.0, 10.0) == 10.0
         assert clamp_value(100.0, -50.0, 50.0) == 50.0
 
-    def test_negative_range(self):
+    def test_negative_range(self) -> None:
         """Test clamping with negative range."""
         assert clamp_value(-15.0, -20.0, -10.0) == -15.0
         assert clamp_value(-25.0, -20.0, -10.0) == -20.0
@@ -48,7 +48,9 @@ class TestClampValue:
 class TestSetCurrent:
     """Tests for set_current function."""
 
-    def test_successful_current_setting(self, mock_modbus_client, sample_config):
+    def test_successful_current_setting(
+        self, mock_modbus_client, sample_config
+    ) -> None:
         """Test successful current setting without verification."""
         # Setup successful write response
         write_response = Mock()
@@ -62,7 +64,9 @@ class TestSetCurrent:
         assert result is True
         mock_modbus_client.write_registers.assert_called_once()
 
-    def test_current_validation_negative(self, mock_modbus_client, sample_config):
+    def test_current_validation_negative(
+        self, mock_modbus_client, sample_config
+    ) -> None:
         """Test validation error for negative current."""
         with pytest.raises(ValidationError) as exc_info:
             set_current(mock_modbus_client, sample_config, -5.0, 32.0)
@@ -70,7 +74,9 @@ class TestSetCurrent:
         assert "target_amps" in str(exc_info.value)
         assert "must be non-negative" in str(exc_info.value)
 
-    def test_station_max_current_validation(self, mock_modbus_client, sample_config):
+    def test_station_max_current_validation(
+        self, mock_modbus_client, sample_config
+    ) -> None:
         """Test validation error for invalid max current."""
         with pytest.raises(ValidationError) as exc_info:
             set_current(mock_modbus_client, sample_config, 10.0, 0.0)
@@ -78,7 +84,7 @@ class TestSetCurrent:
         assert "station_max_current" in str(exc_info.value)
         assert "must be positive" in str(exc_info.value)
 
-    def test_current_clamping(self, mock_modbus_client, sample_config):
+    def test_current_clamping(self, mock_modbus_client, sample_config) -> None:
         """Test that current gets clamped to station max."""
         write_response = Mock()
         write_response.isError.return_value = False
@@ -94,7 +100,7 @@ class TestSetCurrent:
         # The exact value depends on binary payload encoding, but verify call was made
         mock_modbus_client.write_registers.assert_called_once()
 
-    def test_write_error_response(self, mock_modbus_client, sample_config):
+    def test_write_error_response(self, mock_modbus_client, sample_config) -> None:
         """Test handling of write error response."""
         write_response = Mock()
         write_response.isError.return_value = True
@@ -108,7 +114,7 @@ class TestSetCurrent:
 
             assert result is False
 
-    def test_successful_verification(self, mock_modbus_client, sample_config):
+    def test_successful_verification(self, mock_modbus_client, sample_config) -> None:
         """Test successful write with verification."""
         # Setup successful write response
         write_response = Mock()
@@ -129,7 +135,7 @@ class TestSetCurrent:
 
                 assert result is True
 
-    def test_verification_failure(self, mock_modbus_client, sample_config):
+    def test_verification_failure(self, mock_modbus_client, sample_config) -> None:
         """Test write verification failure."""
         write_response = Mock()
         write_response.isError.return_value = False
@@ -152,7 +158,7 @@ class TestSetCurrent:
 class TestSetPhases:
     """Tests for set_phases function."""
 
-    def test_successful_phase_setting(self, mock_modbus_client, sample_config):
+    def test_successful_phase_setting(self, mock_modbus_client, sample_config) -> None:
         """Test successful phase setting."""
         write_response = Mock()
         write_response.isError.return_value = False
@@ -167,7 +173,7 @@ class TestSetPhases:
 
             assert result is True
 
-    def test_phase_validation(self, mock_modbus_client, sample_config):
+    def test_phase_validation(self, mock_modbus_client, sample_config) -> None:
         """Test phase count validation."""
         with pytest.raises(ValidationError) as exc_info:
             set_phases(mock_modbus_client, sample_config, 0)
@@ -175,7 +181,7 @@ class TestSetPhases:
         assert "phases" in str(exc_info.value)
         assert "must be 1 or 3" in str(exc_info.value)
 
-    def test_invalid_phase_count(self, mock_modbus_client, sample_config):
+    def test_invalid_phase_count(self, mock_modbus_client, sample_config) -> None:
         """Test invalid phase count."""
         with pytest.raises(ValidationError) as exc_info:
             set_phases(mock_modbus_client, sample_config, 2)
@@ -187,7 +193,9 @@ class TestSetPhases:
 class TestSetEffectiveCurrent:
     """Tests for set_effective_current function."""
 
-    def test_manual_mode_current_setting(self, mock_modbus_client, sample_config):
+    def test_manual_mode_current_setting(
+        self, mock_modbus_client, sample_config
+    ) -> None:
         """Test setting current in manual mode."""
         from alfen_driver.dbus_utils import EVC_CHARGE, EVC_MODE
 
@@ -221,7 +229,7 @@ class TestSetEffectiveCurrent:
                 assert last_phases == 3
                 mock_set_current.assert_called_once()
 
-    def test_no_current_change_needed(self, mock_modbus_client, sample_config):
+    def test_no_current_change_needed(self, mock_modbus_client, sample_config) -> None:
         """Test when no current change is needed."""
         from alfen_driver.dbus_utils import EVC_CHARGE, EVC_MODE
 
@@ -253,7 +261,9 @@ class TestSetEffectiveCurrent:
                 assert last_current == 10.0
                 assert last_time == 900.0  # Unchanged
 
-    def test_watchdog_timeout_forces_update(self, mock_modbus_client, sample_config):
+    def test_watchdog_timeout_forces_update(
+        self, mock_modbus_client, sample_config
+    ) -> None:
         """Test that watchdog timeout forces current update."""
         from alfen_driver.dbus_utils import EVC_CHARGE, EVC_MODE
 

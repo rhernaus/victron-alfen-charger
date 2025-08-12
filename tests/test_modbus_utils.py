@@ -8,7 +8,7 @@ from pymodbus.exceptions import ModbusException
 from alfen_driver.exceptions import (
     ModbusConnectionError,
     ModbusReadError,
-    RetryExhaustedException,
+    RetryExhaustedError,
 )
 from alfen_driver.modbus_utils import (
     decode_64bit_float,
@@ -23,7 +23,7 @@ from alfen_driver.modbus_utils import (
 class TestReadHoldingRegisters:
     """Tests for read_holding_registers function."""
 
-    def test_successful_read(self, mock_modbus_client):
+    def test_successful_read(self, mock_modbus_client) -> None:
         """Test successful register read."""
         # Setup mock response
         mock_response = Mock()
@@ -38,7 +38,7 @@ class TestReadHoldingRegisters:
             123, 3, slave=1
         )
 
-    def test_error_response(self, mock_modbus_client):
+    def test_error_response(self, mock_modbus_client) -> None:
         """Test handling of error response."""
         # Setup mock error response
         mock_response = Mock()
@@ -52,7 +52,7 @@ class TestReadHoldingRegisters:
         assert exc_info.value.count == 3
         assert exc_info.value.slave_id == 1
 
-    def test_modbus_exception(self, mock_modbus_client):
+    def test_modbus_exception(self, mock_modbus_client) -> None:
         """Test handling of Modbus exception."""
         mock_modbus_client.read_holding_registers.side_effect = ModbusException(
             "Connection failed"
@@ -65,7 +65,7 @@ class TestReadHoldingRegisters:
 class TestDecodeFloats:
     """Tests for decode_floats function."""
 
-    def test_decode_single_float(self):
+    def test_decode_single_float(self) -> None:
         """Test decoding a single float."""
         # 32-bit float for 230.0: 0x4366 0x0000 in big endian
         registers = [0x4366, 0x0000]
@@ -74,7 +74,7 @@ class TestDecodeFloats:
         assert len(result) == 1
         assert abs(result[0] - 230.0) < 0.1  # Allow small floating point error
 
-    def test_decode_multiple_floats(self):
+    def test_decode_multiple_floats(self) -> None:
         """Test decoding multiple floats."""
         # Two floats: 230.0 and 12.5
         registers = [0x4366, 0x0000, 0x4148, 0x0000]
@@ -84,7 +84,7 @@ class TestDecodeFloats:
         assert abs(result[0] - 230.0) < 0.1
         assert abs(result[1] - 12.5) < 0.1
 
-    def test_decode_nan_handling(self):
+    def test_decode_nan_handling(self) -> None:
         """Test that NaN values are replaced with 0.0."""
         # Create registers that would decode to NaN
         with patch(
@@ -99,7 +99,7 @@ class TestDecodeFloats:
             assert len(result) == 1
             assert result[0] == 0.0
 
-    def test_decode_zero_count(self):
+    def test_decode_zero_count(self) -> None:
         """Test decoding with zero count."""
         result = decode_floats([0x4366, 0x0000], 0)
         assert result == []
@@ -108,7 +108,7 @@ class TestDecodeFloats:
 class TestDecode64BitFloat:
     """Tests for decode_64bit_float function."""
 
-    def test_decode_64bit_float(self):
+    def test_decode_64bit_float(self) -> None:
         """Test decoding 64-bit float."""
         # Mock the decoder to return a known value
         with patch(
@@ -122,7 +122,7 @@ class TestDecode64BitFloat:
 
             assert result == 12345.6789
 
-    def test_decode_64bit_nan_handling(self):
+    def test_decode_64bit_nan_handling(self) -> None:
         """Test that 64-bit NaN values are replaced with 0.0."""
         with patch(
             "alfen_driver.modbus_utils.BinaryPayloadDecoder"
@@ -139,7 +139,7 @@ class TestDecode64BitFloat:
 class TestReadModbusString:
     """Tests for read_modbus_string function."""
 
-    def test_read_simple_string(self, mock_modbus_client):
+    def test_read_simple_string(self, mock_modbus_client) -> None:
         """Test reading a simple string."""
         # Setup mock to return registers representing "TEST"
         mock_response = Mock()
@@ -151,7 +151,7 @@ class TestReadModbusString:
 
         assert result == "TEST"
 
-    def test_read_string_with_nulls(self, mock_modbus_client):
+    def test_read_string_with_nulls(self, mock_modbus_client) -> None:
         """Test reading string with null terminators."""
         # Setup mock to return registers with null padding
         mock_response = Mock()
@@ -163,7 +163,7 @@ class TestReadModbusString:
 
         assert result == "AB"
 
-    def test_read_string_with_spaces(self, mock_modbus_client):
+    def test_read_string_with_spaces(self, mock_modbus_client) -> None:
         """Test reading string with space padding."""
         # Setup mock to return registers with space padding
         mock_response = Mock()
@@ -175,7 +175,7 @@ class TestReadModbusString:
 
         assert result == "AB"
 
-    def test_read_string_modbus_error(self, mock_modbus_client):
+    def test_read_string_modbus_error(self, mock_modbus_client) -> None:
         """Test handling of Modbus error during string read."""
         mock_modbus_client.read_holding_registers.side_effect = ModbusReadError(
             100, 2, 1
@@ -190,7 +190,7 @@ class TestReadModbusString:
             assert result == "N/A"
             mock_logger.debug.assert_called_once()
 
-    def test_read_string_unexpected_error(self, mock_modbus_client):
+    def test_read_string_unexpected_error(self, mock_modbus_client) -> None:
         """Test handling of unexpected error during string read."""
         mock_modbus_client.read_holding_registers.side_effect = RuntimeError(
             "Unexpected error"
@@ -209,7 +209,7 @@ class TestReadModbusString:
 class TestReconnect:
     """Tests for reconnect function."""
 
-    def test_successful_reconnect(self, mock_modbus_client, mock_logger):
+    def test_successful_reconnect(self, mock_modbus_client, mock_logger) -> None:
         """Test successful reconnection."""
         mock_modbus_client.connect.return_value = True
 
@@ -220,7 +220,7 @@ class TestReconnect:
         mock_modbus_client.connect.assert_called()
         mock_logger.info.assert_called()
 
-    def test_reconnect_with_max_attempts(self, mock_modbus_client, mock_logger):
+    def test_reconnect_with_max_attempts(self, mock_modbus_client, mock_logger) -> None:
         """Test reconnection with max attempts limit."""
         mock_modbus_client.connect.return_value = False
         mock_modbus_client.host = "test_host"
@@ -236,7 +236,9 @@ class TestReconnect:
         # Should have attempted connection twice
         assert mock_modbus_client.connect.call_count == 2
 
-    def test_reconnect_with_connection_exception(self, mock_modbus_client, mock_logger):
+    def test_reconnect_with_connection_exception(
+        self, mock_modbus_client, mock_logger
+    ) -> None:
         """Test reconnection when connection raises exception."""
         mock_modbus_client.connect.side_effect = [
             ConnectionError("Network error"),
@@ -250,7 +252,9 @@ class TestReconnect:
         mock_logger.info.assert_called()  # For the successful attempt
 
     @patch("time.sleep")
-    def test_reconnect_retry_delay(self, mock_sleep, mock_modbus_client, mock_logger):
+    def test_reconnect_retry_delay(
+        self, mock_sleep, mock_modbus_client, mock_logger
+    ) -> None:
         """Test that retry delay is respected."""
         mock_modbus_client.connect.side_effect = [False, True]
 
@@ -263,7 +267,7 @@ class TestReconnect:
 class TestRetryModbusOperation:
     """Tests for retry_modbus_operation function."""
 
-    def test_successful_operation(self, mock_logger):
+    def test_successful_operation(self, mock_logger) -> None:
         """Test successful operation on first try."""
         operation = Mock(return_value="success")
 
@@ -273,7 +277,7 @@ class TestRetryModbusOperation:
         operation.assert_called_once()
         mock_logger.error.assert_not_called()
 
-    def test_operation_succeeds_after_retries(self, mock_logger):
+    def test_operation_succeeds_after_retries(self, mock_logger) -> None:
         """Test operation succeeding after some failures."""
         operation = Mock(
             side_effect=[
@@ -290,12 +294,12 @@ class TestRetryModbusOperation:
         assert operation.call_count == 3
         assert mock_logger.error.call_count == 2  # Two failure logs
 
-    def test_operation_fails_all_retries(self, mock_logger):
+    def test_operation_fails_all_retries(self, mock_logger) -> None:
         """Test operation failing all retry attempts."""
         operation = Mock(side_effect=ModbusException("Persistent failure"))
 
         with patch("time.sleep"):
-            with pytest.raises(RetryExhaustedException) as exc_info:
+            with pytest.raises(RetryExhaustedError) as exc_info:
                 retry_modbus_operation(operation, 2, 0.1, mock_logger)
 
         # The operation name will be something like "Mock" or empty
@@ -307,7 +311,7 @@ class TestRetryModbusOperation:
         assert operation.call_count == 3
         mock_logger.error.assert_called()
 
-    def test_operation_with_non_modbus_exception(self, mock_logger):
+    def test_operation_with_non_modbus_exception(self, mock_logger) -> None:
         """Test operation failing with non-Modbus exception."""
         operation = Mock(side_effect=ValueError("Not a Modbus error"))
 
@@ -317,7 +321,7 @@ class TestRetryModbusOperation:
 
         operation.assert_called_once()
 
-    def test_operation_without_logger(self):
+    def test_operation_without_logger(self) -> None:
         """Test operation retry without logger."""
         operation = Mock(side_effect=[ModbusException("Failure"), "success"])
 
@@ -328,7 +332,7 @@ class TestRetryModbusOperation:
         assert operation.call_count == 2
 
     @patch("time.sleep")
-    def test_retry_delay_timing(self, mock_sleep, mock_logger):
+    def test_retry_delay_timing(self, mock_sleep, mock_logger) -> None:
         """Test that retry delays are respected."""
         operation = Mock(
             side_effect=[
@@ -345,14 +349,14 @@ class TestRetryModbusOperation:
         assert mock_sleep.call_count == 2
         mock_sleep.assert_called_with(0.5)
 
-    def test_retry_exhausted_with_function_name(self, mock_logger):
-        """Test RetryExhaustedException includes function name when available."""
+    def test_retry_exhausted_with_function_name(self, mock_logger) -> None:
+        """Test RetryExhaustedError includes function name when available."""
 
         def named_operation():
             raise ModbusException("Test failure")
 
         with patch("time.sleep"):
-            with pytest.raises(RetryExhaustedException) as exc_info:
+            with pytest.raises(RetryExhaustedError) as exc_info:
                 retry_modbus_operation(named_operation, 1, 0.1, mock_logger)
 
         assert exc_info.value.operation == "named_operation"

@@ -22,18 +22,18 @@ from alfen_driver.logic import (
 class TestClampValue:
     """Tests for clamp_value utility function."""
 
-    def test_value_within_bounds(self):
+    def test_value_within_bounds(self) -> None:
         """Test value within bounds."""
         assert clamp_value(5.0, 0.0, 10.0) == 5.0
         assert clamp_value(0.0, 0.0, 10.0) == 0.0
         assert clamp_value(10.0, 0.0, 10.0) == 10.0
 
-    def test_value_clamped_to_minimum(self):
+    def test_value_clamped_to_minimum(self) -> None:
         """Test value clamped to minimum."""
         assert clamp_value(-5.0, 0.0, 10.0) == 0.0
         assert clamp_value(-100.0, -50.0, 50.0) == -50.0
 
-    def test_value_clamped_to_maximum(self):
+    def test_value_clamped_to_maximum(self) -> None:
         """Test value clamped to maximum."""
         assert clamp_value(15.0, 0.0, 10.0) == 10.0
         assert clamp_value(100.0, -50.0, 50.0) == 50.0
@@ -42,7 +42,7 @@ class TestClampValue:
 class TestIsWithinAnySchedule:
     """Tests for schedule checking function."""
 
-    def test_within_single_schedule(self):
+    def test_within_single_schedule(self) -> None:
         """Test time within a single schedule."""
         schedules = [
             ScheduleItem(
@@ -57,7 +57,7 @@ class TestIsWithinAnySchedule:
         result = is_within_any_schedule(schedules, test_timestamp, "UTC")
         assert result is True
 
-    def test_outside_single_schedule_time(self):
+    def test_outside_single_schedule_time(self) -> None:
         """Test time outside schedule hours."""
         schedules = [
             ScheduleItem(
@@ -72,7 +72,7 @@ class TestIsWithinAnySchedule:
         result = is_within_any_schedule(schedules, test_timestamp, "UTC")
         assert result is False
 
-    def test_outside_single_schedule_day(self):
+    def test_outside_single_schedule_day(self) -> None:
         """Test day outside schedule mask."""
         schedules = [
             ScheduleItem(
@@ -87,7 +87,7 @@ class TestIsWithinAnySchedule:
         result = is_within_any_schedule(schedules, test_timestamp, "UTC")
         assert result is False
 
-    def test_disabled_schedule(self):
+    def test_disabled_schedule(self) -> None:
         """Test disabled schedule is ignored."""
         schedules = [
             ScheduleItem(
@@ -102,7 +102,7 @@ class TestIsWithinAnySchedule:
         result = is_within_any_schedule(schedules, test_timestamp, "UTC")
         assert result is False
 
-    def test_multiple_schedules_any_match(self):
+    def test_multiple_schedules_any_match(self) -> None:
         """Test that any matching schedule returns True."""
         schedules = [
             ScheduleItem(
@@ -120,7 +120,7 @@ class TestIsWithinAnySchedule:
         result = is_within_any_schedule(schedules, test_timestamp, "UTC")
         assert result is True
 
-    def test_empty_schedules(self):
+    def test_empty_schedules(self) -> None:
         """Test empty schedules list."""
         schedules = []
 
@@ -130,7 +130,7 @@ class TestIsWithinAnySchedule:
         result = is_within_any_schedule(schedules, test_timestamp, "UTC")
         assert result is False
 
-    def test_timezone_handling(self):
+    def test_timezone_handling(self) -> None:
         """Test timezone handling in schedules."""
         schedules = [
             ScheduleItem(enabled=1, days_mask=127, start="09:00", end="17:00"),
@@ -154,7 +154,7 @@ class TestIsWithinAnySchedule:
 class TestComputeEffectiveCurrent:
     """Tests for compute_effective_current function."""
 
-    def test_manual_mode_enabled(self, sample_config):
+    def test_manual_mode_enabled(self, sample_config) -> None:
         """Test manual mode with charging enabled."""
         schedules = []
 
@@ -176,7 +176,7 @@ class TestComputeEffectiveCurrent:
         assert phases == 3
         assert "MANUAL" in explanation
 
-    def test_manual_mode_disabled(self, sample_config):
+    def test_manual_mode_disabled(self, sample_config) -> None:
         """Test manual mode with charging disabled."""
         schedules = []
 
@@ -199,7 +199,7 @@ class TestComputeEffectiveCurrent:
         assert "MANUAL" in explanation
         assert "disabled" in explanation.lower()
 
-    def test_manual_mode_clamping(self, sample_config):
+    def test_manual_mode_clamping(self, sample_config) -> None:
         """Test manual mode with current clamping."""
         schedules = []
 
@@ -221,7 +221,7 @@ class TestComputeEffectiveCurrent:
         assert phases == 3
         assert "clamped" in explanation.lower()
 
-    def test_auto_mode_with_excess_power(self, sample_config):
+    def test_auto_mode_with_excess_power(self, sample_config) -> None:
         """Test auto mode with sufficient excess power."""
         schedules = []
 
@@ -246,7 +246,7 @@ class TestComputeEffectiveCurrent:
             assert phases == 3
             assert "Solar" in explanation
 
-    def test_scheduled_mode_within_schedule(self, sample_config):
+    def test_scheduled_mode_within_schedule(self, sample_config) -> None:
         """Test scheduled mode when within active schedule."""
         schedules = [
             ScheduleItem(enabled=1, days_mask=127, start="00:00", end="23:59"),
@@ -272,7 +272,7 @@ class TestComputeEffectiveCurrent:
             assert "SCHEDULED" in explanation
             assert "within schedule" in explanation.lower()
 
-    def test_scheduled_mode_outside_schedule(self, sample_config):
+    def test_scheduled_mode_outside_schedule(self, sample_config) -> None:
         """Test scheduled mode when outside schedule."""
         schedules = [
             ScheduleItem(enabled=1, days_mask=127, start="09:00", end="17:00"),
@@ -302,7 +302,7 @@ class TestComputeEffectiveCurrent:
 class TestMapAlfenStatus:
     """Tests for map_alfen_status function."""
 
-    def test_charging_status_c2(self, mock_modbus_client, sample_config):
+    def test_charging_status_c2(self, mock_modbus_client, sample_config) -> None:
         """Test mapping of C2 (charging) status."""
         with patch("alfen_driver.logic.read_holding_registers") as mock_read:
             # Setup registers to represent "C2" string
@@ -318,7 +318,7 @@ class TestMapAlfenStatus:
 
             assert status == 2  # Charging
 
-    def test_charging_status_d2(self, mock_modbus_client, sample_config):
+    def test_charging_status_d2(self, mock_modbus_client, sample_config) -> None:
         """Test mapping of D2 (charging) status."""
         with patch("alfen_driver.logic.read_holding_registers") as mock_read:
             mock_read.return_value = [0x4432, 0x0000, 0x0000, 0x0000, 0x0000]  # "D2"
@@ -327,7 +327,7 @@ class TestMapAlfenStatus:
 
             assert status == 2  # Charging
 
-    def test_connected_status_b1(self, mock_modbus_client, sample_config):
+    def test_connected_status_b1(self, mock_modbus_client, sample_config) -> None:
         """Test mapping of B1 (connected) status."""
         with patch("alfen_driver.logic.read_holding_registers") as mock_read:
             mock_read.return_value = [0x4231, 0x0000, 0x0000, 0x0000, 0x0000]  # "B1"
@@ -336,7 +336,7 @@ class TestMapAlfenStatus:
 
             assert status == 1  # Connected
 
-    def test_connected_status_c1(self, mock_modbus_client, sample_config):
+    def test_connected_status_c1(self, mock_modbus_client, sample_config) -> None:
         """Test mapping of C1 (connected) status."""
         with patch("alfen_driver.logic.read_holding_registers") as mock_read:
             mock_read.return_value = [0x4331, 0x0000, 0x0000, 0x0000, 0x0000]  # "C1"
@@ -345,7 +345,7 @@ class TestMapAlfenStatus:
 
             assert status == 1  # Connected
 
-    def test_disconnected_status_a1(self, mock_modbus_client, sample_config):
+    def test_disconnected_status_a1(self, mock_modbus_client, sample_config) -> None:
         """Test mapping of A1 (disconnected) status."""
         with patch("alfen_driver.logic.read_holding_registers") as mock_read:
             mock_read.return_value = [0x4131, 0x0000, 0x0000, 0x0000, 0x0000]  # "A1"
@@ -354,7 +354,7 @@ class TestMapAlfenStatus:
 
             assert status == 0  # Disconnected
 
-    def test_unknown_status(self, mock_modbus_client, sample_config):
+    def test_unknown_status(self, mock_modbus_client, sample_config) -> None:
         """Test mapping of unknown status."""
         with patch("alfen_driver.logic.read_holding_registers") as mock_read:
             mock_read.return_value = [0x5858, 0x0000, 0x0000, 0x0000, 0x0000]  # "XX"
@@ -368,7 +368,7 @@ class TestMapAlfenStatus:
                 assert status == 0  # Default to disconnected
                 mock_logger.warning.assert_called_once()
 
-    def test_empty_status_string(self, mock_modbus_client, sample_config):
+    def test_empty_status_string(self, mock_modbus_client, sample_config) -> None:
         """Test mapping of empty status string."""
         with patch("alfen_driver.logic.read_holding_registers") as mock_read:
             mock_read.return_value = [
@@ -388,7 +388,7 @@ class TestMapAlfenStatus:
                 assert status == 0  # Default to disconnected
                 mock_logger.warning.assert_called_once()
 
-    def test_status_read_exception(self, mock_modbus_client, sample_config):
+    def test_status_read_exception(self, mock_modbus_client, sample_config) -> None:
         """Test handling of exception during status read."""
         with patch("alfen_driver.logic.read_holding_registers") as mock_read:
             mock_read.side_effect = Exception("Read failed")
@@ -402,7 +402,7 @@ class TestMapAlfenStatus:
 class TestApplyModeSpecificStatus:
     """Tests for apply_mode_specific_status function."""
 
-    def test_manual_mode_enabled_connected(self, sample_config):
+    def test_manual_mode_enabled_connected(self, sample_config) -> None:
         """Test manual mode, enabled, connected."""
         schedules = []
 
@@ -419,7 +419,7 @@ class TestApplyModeSpecificStatus:
         # Manual mode with enabled charging should allow natural status
         assert result == EVC_STATUS.CONNECTED.value
 
-    def test_manual_mode_disabled(self, sample_config):
+    def test_manual_mode_disabled(self, sample_config) -> None:
         """Test manual mode with charging disabled."""
         schedules = []
 
@@ -436,7 +436,7 @@ class TestApplyModeSpecificStatus:
         # Should override to wait_start when disabled
         assert result == EVC_STATUS.WAIT_START.value
 
-    def test_auto_mode_no_excess_power(self, sample_config):
+    def test_auto_mode_no_excess_power(self, sample_config) -> None:
         """Test auto mode with no excess power."""
         schedules = []
 
@@ -456,7 +456,7 @@ class TestApplyModeSpecificStatus:
             # Should show wait_sun when no solar power
             assert result == EVC_STATUS.WAIT_SUN.value
 
-    def test_scheduled_mode_outside_schedule(self, sample_config):
+    def test_scheduled_mode_outside_schedule(self, sample_config) -> None:
         """Test scheduled mode outside active schedule."""
         schedules = [
             ScheduleItem(enabled=1, days_mask=127, start="09:00", end="17:00"),
@@ -476,7 +476,7 @@ class TestApplyModeSpecificStatus:
             # Should show wait_start when outside schedule
             assert result == EVC_STATUS.WAIT_START.value
 
-    def test_disconnected_overrides_mode(self, sample_config):
+    def test_disconnected_overrides_mode(self, sample_config) -> None:
         """Test that disconnected status overrides mode logic."""
         schedules = []
 

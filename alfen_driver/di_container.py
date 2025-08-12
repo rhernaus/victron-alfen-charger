@@ -141,8 +141,8 @@ class DIContainer:
 
     def register(
         self,
-        interface: Type[T],
-        implementation: Optional[Type[T]] = None,
+        interface: Type[Any],
+        implementation: Optional[Type[Any]] = None,
         lifetime: ServiceLifetime = ServiceLifetime.TRANSIENT,
     ) -> "DIContainer":
         """Register a service implementation for an interface.
@@ -157,7 +157,9 @@ class DIContainer:
 
         Example:
             ```python
-            container.register(IModbusClient, ModbusTcpClientWrapper, ServiceLifetime.SINGLETON)
+            container.register(
+                IModbusClient, ModbusTcpClientWrapper, ServiceLifetime.SINGLETON
+            )
             ```
         """
         with self._lock:
@@ -167,8 +169,8 @@ class DIContainer:
 
     def register_factory(
         self,
-        interface: Type[T],
-        factory: Callable[[], T],
+        interface: Type[Any],
+        factory: Callable[[], Any],
         lifetime: ServiceLifetime = ServiceLifetime.TRANSIENT,
     ) -> "DIContainer":
         """Register a factory function for creating service instances.
@@ -186,7 +188,9 @@ class DIContainer:
             def create_modbus_client():
                 return ModbusTcpClient(host="192.168.1.100", port=502)
 
-            container.register_factory(IModbusClient, create_modbus_client, ServiceLifetime.SINGLETON)
+            container.register_factory(
+                IModbusClient, create_modbus_client, ServiceLifetime.SINGLETON
+            )
             ```
         """
         with self._lock:
@@ -194,7 +198,7 @@ class DIContainer:
             self._registrations[interface] = registration
         return self
 
-    def register_instance(self, interface: Type[T], instance: T) -> "DIContainer":
+    def register_instance(self, interface: Type[Any], instance: Any) -> "DIContainer":
         """Register a pre-created instance.
 
         Args:
@@ -218,7 +222,7 @@ class DIContainer:
             self._registrations[interface] = registration
         return self
 
-    def resolve(self, service_type: Type[T], scope_id: Optional[str] = None) -> T:
+    def resolve(self, service_type: Type[Any], scope_id: Optional[str] = None) -> Any:
         """Resolve a service instance with automatic dependency injection.
 
         Args:
@@ -240,8 +244,8 @@ class DIContainer:
         return self._resolve_internal(service_type, scope_id)
 
     def _resolve_internal(
-        self, service_type: Type[T], scope_id: Optional[str] = None
-    ) -> T:
+        self, service_type: Type[Any], scope_id: Optional[str] = None
+    ) -> Any:
         """Internal resolution method with circular dependency detection."""
         type_name = service_type.__name__
 
@@ -259,36 +263,36 @@ class DIContainer:
             self._resolution_stack.pop()
 
     def _create_instance(
-        self, service_type: Type[T], scope_id: Optional[str] = None
-    ) -> T:
+        self, service_type: Type[Any], scope_id: Optional[str] = None
+    ) -> Any:
         """Create an instance based on registration and lifetime management."""
         registration = self._registrations.get(service_type)
 
         if not registration:
             # Try to create instance without registration (for concrete classes)
-            return self._create_unregistered_instance(service_type, scope_id)  # type: ignore[no-any-return]
+            return self._create_unregistered_instance(service_type, scope_id)
 
         # Handle different lifetime strategies
         if registration.lifetime == ServiceLifetime.SINGLETON:
-            return self._get_singleton_instance(registration, scope_id)  # type: ignore[no-any-return]
+            return self._get_singleton_instance(registration, scope_id)
         elif registration.lifetime == ServiceLifetime.SCOPED and scope_id:
-            return self._get_scoped_instance(registration, scope_id)  # type: ignore[no-any-return]
+            return self._get_scoped_instance(registration, scope_id)
         else:
-            return self._create_new_instance(registration, scope_id)  # type: ignore[no-any-return]
+            return self._create_new_instance(registration, scope_id)
 
     def _get_singleton_instance(
         self, registration: ServiceRegistration, scope_id: Optional[str] = None
     ) -> Any:
         """Get or create singleton instance with thread safety."""
-        if registration._singleton_instance is not None:
-            return registration._singleton_instance
+        instance = registration._singleton_instance
+        if instance is not None:
+            return instance
 
         with registration._lock:
-            if registration._singleton_instance is not None:
-                return registration._singleton_instance
-
-            instance = self._create_new_instance(registration, scope_id)
-            registration._singleton_instance = instance
+            instance = registration._singleton_instance
+            if instance is None:
+                instance = self._create_new_instance(registration, scope_id)
+                registration._singleton_instance = instance
             return instance
 
     def _get_scoped_instance(
@@ -319,19 +323,20 @@ class DIContainer:
         )
 
     def _create_unregistered_instance(
-        self, service_type: Type[T], scope_id: Optional[str] = None
-    ) -> T:
+        self, service_type: Type[Any], scope_id: Optional[str] = None
+    ) -> Any:
         """Create instance for unregistered concrete class."""
         if inspect.isabstract(service_type):
             raise DIError(
-                f"Cannot instantiate abstract class {service_type.__name__} without registration"
+                f"Cannot instantiate abstract class {service_type.__name__} "
+                f"without registration"
             )
 
         return self._create_with_constructor_injection(service_type, scope_id)
 
     def _create_with_constructor_injection(
-        self, implementation_type: Type[T], scope_id: Optional[str] = None
-    ) -> T:
+        self, implementation_type: Type[Any], scope_id: Optional[str] = None
+    ) -> Any:
         """Create instance with automatic constructor dependency injection."""
         constructor = implementation_type.__init__
         signature = inspect.signature(constructor)
@@ -354,7 +359,8 @@ class DIContainer:
                 kwargs[param_name] = param.default
             else:
                 raise DIError(
-                    f"Cannot resolve parameter '{param_name}' for {implementation_type.__name__}. "
+                    f"Cannot resolve parameter '{param_name}' for "
+                    f"{implementation_type.__name__}. "
                     f"Missing type hint or default value."
                 )
 
@@ -446,6 +452,6 @@ def injectable(cls: Type[T]) -> Type[T]:
                 self.logger = logger
         ```
     """
-    # Add metadata to mark class as injectable
-    cls._is_injectable = True
+    # Add metadata to mark class as injectable without upsetting type checkers
+    setattr(cls, "_is_injectable", True)
     return cls

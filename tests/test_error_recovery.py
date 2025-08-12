@@ -11,28 +11,28 @@ from alfen_driver.error_recovery import (
     error_aggregator,
     with_error_recovery,
 )
-from alfen_driver.exceptions import AlfenDriverError, RetryExhaustedException
+from alfen_driver.exceptions import AlfenDriverError, RetryExhaustedError
 
 
 class TestWithErrorRecovery:
     """Tests for the with_error_recovery decorator."""
 
-    def test_successful_function_call(self):
+    def test_successful_function_call(self) -> None:
         """Test decorator with function that succeeds immediately."""
 
         @with_error_recovery(ValueError, max_retries=3)
-        def successful_function():
+        def successful_function() -> str:
             return "success"
 
         result = successful_function()
         assert result == "success"
 
-    def test_function_succeeds_after_retries(self):
+    def test_function_succeeds_after_retries(self) -> None:
         """Test function that succeeds after some failures."""
         call_count = 0
 
         @with_error_recovery(ValueError, max_retries=3, retry_delay=0.01)
-        def flaky_function():
+        def flaky_function() -> str:
             nonlocal call_count
             call_count += 1
             if call_count < 3:
@@ -45,27 +45,27 @@ class TestWithErrorRecovery:
         assert result == "success"
         assert call_count == 3
 
-    def test_function_fails_all_retries(self):
+    def test_function_fails_all_retries(self) -> None:
         """Test function that fails all retry attempts."""
 
         @with_error_recovery(ValueError, max_retries=2, retry_delay=0.01)
-        def always_fails():
+        def always_fails() -> None:
             raise ValueError("Persistent failure")
 
         with patch("time.sleep"):
-            with pytest.raises(RetryExhaustedException) as exc_info:
+            with pytest.raises(RetryExhaustedError) as exc_info:
                 always_fails()
 
         assert exc_info.value.operation == "always_fails"
         assert exc_info.value.attempts == 3  # max_retries + 1
 
-    def test_function_with_default_return(self):
+    def test_function_with_default_return(self) -> None:
         """Test function with default return value."""
 
         @with_error_recovery(
             ValueError, max_retries=1, default_return="default", retry_delay=0.01
         )
-        def always_fails():
+        def always_fails() -> None:
             raise ValueError("Failure")
 
         with patch("time.sleep"):
@@ -73,50 +73,50 @@ class TestWithErrorRecovery:
 
         assert result == "default"
 
-    def test_exponential_backoff(self):
+    def test_exponential_backoff(self) -> None:
         """Test exponential backoff timing."""
 
         @with_error_recovery(
             ValueError, max_retries=3, retry_delay=0.1, backoff_multiplier=2.0
         )
-        def always_fails():
+        def always_fails() -> None:
             raise ValueError("Failure")
 
         with patch("time.sleep") as mock_sleep:
-            with pytest.raises(RetryExhaustedException):
+            with pytest.raises(RetryExhaustedError):
                 always_fails()
 
         # Should have slept with increasing delays: 0.1, 0.2, 0.4
         expected_calls = [((0.1,),), ((0.2,),), ((0.4,),)]
         assert mock_sleep.call_args_list == expected_calls
 
-    def test_multiple_exception_types(self):
+    def test_multiple_exception_types(self) -> None:
         """Test decorator with multiple exception types."""
 
         @with_error_recovery((ValueError, TypeError), max_retries=2, retry_delay=0.01)
-        def multi_exception_function(exception_type):
+        def multi_exception_function(exception_type: type) -> None:
             raise exception_type("Test error")
 
         with patch("time.sleep"):
             # Should catch ValueError
-            with pytest.raises(RetryExhaustedException):
+            with pytest.raises(RetryExhaustedError):
                 multi_exception_function(ValueError)
 
             # Should catch TypeError
-            with pytest.raises(RetryExhaustedException):
+            with pytest.raises(RetryExhaustedError):
                 multi_exception_function(TypeError)
 
             # Should not catch RuntimeError
             with pytest.raises(RuntimeError):
                 multi_exception_function(RuntimeError)
 
-    def test_logging_disabled(self):
+    def test_logging_disabled(self) -> None:
         """Test decorator with logging disabled."""
 
         @with_error_recovery(
             ValueError, max_retries=1, log_errors=False, retry_delay=0.01
         )
-        def failing_function():
+        def failing_function() -> None:
             raise ValueError("Test error")
 
         with patch("time.sleep"):
@@ -124,7 +124,7 @@ class TestWithErrorRecovery:
                 mock_logger = Mock()
                 mock_logger_get.return_value = mock_logger
 
-                with pytest.raises(RetryExhaustedException):
+                with pytest.raises(RetryExhaustedError):
                     failing_function()
 
                 # Logger should not have been called
@@ -135,11 +135,11 @@ class TestWithErrorRecovery:
 class TestCircuitBreaker:
     """Tests for the CircuitBreaker class."""
 
-    def test_successful_call_closed_state(self):
+    def test_successful_call_closed_state(self) -> None:
         """Test successful call when circuit is closed."""
         breaker = CircuitBreaker(failure_threshold=3, timeout=1.0)
 
-        def successful_function():
+        def successful_function() -> str:
             return "success"
 
         result = breaker.call(successful_function)
@@ -147,13 +147,13 @@ class TestCircuitBreaker:
         assert breaker.state == "CLOSED"
         assert breaker.failure_count == 0
 
-    def test_circuit_opens_after_threshold(self):
+    def test_circuit_opens_after_threshold(self) -> None:
         """Test circuit opens after failure threshold."""
         breaker = CircuitBreaker(
             failure_threshold=2, timeout=1.0, expected_exception=ValueError
         )
 
-        def failing_function():
+        def failing_function() -> None:
             raise ValueError("Test failure")
 
         # First failure
@@ -168,13 +168,13 @@ class TestCircuitBreaker:
         assert breaker.state == "OPEN"
         assert breaker.failure_count == 2
 
-    def test_circuit_stays_open(self):
+    def test_circuit_stays_open(self) -> None:
         """Test circuit stays open and rejects calls."""
         breaker = CircuitBreaker(
             failure_threshold=1, timeout=1.0, expected_exception=ValueError
         )
 
-        def failing_function():
+        def failing_function() -> None:
             raise ValueError("Test failure")
 
         # Trigger circuit opening
@@ -189,13 +189,13 @@ class TestCircuitBreaker:
 
         assert "Circuit breaker is OPEN" in str(exc_info.value)
 
-    def test_circuit_half_open_after_timeout(self):
+    def test_circuit_half_open_after_timeout(self) -> None:
         """Test circuit moves to half-open after timeout."""
         breaker = CircuitBreaker(
             failure_threshold=1, timeout=0.1, expected_exception=ValueError
         )
 
-        def failing_function():
+        def failing_function() -> None:
             raise ValueError("Test failure")
 
         # Open the circuit
@@ -214,16 +214,16 @@ class TestCircuitBreaker:
         # Should have been in half-open state during the call
         assert breaker.state == "OPEN"  # Back to open after failure
 
-    def test_circuit_resets_after_success(self):
+    def test_circuit_resets_after_success(self) -> None:
         """Test circuit resets to closed after success in half-open."""
         breaker = CircuitBreaker(
             failure_threshold=1, timeout=0.1, expected_exception=ValueError
         )
 
-        def failing_function():
+        def failing_function() -> None:
             raise ValueError("Test failure")
 
-        def successful_function():
+        def successful_function() -> str:
             return "success"
 
         # Open the circuit
@@ -240,13 +240,13 @@ class TestCircuitBreaker:
         assert breaker.state == "CLOSED"
         assert breaker.failure_count == 0
 
-    def test_unexpected_exception_not_counted(self):
+    def test_unexpected_exception_not_counted(self) -> None:
         """Test that unexpected exceptions don't affect circuit breaker."""
         breaker = CircuitBreaker(
             failure_threshold=2, timeout=1.0, expected_exception=ValueError
         )
 
-        def runtime_error_function():
+        def runtime_error_function() -> None:
             raise RuntimeError("Unexpected error")
 
         # RuntimeError should not be caught by circuit breaker
@@ -260,7 +260,7 @@ class TestCircuitBreaker:
 class TestErrorAggregator:
     """Tests for the ErrorAggregator class."""
 
-    def test_record_error(self):
+    def test_record_error(self) -> None:
         """Test recording an error."""
         aggregator = ErrorAggregator(max_errors=10)
 
@@ -277,7 +277,7 @@ class TestErrorAggregator:
         assert error_info["operation"] == "test_operation"
         assert "timestamp" in error_info
 
-    def test_max_errors_limit(self):
+    def test_max_errors_limit(self) -> None:
         """Test that error list is limited to max_errors."""
         aggregator = ErrorAggregator(max_errors=3)
 
@@ -291,7 +291,7 @@ class TestErrorAggregator:
         messages = [e["message"] for e in aggregator.errors]
         assert messages == ["Error 2", "Error 3", "Error 4"]
 
-    def test_get_error_summary(self):
+    def test_get_error_summary(self) -> None:
         """Test getting error summary."""
         aggregator = ErrorAggregator()
 
@@ -315,7 +315,7 @@ class TestErrorAggregator:
         assert type_error_info["count"] == 1
         assert "context2" in type_error_info["contexts"]
 
-    def test_get_error_summary_time_window(self):
+    def test_get_error_summary_time_window(self) -> None:
         """Test error summary with time window filtering."""
         aggregator = ErrorAggregator()
 
@@ -340,7 +340,7 @@ class TestErrorAggregator:
         assert "TypeError" in summary["error_types"]
         assert "ValueError" not in summary["error_types"]
 
-    def test_log_error_summary(self):
+    def test_log_error_summary(self) -> None:
         """Test logging error summary."""
         aggregator = ErrorAggregator()
 
@@ -359,7 +359,7 @@ class TestErrorAggregator:
                 mock_logger.info.call_count >= 2
             )  # At least summary + error type info
 
-    def test_log_error_summary_no_errors(self):
+    def test_log_error_summary_no_errors(self) -> None:
         """Test logging when there are no errors."""
         aggregator = ErrorAggregator()
 
@@ -376,12 +376,12 @@ class TestErrorAggregator:
 class TestGlobalErrorAggregator:
     """Tests for the global error aggregator instance."""
 
-    def test_global_error_aggregator_exists(self):
+    def test_global_error_aggregator_exists(self) -> None:
         """Test that global error aggregator instance exists."""
         assert error_aggregator is not None
         assert isinstance(error_aggregator, ErrorAggregator)
 
-    def test_global_error_aggregator_usage(self):
+    def test_global_error_aggregator_usage(self) -> None:
         """Test using the global error aggregator."""
         # Clear any existing errors
         error_aggregator.errors.clear()

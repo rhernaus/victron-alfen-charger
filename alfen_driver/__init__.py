@@ -15,7 +15,7 @@ from .exceptions import (
     ModbusReadError,
     ModbusVerificationError,
     ModbusWriteError,
-    RetryExhaustedException,
+    RetryExhaustedError,
     ServiceUnavailableError,
     SessionError,
     StatusMappingError,
@@ -45,6 +45,6 @@ __all__ = [
     "ChargingControlError",
     "ValidationError",
     "SessionError",
-    "RetryExhaustedException",
+    "RetryExhaustedError",
     "ServiceUnavailableError",
 ]

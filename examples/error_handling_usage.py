@@ -37,16 +37,16 @@ def read_modbus_data() -> dict:
 
 
 # Example 2: Using circuit breaker
-def unreliable_operation():
+def unreliable_operation() -> dict:
     """Example of an operation that might fail frequently."""
     import random
 
     if random.random() < 0.8:  # 80% chance of failure
         raise ConnectionError("Service unavailable")
-    return "Success"
+    return {"status": "Success"}
 
 
-def main():
+def main() -> None:
     """Demonstrate error handling patterns."""
 
     # Example 1: Retry decorator
@@ -67,9 +67,9 @@ def main():
     for i in range(10):
         try:
             result = breaker.call(unreliable_operation)
-            print(f"Attempt {i+1}: {result}")
+            print(f"Attempt {i + 1}: {result}")
         except Exception as e:
-            print(f"Attempt {i+1}: Failed - {e}")
+            print(f"Attempt {i + 1}: Failed - {e}")
             error_aggregator.record_error(
                 e, context="circuit_breaker", operation="unreliable_op"
             )

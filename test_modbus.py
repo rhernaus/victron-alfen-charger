@@ -24,14 +24,15 @@ REG_PHASES = 1215  # 1 word (uint16)
 REG_SET_CURRENT_VALID_SECS = 1211  # 1 word (uint16?)
 
 
-def main():
+def main() -> None:
     client = ModbusTcpClient(host=ALFEN_IP, port=ALFEN_PORT)
     if not client.connect():
         print("Failed to connect to Alfen charger")
         sys.exit(1)
 
     print(
-        "Connected to Alfen charger. Polling data every 5 seconds. Press Ctrl+C to stop."
+        "Connected to Alfen charger. Polling data every 5 seconds. "
+        "Press Ctrl+C to stop."
     )
 
     try:
@@ -39,7 +40,7 @@ def main():
             try:
                 # Read status
                 rr = client.read_holding_registers(REG_STATUS, 5, slave=ALFEN_SLAVE_ID)
-                status_bytes = [r for r in rr.registers]
+                status_bytes = list(rr.registers)
                 status_str = "".join(chr(b & 0xFF) for b in status_bytes).strip("\x00")
                 print(f"Status: {status_str}")
 
@@ -54,7 +55,9 @@ def main():
                 v2 = decoder.decode_32bit_float()
                 v3 = decoder.decode_32bit_float()
                 print(
-                    f"Voltages: L1={v1 if not math.isnan(v1) else 0:.2f}V, L2={v2 if not math.isnan(v2) else 0:.2f}V, L3={v3 if not math.isnan(v3) else 0:.2f}V"
+                    f"Voltages: L1={v1 if not math.isnan(v1) else 0:.2f}V, "
+                    f"L2={v2 if not math.isnan(v2) else 0:.2f}V, "
+                    f"L3={v3 if not math.isnan(v3) else 0:.2f}V"
                 )
 
                 # Read currents
@@ -68,7 +71,9 @@ def main():
                 i2 = decoder.decode_32bit_float()
                 i3 = decoder.decode_32bit_float()
                 print(
-                    f"Currents: L1={i1 if not math.isnan(i1) else 0:.2f}A, L2={i2 if not math.isnan(i2) else 0:.2f}A, L3={i3 if not math.isnan(i3) else 0:.2f}A"
+                    f"Currents: L1={i1 if not math.isnan(i1) else 0:.2f}A, "
+                    f"L2={i2 if not math.isnan(i2) else 0:.2f}A, "
+                    f"L3={i3 if not math.isnan(i3) else 0:.2f}A"
                 )
 
                 # Read power
@@ -106,7 +111,9 @@ def main():
                 )
                 curr_bl = dec_bl.decode_32bit_float()
                 print(
-                    f"Configured Current raw={regs} dec_bb={curr_bb if not math.isnan(curr_bb) else 0:.2f}A dec_bl={curr_bl if not math.isnan(curr_bl) else 0:.2f}A"
+                    f"Configured Current raw={regs} "
+                    f"dec_bb={curr_bb if not math.isnan(curr_bb) else 0:.2f}A "
+                    f"dec_bl={curr_bl if not math.isnan(curr_bl) else 0:.2f}A"
                 )
 
                 print("---")

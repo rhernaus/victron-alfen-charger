@@ -5,7 +5,7 @@ import time
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
-from .exceptions import AlfenDriverError, RetryExhaustedException
+from .exceptions import AlfenDriverError, RetryExhaustedError
 
 T = TypeVar("T")
 
@@ -64,9 +64,7 @@ def with_error_recovery(
                 logger.info(f"Returning default value: {default_return}")
                 return default_return
 
-            raise RetryExhaustedException(
-                func.__name__, max_retries + 1, last_exception
-            )
+            raise RetryExhaustedError(func.__name__, max_retries + 1, last_exception)
 
         return wrapper
 

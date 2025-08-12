@@ -21,7 +21,7 @@ from alfen_driver.exceptions import ValidationError
 class TestScheduleItem:
     """Tests for ScheduleItem dataclass."""
 
-    def test_default_schedule_item(self):
+    def test_default_schedule_item(self) -> None:
         """Test default schedule item creation."""
         item = ScheduleItem()
         assert item.enabled == 0
@@ -29,7 +29,7 @@ class TestScheduleItem:
         assert item.start == "00:00"
         assert item.end == "00:00"
 
-    def test_custom_schedule_item(self):
+    def test_custom_schedule_item(self) -> None:
         """Test custom schedule item creation."""
         item = ScheduleItem(enabled=1, days_mask=127, start="09:00", end="17:00")
         assert item.enabled == 1
@@ -41,7 +41,7 @@ class TestScheduleItem:
 class TestControlsConfig:
     """Tests for ControlsConfig dataclass."""
 
-    def test_default_controls_config(self):
+    def test_default_controls_config(self) -> None:
         """Test default controls configuration."""
         config = ControlsConfig()
         assert config.current_tolerance == 0.25
@@ -53,7 +53,7 @@ class TestControlsConfig:
         assert config.max_set_current == 64.0
         assert config.min_charge_duration_seconds == 300
 
-    def test_controls_config_validation_success(self):
+    def test_controls_config_validation_success(self) -> None:
         """Test successful validation of controls config."""
         config = ControlsConfig(
             current_tolerance=0.5,
@@ -65,28 +65,28 @@ class TestControlsConfig:
         assert config.current_tolerance == 0.5
         assert config.max_retries == 5
 
-    def test_controls_config_negative_tolerance(self):
+    def test_controls_config_negative_tolerance(self) -> None:
         """Test validation error for negative tolerance."""
         with pytest.raises(ValidationError) as exc_info:
             ControlsConfig(current_tolerance=-0.1)
         assert "current_tolerance" in str(exc_info.value)
         assert "must be non-negative" in str(exc_info.value)
 
-    def test_controls_config_zero_retries(self):
+    def test_controls_config_zero_retries(self) -> None:
         """Test validation error for zero retries."""
         with pytest.raises(ValidationError) as exc_info:
             ControlsConfig(max_retries=0)
         assert "max_retries" in str(exc_info.value)
         assert "must be at least 1" in str(exc_info.value)
 
-    def test_controls_config_negative_watchdog_interval(self):
+    def test_controls_config_negative_watchdog_interval(self) -> None:
         """Test validation error for negative watchdog interval."""
         with pytest.raises(ValidationError) as exc_info:
             ControlsConfig(watchdog_interval_seconds=-1)
         assert "watchdog_interval_seconds" in str(exc_info.value)
         assert "must be positive" in str(exc_info.value)
 
-    def test_controls_config_zero_max_current(self):
+    def test_controls_config_zero_max_current(self) -> None:
         """Test validation error for zero max current."""
         with pytest.raises(ValidationError) as exc_info:
             ControlsConfig(max_set_current=0.0)
@@ -97,14 +97,14 @@ class TestControlsConfig:
 class TestConfig:
     """Tests for main Config dataclass."""
 
-    def test_config_validation_success(self, sample_config):
+    def test_config_validation_success(self, sample_config: Config) -> None:
         """Test successful config validation."""
         # Should not raise any exceptions
         assert sample_config.modbus.port == 502
         assert sample_config.defaults.intended_set_current == 6.0
         assert sample_config.poll_interval_ms == 1000
 
-    def test_config_negative_port(self, sample_config):
+    def test_config_negative_port(self, sample_config: Config) -> None:
         """Test validation error for negative port."""
         sample_config.modbus.port = -1
         with pytest.raises(ValidationError) as exc_info:
@@ -112,7 +112,7 @@ class TestConfig:
         assert "modbus.port" in str(exc_info.value)
         assert "must be positive" in str(exc_info.value)
 
-    def test_config_negative_intended_current(self, sample_config):
+    def test_config_negative_intended_current(self, sample_config: Config) -> None:
         """Test validation error for negative intended current."""
         sample_config.defaults.intended_set_current = -5.0
         with pytest.raises(ValidationError) as exc_info:
@@ -120,7 +120,7 @@ class TestConfig:
         assert "intended_set_current" in str(exc_info.value)
         assert "must be non-negative" in str(exc_info.value)
 
-    def test_config_zero_poll_interval(self, sample_config):
+    def test_config_zero_poll_interval(self, sample_config: Config) -> None:
         """Test validation error for zero poll interval."""
         sample_config.poll_interval_ms = 0
         with pytest.raises(ValidationError) as exc_info:
@@ -132,14 +132,14 @@ class TestConfig:
 class TestParseHHMMToMinutes:
     """Tests for time parsing function."""
 
-    def test_valid_time_parsing(self):
+    def test_valid_time_parsing(self) -> None:
         """Test parsing valid time strings."""
         assert parse_hhmm_to_minutes("00:00") == 0
         assert parse_hhmm_to_minutes("01:30") == 90
         assert parse_hhmm_to_minutes("12:00") == 720
         assert parse_hhmm_to_minutes("23:59") == 1439
 
-    def test_invalid_time_formats(self):
+    def test_invalid_time_formats(self) -> None:
         """Test parsing invalid time formats."""
         assert parse_hhmm_to_minutes("invalid") == 0
         assert parse_hhmm_to_minutes("25:00") == 60  # Hours wrap around
@@ -147,13 +147,13 @@ class TestParseHHMMToMinutes:
         assert parse_hhmm_to_minutes("") == 0
         assert parse_hhmm_to_minutes("12") == 0  # Missing colon
 
-    def test_non_string_input(self):
+    def test_non_string_input(self) -> None:
         """Test parsing non-string inputs."""
         assert parse_hhmm_to_minutes(None) == 0
         assert parse_hhmm_to_minutes(123) == 0
         assert parse_hhmm_to_minutes([]) == 0
 
-    def test_whitespace_handling(self):
+    def test_whitespace_handling(self) -> None:
         """Test parsing with whitespace."""
         assert parse_hhmm_to_minutes(" 12:30 ") == 750
         assert parse_hhmm_to_minutes("\t09:15\n") == 555
@@ -162,7 +162,7 @@ class TestParseHHMMToMinutes:
 class TestLoadConfigFromDisk:
     """Tests for loading configuration from disk."""
 
-    def test_load_valid_json_config(self):
+    def test_load_valid_json_config(self) -> None:
         """Test loading valid JSON configuration."""
         config_data = {"key": "value", "number": 42}
 
@@ -177,13 +177,13 @@ class TestLoadConfigFromDisk:
         finally:
             os.unlink(temp_file)
 
-    def test_load_nonexistent_file(self):
+    def test_load_nonexistent_file(self) -> None:
         """Test loading from non-existent file."""
         logger = Mock()
         result = load_config_from_disk("/nonexistent/file.json", logger)
         assert result is None
 
-    def test_load_invalid_json(self):
+    def test_load_invalid_json(self) -> None:
         """Test loading invalid JSON."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write("{ invalid json }")
@@ -197,7 +197,7 @@ class TestLoadConfigFromDisk:
         finally:
             os.unlink(temp_file)
 
-    def test_load_config_os_error(self):
+    def test_load_config_os_error(self) -> None:
         """Test handling OS errors during load."""
         logger = Mock()
 
@@ -220,9 +220,9 @@ class TestLoadConfig:
     """Tests for main configuration loading."""
 
     @patch("alfen_driver.config.CONFIG_PATH")
-    def test_load_config_file_not_found(self, mock_config_path):
+    def test_load_config_file_not_found(self, mock_config_path: Mock) -> None:
         """Test loading when config file doesn't exist."""
-        mock_config_path.__str__ = Mock(return_value="/nonexistent/file.yaml")
+        mock_config_path.return_value = "/nonexistent/file.yaml"
 
         logger = Mock()
         with patch("os.path.exists", return_value=False):
@@ -233,7 +233,7 @@ class TestLoadConfig:
         assert config.modbus.port == 502
         logger.info.assert_called_once()
 
-    def test_load_valid_yaml_config(self, temp_config_file):
+    def test_load_valid_yaml_config(self, temp_config_file: str) -> None:
         """Test loading valid YAML configuration."""
         logger = Mock()
 
@@ -256,7 +256,7 @@ class TestLoadConfig:
         # For now, we'll test the actual config loading in integration tests
         # The unit test verifies the structure and validation works
 
-    def test_load_invalid_yaml_structure(self):
+    def test_load_invalid_yaml_structure(self) -> None:
         """Test loading YAML with invalid structure."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("not_a_dict_but_a_string")
@@ -273,7 +273,7 @@ class TestLoadConfig:
         finally:
             os.unlink(temp_file)
 
-    def test_load_yaml_with_validation_error(self):
+    def test_load_yaml_with_validation_error(self) -> None:
         """Test loading YAML that fails validation."""
         invalid_config = """
 modbus:
@@ -333,7 +333,7 @@ poll_interval_ms: 1000
         finally:
             os.unlink(temp_file)
 
-    def test_load_yaml_with_missing_fields(self):
+    def test_load_yaml_with_missing_fields(self) -> None:
         """Test loading YAML with missing required fields."""
         incomplete_config = """
 modbus:
@@ -356,7 +356,7 @@ modbus:
         finally:
             os.unlink(temp_file)
 
-    def test_load_config_with_invalid_schedule_times(self):
+    def test_load_config_with_invalid_schedule_times(self) -> None:
         """Test loading config with invalid schedule times."""
         config_with_bad_schedule = """
 modbus:

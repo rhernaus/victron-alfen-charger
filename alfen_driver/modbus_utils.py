@@ -25,23 +25,27 @@ Example:
     # Read voltage registers and decode as floats
     voltage_regs = read_holding_registers(client, 306, 6, slave=1)
     voltages = decode_floats(voltage_regs, 3)  # 3 phases
-    print(f"Voltages: L1={voltages[0]:.1f}V, L2={voltages[1]:.1f}V, L3={voltages[2]:.1f}V")
+    print(
+        f"Voltages: L1={voltages[0]:.1f}V, L2={voltages[1]:.1f}V, "
+        f"L3={voltages[2]:.1f}V"
+    )
     ```
 """
 
 import math
 import time
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, cast
 
 from pymodbus.client import ModbusTcpClient
 from pymodbus.constants import Endian
 from pymodbus.exceptions import ModbusException
 from pymodbus.payload import BinaryPayloadDecoder
+from pymodbus.pdu import ModbusResponse
 
 from .exceptions import (
     ModbusConnectionError,
     ModbusReadError,
-    RetryExhaustedException,
+    RetryExhaustedError,
 )
 from .logging_utils import get_logger
 
@@ -83,7 +87,9 @@ def read_holding_registers(
         This function uses the pymodbus library's read_holding_registers method
         and converts Modbus-specific errors to the driver's exception hierarchy.
     """
-    rr = client.read_holding_registers(address, count, slave=slave)
+    rr = cast(
+        ModbusResponse, client.read_holding_registers(address, count, slave=slave)
+    )
     if rr.isError():
         raise ModbusReadError(address, count, slave, str(rr))
     return list(rr.registers)
@@ -140,7 +146,7 @@ def decode_64bit_float(registers: List[int]) -> float:
     decoder = BinaryPayloadDecoder.fromRegisters(
         registers, byteorder=Endian.BIG, wordorder=Endian.BIG
     )
-    val = decoder.decode_64bit_float()
+    val: float = decoder.decode_64bit_float()
     return val if not math.isnan(val) else 0.0
 
 
@@ -297,7 +303,7 @@ def retry_modbus_operation(
         The return value from the successful operation call.
 
     Raises:
-        RetryExhaustedException: If all retry attempts are exhausted without
+        RetryExhaustedError: If all retry attempts are exhausted without
             success. Includes the operation name, total attempts, and the
             last exception encountered.
         Exception: Any non-ModbusException raised by the operation is
@@ -309,9 +315,11 @@ def retry_modbus_operation(
             return read_holding_registers(client, 306, 6, slave=1)
 
         try:
-            voltages = retry_modbus_operation(read_voltages, retries=3, retry_delay=0.5, logger=logger)
+            voltages = retry_modbus_operation(
+                read_voltages, retries=3, retry_delay=0.5, logger=logger
+            )
             voltage_floats = decode_floats(voltages, 3)
-        except RetryExhaustedException as e:
+        except RetryExhaustedError as e:
             logger.error(f"Failed to read voltages after {e.attempts} attempts")
         ```
 
@@ -326,7 +334,7 @@ def retry_modbus_operation(
             return operation()
         except ModbusException as e:
             if logger:
-                logger.error(f"Modbus error on attempt {attempt+1}: {e}")
+                logger.error(f"Modbus error on attempt {attempt + 1}: {e}")
             if attempt < retries - 1:
                 time.sleep(retry_delay)
     if logger:
@@ -339,7 +347,7 @@ def retry_modbus_operation(
     except Exception as e:
         last_error = e
 
-    raise RetryExhaustedException(
+    raise RetryExhaustedError(
         operation.__name__ if hasattr(operation, "__name__") else "unknown",
         retries,
         last_error,

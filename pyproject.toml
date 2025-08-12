@@ -88,10 +88,14 @@ ignore = [
     "S101",  # Use of assert
     "S603",  # subprocess call check
     "S607",  # Starting a process with a partial executable path
+    "B009",  # getattr with constant attribute
+    "B010",  # setattr with constant attribute
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]  # Allow assert in tests
+"tests/*" = ["S101", "S105", "S108"]  # Allow asserts and test literals
+"examples/*" = ["S106", "S108", "S311"]  # Examples may show simplified patterns
+"reference/*" = ["F401", "F403", "F405", "N801"]  # Reference code kept as-is
 
 [tool.ruff]
 line-length = 88

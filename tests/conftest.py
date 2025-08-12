@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import tempfile
+from typing import Generator
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -18,7 +19,7 @@ sys.modules["gi.repository"] = MagicMock()
 sys.modules["gi.repository.GLib"] = MagicMock()
 sys.modules["vedbus"] = MagicMock()
 
-from alfen_driver.config import (
+from alfen_driver.config import (  # noqa: E402
     Config,
     ControlsConfig,
     DefaultsConfig,
@@ -34,7 +35,7 @@ logging.disable(logging.CRITICAL)
 
 
 @pytest.fixture
-def mock_modbus_client():
+def mock_modbus_client() -> Mock:
     """Mock Modbus client for testing."""
     client = Mock(spec=ModbusTcpClient)
     client.host = "test_host"
@@ -58,7 +59,7 @@ def mock_modbus_client():
 
 
 @pytest.fixture
-def sample_config():
+def sample_config() -> Config:
     """Sample configuration for testing."""
     return Config(
         modbus=ModbusConfig(
@@ -108,7 +109,7 @@ def sample_config():
 
 
 @pytest.fixture
-def temp_config_file():
+def temp_config_file() -> Generator[str, None, None]:
     """Create a temporary configuration file."""
     config_content = """
 modbus:
@@ -178,14 +179,14 @@ timezone: "UTC"
 
 
 @pytest.fixture
-def mock_dbus_service():
+def mock_dbus_service() -> Mock:
     """Mock D-Bus service for testing."""
     service = {}
 
-    def setitem(key, value):
+    def setitem(key: str, value: object) -> None:
         service[key] = value
 
-    def getitem(key):
+    def getitem(key: str) -> object:
         return service.get(key, 0)
 
     mock_service = Mock()
@@ -198,13 +199,13 @@ def mock_dbus_service():
 
 
 @pytest.fixture
-def mock_logger():
+def mock_logger() -> Mock:
     """Mock logger for testing."""
     return Mock(spec=logging.Logger)
 
 
 @pytest.fixture
-def sample_register_data():
+def sample_register_data() -> dict[str, list[int]]:
     """Sample register data for testing."""
     return {
         "voltages": [0x4366, 0x0000, 0x4366, 0x0000, 0x4366, 0x0000],  # 230V floats
@@ -216,7 +217,7 @@ def sample_register_data():
 
 
 @pytest.fixture(autouse=True)
-def cleanup_logging():
+def cleanup_logging() -> Generator[None, None, None]:
     """Ensure clean logging state for each test."""
     yield
     # Reset logging

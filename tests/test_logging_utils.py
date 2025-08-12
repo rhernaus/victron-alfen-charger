@@ -2,7 +2,7 @@
 
 import logging
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -20,7 +20,7 @@ from alfen_driver.logging_utils import (
 class TestLogContext:
     """Tests for LogContext dataclass."""
 
-    def test_default_context(self):
+    def test_default_context(self) -> None:
         """Test default context creation."""
         context = LogContext()
         assert context.operation is None
@@ -30,7 +30,7 @@ class TestLogContext:
         assert context.modbus_slave_id is None
         assert context.correlation_id is None
 
-    def test_custom_context(self):
+    def test_custom_context(self) -> None:
         """Test custom context creation."""
         context = LogContext(
             operation="test_operation",
@@ -47,7 +47,7 @@ class TestLogContext:
         assert context.modbus_slave_id == 1
         assert context.correlation_id == "corr_123"
 
-    def test_to_dict(self):
+    def test_to_dict(self) -> None:
         """Test context to dictionary conversion."""
         context = LogContext(
             operation="test_op",
@@ -68,13 +68,13 @@ class TestLogContext:
 class TestStructuredLogger:
     """Tests for StructuredLogger class."""
 
-    def test_logger_initialization(self):
+    def test_logger_initialization(self) -> None:
         """Test logger initialization."""
         logger = StructuredLogger("test_logger")
         assert logger.name == "test_logger"
         assert logger.logger is not None
 
-    def test_context_management(self):
+    def test_context_management(self) -> None:
         """Test logging context management."""
         logger = StructuredLogger("test_logger")
 
@@ -86,7 +86,7 @@ class TestStructuredLogger:
         assert retrieved_context.operation == "test_op"
         assert retrieved_context.component == "test_comp"
 
-    def test_data_sanitization(self):
+    def test_data_sanitization(self) -> None:
         """Test sensitive data sanitization."""
         logger = StructuredLogger("test_logger")
 
@@ -107,7 +107,7 @@ class TestStructuredLogger:
         assert sanitized["token"] == "***REDACTED***"
         assert sanitized["normal_field"] == "normal_value"
 
-    def test_nested_data_sanitization(self):
+    def test_nested_data_sanitization(self) -> None:
         """Test sanitization of nested data structures."""
         logger = StructuredLogger("test_logger")
 
@@ -123,7 +123,7 @@ class TestStructuredLogger:
         assert sanitized["auth"]["secret_key"] == "***REDACTED***"
 
     @patch("alfen_driver.logging_utils.StructuredLogger._log_with_context")
-    def test_log_level_methods(self, mock_log):
+    def test_log_level_methods(self, mock_log: Mock) -> None:
         """Test convenience methods for different log levels."""
         logger = StructuredLogger("test_logger")
 
@@ -153,7 +153,7 @@ class TestStructuredLogger:
         )
 
     @patch("alfen_driver.logging_utils.StructuredLogger._log_with_context")
-    def test_domain_specific_methods(self, mock_log):
+    def test_domain_specific_methods(self, mock_log: Mock) -> None:
         """Test domain-specific logging methods."""
         logger = StructuredLogger("test_logger")
 
@@ -188,7 +188,7 @@ class TestStructuredLogger:
         )
 
     @patch("alfen_driver.logging_utils.StructuredLogger._log_with_context")
-    def test_error_recovery_logging(self, mock_log):
+    def test_error_recovery_logging(self, mock_log: Mock) -> None:
         """Test error recovery logging."""
         logger = StructuredLogger("test_logger")
 
@@ -226,7 +226,7 @@ class TestStructuredLogger:
 class TestStructuredFormatter:
     """Tests for StructuredFormatter class."""
 
-    def test_format_basic_record(self):
+    def test_format_basic_record(self) -> None:
         """Test formatting of basic log record."""
         formatter = StructuredFormatter()
 
@@ -247,7 +247,7 @@ class TestStructuredFormatter:
         assert "test_logger" in formatted
         assert "Test message" in formatted
 
-    def test_format_with_structured_data(self):
+    def test_format_with_structured_data(self) -> None:
         """Test formatting with structured data."""
         formatter = StructuredFormatter()
 
@@ -275,9 +275,11 @@ class TestStructuredFormatter:
         assert "operation=test_operation" in formatted
         assert "took 42.5ms" in formatted
 
-    def test_format_with_exception(self):
+    def test_format_with_exception(self) -> None:
         """Test formatting with exception information."""
         formatter = StructuredFormatter()
+
+        import sys
 
         try:
             raise ValueError("Test exception")
@@ -289,7 +291,7 @@ class TestStructuredFormatter:
                 lineno=123,
                 msg="Test message",
                 args=(),
-                exc_info=True,  # This will capture the current exception
+                exc_info=sys.exc_info(),  # This will capture the current exception
             )
 
         formatted = formatter.format(record)
@@ -302,13 +304,13 @@ class TestStructuredFormatter:
 class TestLogContextManager:
     """Tests for log context manager."""
 
-    def test_context_manager(self):
+    def test_context_manager(self) -> None:
         """Test log context manager functionality."""
         with log_context(operation="test_op", component="test_comp") as context:
             assert context.operation == "test_op"
             assert context.component == "test_comp"
 
-    def test_context_cleanup(self):
+    def test_context_cleanup(self) -> None:
         """Test that context is cleaned up after manager exits."""
         original_context = getattr(threading.current_thread(), "_log_context", None)
 
@@ -326,13 +328,13 @@ class TestLogContextManager:
 class TestLoggingIntegration:
     """Integration tests for the structured logging system."""
 
-    def test_get_logger_function(self):
+    def test_get_logger_function(self) -> None:
         """Test the get_logger convenience function."""
         logger = get_logger("test.module")
         assert isinstance(logger, StructuredLogger)
         assert logger.name == "test.module"
 
-    def test_get_logger_with_config(self):
+    def test_get_logger_with_config(self) -> None:
         """Test get_logger with configuration."""
         config = MagicMock()
         config.logging = LoggingConfig(level="DEBUG", file="/tmp/test.log")
@@ -341,7 +343,7 @@ class TestLoggingIntegration:
         assert isinstance(logger, StructuredLogger)
         assert logger.config == config
 
-    def test_setup_root_logging(self):
+    def test_setup_root_logging(self) -> None:
         """Test root logging setup."""
         config = MagicMock()
         config.logging = LoggingConfig(level="WARNING")
@@ -357,7 +359,7 @@ class TestLoggingIntegration:
 class TestLoggingConfiguration:
     """Tests for logging configuration validation."""
 
-    def test_valid_logging_config(self):
+    def test_valid_logging_config(self) -> None:
         """Test valid logging configuration."""
         config = LoggingConfig(
             level="INFO",
@@ -374,7 +376,7 @@ class TestLoggingConfiguration:
         assert config.max_file_size_mb == 20
         assert config.backup_count == 10
 
-    def test_invalid_log_level(self):
+    def test_invalid_log_level(self) -> None:
         """Test invalid log level validation."""
         from alfen_driver.exceptions import ValidationError
 
@@ -384,7 +386,7 @@ class TestLoggingConfiguration:
         assert "logging.level" in str(exc_info.value)
         assert "must be one of" in str(exc_info.value)
 
-    def test_invalid_file_size(self):
+    def test_invalid_file_size(self) -> None:
         """Test invalid file size validation."""
         from alfen_driver.exceptions import ValidationError
 
@@ -394,7 +396,7 @@ class TestLoggingConfiguration:
         assert "logging.max_file_size_mb" in str(exc_info.value)
         assert "must be positive" in str(exc_info.value)
 
-    def test_invalid_backup_count(self):
+    def test_invalid_backup_count(self) -> None:
         """Test invalid backup count validation."""
         from alfen_driver.exceptions import ValidationError
 

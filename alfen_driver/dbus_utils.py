@@ -8,18 +8,18 @@ from vedbus import VeDbusService
 from .config import Config, ScheduleItem
 
 
-class EVC_MODE(enum.IntEnum):
+class EVC_MODE(enum.IntEnum):  # noqa: N801
     MANUAL = 0
     AUTO = 1
     SCHEDULED = 2
 
 
-class EVC_CHARGE(enum.IntEnum):
+class EVC_CHARGE(enum.IntEnum):  # noqa: N801
     DISABLED = 0
     ENABLED = 1
 
 
-class EVC_STATUS(enum.IntEnum):
+class EVC_STATUS(enum.IntEnum):  # noqa: N801
     DISCONNECTED = 0
     CONNECTED = 1
     CHARGING = 2
@@ -106,7 +106,8 @@ def register_dbus_service(
 
 
 def get_current_ess_strategy() -> str:
-    """Determine if Victron is buying, selling (from battery), or idle based on grid and battery power."""
+    """Determine if Victron is buying, selling (from battery), or idle based on
+    grid and battery power."""
     try:
         bus = dbus.SystemBus()
         system = bus.get_object("com.victronenergy.system", "/")

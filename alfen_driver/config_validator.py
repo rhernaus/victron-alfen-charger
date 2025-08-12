@@ -232,7 +232,8 @@ class ConfigValidator:
                 "modbus.ip",
                 "Modbus IP address is required",
                 None,
-                "Add 'ip' field with the Alfen charger's IP address (e.g., '192.168.1.100')",
+                "Add 'ip' field with the Alfen charger's IP address "
+                "(e.g., '192.168.1.100')",
             )
         else:
             ip = modbus["ip"]
@@ -241,7 +242,7 @@ class ConfigValidator:
                     "modbus.ip",
                     f"Invalid IP address format: '{ip}'",
                     ip,
-                    "Use a valid IPv4 address format (e.g., '192.168.1.100')",
+                    "Use a valid IPv4 address format " "(e.g., '192.168.1.100')",
                 )
 
         # Validate port
@@ -256,7 +257,7 @@ class ConfigValidator:
         elif not self.VALID_PORT_RANGE[0] <= port <= self.VALID_PORT_RANGE[1]:
             self._add_error(
                 "modbus.port",
-                f"Port {port} is out of valid range {self.VALID_PORT_RANGE}",
+                f"Port {port} is out of valid range " f"{self.VALID_PORT_RANGE}",
                 port,
                 "Use standard Modbus TCP port 502 or a valid port number",
             )
@@ -266,9 +267,10 @@ class ConfigValidator:
         if not isinstance(socket_slave, int):
             self._add_error(
                 "modbus.socket_slave_id",
-                f"Socket slave ID must be integer, got {type(socket_slave).__name__}",
+                f"Socket slave ID must be integer, "
+                f"got {type(socket_slave).__name__}",
                 socket_slave,
-                "Use an integer value between 1 and 247 (typically 1 for Alfen)",
+                "Use an integer value between 1 and 247 " "(typically 1 for Alfen)",
             )
         elif (
             not self.VALID_SLAVE_ID_RANGE[0]
@@ -277,7 +279,8 @@ class ConfigValidator:
         ):
             self._add_error(
                 "modbus.socket_slave_id",
-                f"Socket slave ID {socket_slave} out of range {self.VALID_SLAVE_ID_RANGE[:2]}",
+                f"Socket slave ID {socket_slave} out of range "
+                f"{self.VALID_SLAVE_ID_RANGE[:2]}",
                 socket_slave,
                 "Use slave ID 1 for Alfen socket data",
             )
@@ -297,7 +300,8 @@ class ConfigValidator:
         ):
             self._add_error(
                 "modbus.station_slave_id",
-                f"Station slave ID {station_slave} out of range {self.VALID_SLAVE_ID_RANGE[:2]}",
+                f"Station slave ID {station_slave} out of range "
+                f"{self.VALID_SLAVE_ID_RANGE[:2]}",
                 station_slave,
                 "Use slave ID 200 for Alfen station control",
             )
@@ -365,7 +369,8 @@ class ConfigValidator:
                 "defaults.intended_set_current",
                 f"Current {current}A is out of valid range {self.VALID_CURRENT_RANGE}",
                 current,
-                f"Use current between {self.VALID_CURRENT_RANGE[0]}A-{self.VALID_CURRENT_RANGE[1]}A"
+                f"Use current between {self.VALID_CURRENT_RANGE[0]}A-"
+                f"{self.VALID_CURRENT_RANGE[1]}A",
             )
 
         # Validate station max current
@@ -386,7 +391,8 @@ class ConfigValidator:
                 "defaults.station_max_current",
                 f"Max current {max_current}A out of range {self.VALID_CURRENT_RANGE}",
                 max_current,
-                f"Use max current between {self.VALID_CURRENT_RANGE[0]}A-{self.VALID_CURRENT_RANGE[1]}A",
+                f"Use max current between {self.VALID_CURRENT_RANGE[0]}A-"
+                f"{self.VALID_CURRENT_RANGE[1]}A",
             )
 
     def _validate_controls_config(self, controls: Dict[str, Any]) -> None:
@@ -407,7 +413,8 @@ class ConfigValidator:
         ):
             self._add_error(
                 "controls.max_set_current",
-                f"Max set current {max_current}A out of range {self.VALID_CURRENT_RANGE}",
+                f"Max set current {max_current}A out of range "
+                f"{self.VALID_CURRENT_RANGE}",
                 max_current,
                 "Check your charger's maximum current rating",
             )
@@ -417,7 +424,8 @@ class ConfigValidator:
         if not isinstance(tolerance, (int, float)):
             self._add_error(
                 "controls.current_tolerance",
-                f"Current tolerance must be a number, got {type(tolerance).__name__}",
+                f"Current tolerance must be a number, "
+                f"got {type(tolerance).__name__}",
                 tolerance,
                 "Use a numeric value in amperes (e.g., 0.5)",
             )
@@ -455,7 +463,8 @@ class ConfigValidator:
                     f"schedule.items[{i}]",
                     f"Schedule item must be a dictionary, got {type(item).__name__}",
                     item,
-                    "Each schedule item should have 'active', 'days', and time settings",
+                    "Each schedule item should have 'active', 'days', "
+                    "and time settings",
                 )
                 continue
 
@@ -545,7 +554,8 @@ class ConfigValidator:
             if not isinstance(instance, int):
                 self._add_error(
                     "device_instance",
-                    f"Device instance must be an integer, got {type(instance).__name__}",
+                    f"Device instance must be an integer, "
+                    f"got {type(instance).__name__}",
                     instance,
                     "Use an integer value (typically 0 for first device)",
                 )
@@ -556,7 +566,8 @@ class ConfigValidator:
             ):
                 self._add_error(
                     "device_instance",
-                    f"Device instance {instance} is out of valid range {self.VALID_DEVICE_INSTANCE_RANGE}",
+                    f"Device instance {instance} is out of valid range "
+                    f"{self.VALID_DEVICE_INSTANCE_RANGE}",
                     instance,
                     "Use a value between 0 and 255",
                 )
@@ -578,7 +589,8 @@ class ConfigValidator:
             ):
                 self._add_error(
                     "poll_interval_ms",
-                    f"Poll interval {interval}ms is out of valid range {self.VALID_POLL_INTERVAL_RANGE}",
+                    f"Poll interval {interval}ms is out of valid range "
+                    f"{self.VALID_POLL_INTERVAL_RANGE}",
                     interval,
                     "Use a value between 100ms and 60000ms",
                 )
@@ -605,7 +617,8 @@ class ConfigValidator:
                     "timezone",
                     f"Invalid timezone: '{tz}'",
                     tz,
-                    "Use a valid timezone like 'UTC', 'Europe/Amsterdam', or 'America/New_York'",
+                    "Use a valid timezone like 'UTC', 'Europe/Amsterdam', "
+                    "or 'America/New_York'",
                 )
 
     def _validate_relationships(self, config: Dict[str, Any]) -> None:
@@ -619,9 +632,11 @@ class ConfigValidator:
                 if intended > max_set:
                     self._add_error(
                         "defaults.intended_set_current",
-                        f"Intended current {intended}A exceeds max set current {max_set}A",
+                        f"Intended current {intended}A exceeds max set "
+                        f"current {max_set}A",
                         intended,
-                        f"Reduce intended current to {max_set}A or less, or increase max_set_current",
+                        f"Reduce intended current to {max_set}A or less, "
+                        f"or increase max_set_current",
                     )
 
         # Check that station max current is reasonable
@@ -636,7 +651,8 @@ class ConfigValidator:
                     if max_set > station_max:
                         self._add_warning(
                             "controls.max_set_current",
-                            f"Max set current {max_set}A exceeds station max {station_max}A",
+                            f"Max set current {max_set}A exceeds station max "
+                            f"{station_max}A",
                             max_set,
                             f"The charger may limit current to {station_max}A",
                         )
@@ -651,8 +667,6 @@ class ConfigValidator:
 
     def _is_valid_time_format(self, time_str: str) -> bool:
         """Check if a string is in HH:MM format (requires zero-padding)."""
-        if not isinstance(time_str, str):
-            return False
         # Require zero-padding: HH:MM format only
         pattern = r"^([0-1][0-9]|2[0-3]):([0-5][0-9])$"
         return bool(re.match(pattern, time_str))
@@ -704,7 +718,8 @@ class ConfigValidator:
                         "required": False,
                         "default": 1,
                         "range": [1, 247],
-                        "description": "Slave ID for socket data (voltages, currents, power)",
+                        "description": "Slave ID for socket data "
+                        "(voltages, currents, power)",
                     },
                     "station_slave_id": {
                         "type": "integer",
