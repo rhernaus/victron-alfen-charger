@@ -417,6 +417,8 @@ def process_status_and_energy(
             f"Status changed from {EVC_STATUS(old_victron_status).name} to {EVC_STATUS(new_victron_status).name}"
         )
 
+    old_victron_status = new_victron_status  # Update for re-evaluation check
+
     # Re-evaluate status after potential auto-start and current set
     new_victron_status = apply_mode_specific_status(
         current_mode,
