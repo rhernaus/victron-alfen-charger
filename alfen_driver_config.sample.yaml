@@ -26,23 +26,29 @@ registers:
   platform_type: 140 # Starting register for platform type string
   platform_type_count: 17 # Number of registers for platform type
   station_max_current: 1100 # Register for station max current (1 float, 2 words)
+  station_status: 1201 # Station status register (same as status for completeness)
 
 defaults:
   intended_set_current: 6.0 # Default charging current in amps
-  station_max_current: 16.0 # Default max current if read fails
-  timezone: Europe/Amsterdam
+  station_max_current: 32.0 # Default max current if read fails
 
 logging:
-  level: INFO # Logging level (DEBUG, INFO, WARNING, ERROR)
+  level: INFO # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
   file: /var/log/alfen_driver.log # Path to log file
+  format: structured # "structured" or "simple"
+  max_file_size_mb: 10 # Max log file size before rotation
+  backup_count: 5 # Number of backup files to keep
+  console_output: true # Whether to also log to console
+  json_format: false # Use JSON format for structured logs
 
-schedules:
-  # Default schedule: 12:00-15:00 every day (days_mask=127 sums 1+2+4+8+16+32+64 for Sun-Sat). This is normally the cheapest hours with dynamic tariffs.
-  - enabled: 1 # 1 to enable this schedule, 0 to disable
-    days_mask: 127 # Bitmask for days (Sun=1, Mon=2, ..., Sat=64; sum for multiple)
-    start: "12:00" # Start time in HH:MM (24h format)
-    end: "15:00" # End time in HH:MM
-# You can add up to 2 more schedules like the above
+schedule:
+  items:
+    # Default schedule: 12:00-15:00 every day (days_mask=127 sums 1+2+4+8+16+32+64 for Sun-Sat). This is normally the cheapest hours with dynamic tariffs.
+    - enabled: 1 # 1 to enable this schedule, 0 to disable
+      days_mask: 127 # Bitmask for days (Sun=1, Mon=2, ..., Sat=64; sum for multiple)
+      start: "12:00" # Start time in HH:MM (24h format)
+      end: "15:00" # End time in HH:MM
+    # You can add up to 2 more schedules like the above
 
 controls:
   current_tolerance: 0.25 # Tolerance for verifying set current (in amps)
@@ -53,5 +59,8 @@ controls:
   watchdog_interval_seconds: 30 # Interval to refresh current (watchdog)
   max_set_current: 64.0 # Absolute max settable current (safety limit)
   min_charge_duration_seconds: 300 # Minimum charging duration in seconds once started in AUTO mode
+  current_update_interval: 30000 # Interval for refreshing current settings (ms)
+  verify_delay: 100 # Verification delay in milliseconds
 
 poll_interval_ms: 1000 # Base polling interval in milliseconds (adaptive in code)
+timezone: Europe/Amsterdam # Timezone for schedule calculations
