@@ -386,10 +386,10 @@ class IChargingController(ABC):
 
     @abstractmethod
     def set_phase_count(self, phases: int, verify: bool = True) -> bool:
-        """Set the number of charging phases.
+        """Set the number of charging phases (always 3-phase only).
 
         Args:
-            phases: Number of phases (1 or 3).
+            phases: Number of phases (ignored, always uses 3).
             verify: Whether to verify the setting was applied.
 
         Returns:

@@ -474,15 +474,13 @@ class MockChargingController(IChargingController):
         return self._verify_success if verify else True
 
     def set_phase_count(self, phases: int, verify: bool = True) -> bool:
-        """Set mock phase count."""
+        """Set mock phase count (always 3-phase only)."""
         if self._fail_next_operation:
             self._fail_next_operation = False
             return False
 
-        if phases not in [1, 3]:
-            return False
-
-        self._phase_setting = phases
+        # Always force 3 phases
+        self._phase_setting = 3
         return self._verify_success if verify else True
 
     def get_charging_status(self) -> Dict[str, Any]:

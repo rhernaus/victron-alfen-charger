@@ -156,10 +156,9 @@ def is_within_any_schedule(
 def get_excess_solar_current(
     ev_power: float = 0.0,
     station_max: float = float("inf"),
-    current_phases: int = 3,
     charging_start_time: float = 0.0,
     min_charge_duration_seconds: int = 300,
-) -> Tuple[float, int, str]:
+) -> Tuple[float, str]:
     global _config
     try:
         bus = dbus.SystemBus()
@@ -183,34 +182,18 @@ def get_excess_solar_current(
         excess = max(0.0, total_pv - adjusted_consumption - max(0.0, battery_power))
         # Calculate current for 3 phases
         current = excess / (3 * NOMINAL_VOLTAGE)
-        min_power_1 = MIN_CURRENT * NOMINAL_VOLTAGE
         min_power_3 = MIN_CURRENT * 3 * NOMINAL_VOLTAGE
-        hysteresis = 500.0
-        new_phases = current_phases
         clamp_reason = ""
-        if current_phases == 3:
-            if excess < min_power_3 - hysteresis:
-                if excess >= min_power_1:
-                    new_phases = 1
-                    current = excess / NOMINAL_VOLTAGE
-                else:
-                    current = 0.0
-            else:
-                current = excess / (3 * NOMINAL_VOLTAGE)
-        elif current_phases == 1:
-            if excess >= min_power_3:
-                new_phases = 3
-                current = excess / (3 * NOMINAL_VOLTAGE)
-            else:
-                current = excess / NOMINAL_VOLTAGE
+
+        # If insufficient power for 3-phase minimum, set to 0
+        if excess < min_power_3:
+            current = 0.0
+
         clamped_current = min(current, station_max)
         if clamped_current < MIN_CURRENT and clamped_current > 0:
             clamped_current = 0.0
             clamp_reason = f" (below min {MIN_CURRENT}A, set to 0)"
-        if clamped_current == 0.0 and new_phases == 1:
-            new_phases = 3
-            current = 0.0
-            clamp_reason = ""
+
         explanation = (
             f"total_pv={total_pv:.2f}W, "
             f"adjusted_consumption={adjusted_consumption:.2f}W "
@@ -218,7 +201,7 @@ def get_excess_solar_current(
             f"battery_charging={max(0.0, battery_power):.2f}W, "
             f"excess={excess:.2f}W, "
             f"raw_current={current:.2f}A{clamp_reason} -> "
-            f"{clamped_current:.2f}A, phases={new_phases}"
+            f"{clamped_current:.2f}A (3-phase)"
         )
 
         time_since_start = time.time() - charging_start_time
@@ -228,16 +211,14 @@ def get_excess_solar_current(
             and time_since_start < min_charge_duration_seconds
         ):
             clamped_current = MIN_CURRENT
-            new_phases = 1
             explanation += (
-                f" (forced to {MIN_CURRENT}A on 1 phase due to "
-                f"minimum charge duration)"
+                f" (forced to {MIN_CURRENT}A due to " f"minimum charge duration)"
             )
 
-        return clamped_current, new_phases, explanation
+        return clamped_current, explanation
     except Exception as e:
         logging.error(f"Error calculating excess solar: {e}")
-        return 0.0, 3, f"Error: {str(e)}"
+        return 0.0, f"Error: {str(e)}"
 
 
 def compute_effective_current(
@@ -247,12 +228,11 @@ def compute_effective_current(
     station_max_current: float,
     now: float,
     schedules: List[ScheduleItem],
-    ev_power: float = 0.0,  # New parameter
+    ev_power: float = 0.0,
     timezone: str = "UTC",
-    current_phases: int = 3,
     charging_start_time: float = 0.0,
     min_charge_duration_seconds: int = 300,
-) -> Tuple[float, int, str]:
+) -> Tuple[float, str]:
     effective = 0.0
     explanation = ""
     if current_mode == EVC_MODE.MANUAL:
@@ -269,13 +249,11 @@ def compute_effective_current(
     elif current_mode == EVC_MODE.AUTO:
         if start_stop == EVC_CHARGE.DISABLED:
             effective = 0.0
-            effective_phases = current_phases
             explanation = "Auto mode disabled by start_stop"
         else:
-            effective, effective_phases, excess_exp = get_excess_solar_current(
+            effective, excess_exp = get_excess_solar_current(
                 ev_power,
                 station_max_current,
-                current_phases,
                 charging_start_time,
                 min_charge_duration_seconds,
             )
@@ -304,7 +282,7 @@ def compute_effective_current(
     clamped_effective = max(0.0, min(effective, station_max_current))
     if not math.isclose(clamped_effective, effective, abs_tol=0.01):
         explanation += f" (clamped from {effective:.2f}A to {clamped_effective:.2f}A)"
-    return clamped_effective, 3, explanation  # for non-AUTO
+    return clamped_effective, explanation
 
 
 def map_alfen_status(client: Any, config: Config) -> int:
@@ -510,7 +488,7 @@ def process_status_and_energy(
     now_connected = connected
 
     # Compute effective early to inform status
-    effective_current, effective_phases, explanation = compute_effective_current(
+    effective_current, explanation = compute_effective_current(
         current_mode,
         start_stop,
         intended_set_current,
@@ -519,7 +497,6 @@ def process_status_and_energy(
         schedules,
         0.0,  # Default ev_power
         timezone,
-        3,  # current_phases
         charging_start_time,
         config.controls.min_charge_duration_seconds,
     )

@@ -459,12 +459,10 @@ class ChargingControllerImpl(IChargingController):
             raise ChargingControlError("set_current", current, str(e)) from e
 
     def set_phase_count(self, phases: int, verify: bool = True) -> bool:
-        """Set the number of charging phases."""
+        """Set the number of charging phases (always 3-phase only)."""
         try:
-            if phases not in [1, 3]:
-                raise ChargingControlError(
-                    "set_phases", phases, "Phases must be 1 or 3"
-                )
+            # Force 3-phase operation only
+            phases = 3
 
             # Write phase setting
             success = self._modbus_client.write_register(

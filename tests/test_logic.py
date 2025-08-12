@@ -158,7 +158,7 @@ class TestComputeEffectiveCurrent:
         """Test manual mode with charging enabled."""
         schedules = []
 
-        current, phases, explanation = compute_effective_current(
+        current, explanation = compute_effective_current(
             EVC_MODE.MANUAL,
             EVC_CHARGE.ENABLED,
             10.0,  # intended_set_current
@@ -167,20 +167,18 @@ class TestComputeEffectiveCurrent:
             schedules,
             0.0,  # ev_power
             "UTC",
-            current_phases=3,
             charging_start_time=0.0,
             min_charge_duration_seconds=300,
         )
 
         assert current == 10.0
-        assert phases == 3
         assert "MANUAL" in explanation
 
     def test_manual_mode_disabled(self, sample_config) -> None:
         """Test manual mode with charging disabled."""
         schedules = []
 
-        current, phases, explanation = compute_effective_current(
+        current, explanation = compute_effective_current(
             EVC_MODE.MANUAL,
             EVC_CHARGE.DISABLED,
             10.0,
@@ -189,13 +187,11 @@ class TestComputeEffectiveCurrent:
             schedules,
             0.0,
             "UTC",
-            current_phases=3,
             charging_start_time=0.0,
             min_charge_duration_seconds=300,
         )
 
         assert current == 0.0
-        assert phases == 3
         assert "MANUAL" in explanation
         assert "disabled" in explanation.lower()
 
@@ -203,7 +199,7 @@ class TestComputeEffectiveCurrent:
         """Test manual mode with current clamping."""
         schedules = []
 
-        current, phases, explanation = compute_effective_current(
+        current, explanation = compute_effective_current(
             EVC_MODE.MANUAL,
             EVC_CHARGE.ENABLED,
             50.0,  # Higher than station max
@@ -212,13 +208,11 @@ class TestComputeEffectiveCurrent:
             schedules,
             0.0,
             "UTC",
-            current_phases=3,
             charging_start_time=0.0,
             min_charge_duration_seconds=300,
         )
 
         assert current == 32.0  # Should be clamped to station max
-        assert phases == 3
         assert "clamped" in explanation.lower()
 
     def test_auto_mode_with_excess_power(self, sample_config) -> None:
@@ -228,7 +222,7 @@ class TestComputeEffectiveCurrent:
         with patch("alfen_driver.logic.try_solar_current_calculation") as mock_solar:
             mock_solar.return_value = (12.0, 3, "Solar calculation: 12.0A")
 
-            current, phases, explanation = compute_effective_current(
+            current, explanation = compute_effective_current(
                 EVC_MODE.AUTO,
                 EVC_CHARGE.ENABLED,
                 10.0,
@@ -237,13 +231,11 @@ class TestComputeEffectiveCurrent:
                 schedules,
                 0.0,
                 "UTC",
-                current_phases=3,
                 charging_start_time=0.0,
                 min_charge_duration_seconds=300,
             )
 
             assert current == 12.0
-            assert phases == 3
             assert "Solar" in explanation
 
     def test_scheduled_mode_within_schedule(self, sample_config) -> None:
@@ -253,7 +245,7 @@ class TestComputeEffectiveCurrent:
         ]
 
         with patch("alfen_driver.logic.is_within_any_schedule", return_value=True):
-            current, phases, explanation = compute_effective_current(
+            current, explanation = compute_effective_current(
                 EVC_MODE.SCHEDULED,
                 EVC_CHARGE.ENABLED,
                 15.0,
@@ -262,14 +254,12 @@ class TestComputeEffectiveCurrent:
                 schedules,
                 0.0,
                 "UTC",
-                current_phases=3,
                 charging_start_time=0.0,
                 min_charge_duration_seconds=300,
             )
 
             assert current == 15.0
-            assert phases == 3
-            assert "SCHEDULED" in explanation
+            assert "Scheduled" in explanation
             assert "within schedule" in explanation.lower()
 
     def test_scheduled_mode_outside_schedule(self, sample_config) -> None:
@@ -279,7 +269,7 @@ class TestComputeEffectiveCurrent:
         ]
 
         with patch("alfen_driver.logic.is_within_any_schedule", return_value=False):
-            current, phases, explanation = compute_effective_current(
+            current, explanation = compute_effective_current(
                 EVC_MODE.SCHEDULED,
                 EVC_CHARGE.ENABLED,
                 15.0,
@@ -288,14 +278,12 @@ class TestComputeEffectiveCurrent:
                 schedules,
                 0.0,
                 "UTC",
-                current_phases=3,
                 charging_start_time=0.0,
                 min_charge_duration_seconds=300,
             )
 
             assert current == 0.0
-            assert phases == 3
-            assert "SCHEDULED" in explanation
+            assert "Scheduled" in explanation
             assert "outside schedule" in explanation.lower()
 
 
@@ -365,8 +353,8 @@ class TestMapAlfenStatus:
 
                 status = map_alfen_status(mock_modbus_client, sample_config)
 
-                assert status == 0  # Default to disconnected
-                mock_logger.warning.assert_called_once()
+            assert status == 0  # Default to disconnected
+            mock_logger.warning.assert_called_once()
 
     def test_empty_status_string(self, mock_modbus_client, sample_config) -> None:
         """Test mapping of empty status string."""
@@ -385,8 +373,8 @@ class TestMapAlfenStatus:
 
                 status = map_alfen_status(mock_modbus_client, sample_config)
 
-                assert status == 0  # Default to disconnected
-                mock_logger.warning.assert_called_once()
+            assert status == 0  # Default to disconnected
+            mock_logger.warning.assert_called_once()
 
     def test_status_read_exception(self, mock_modbus_client, sample_config) -> None:
         """Test handling of exception during status read."""

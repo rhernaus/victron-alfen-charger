@@ -91,44 +91,6 @@ def set_current(
         return False
 
 
-def set_phases(
-    client: Any,
-    config: Config,
-    phases: int,
-    force_verify: bool = False,
-) -> bool:
-    if phases not in (1, 3):
-        return False
-
-    def write_op() -> bool:
-        client.write_register(
-            config.registers.phases,
-            phases,
-            slave=config.modbus.socket_slave_id,
-        )
-        if force_verify:
-            time.sleep(config.controls.verification_delay)
-            reg = client.read_holding_registers(
-                config.registers.phases,
-                1,
-                slave=config.modbus.socket_slave_id,
-            )
-            if not reg.isError() and reg.registers[0] == phases:
-                return True
-            return False
-        return True
-
-    try:
-        result = retry_modbus_operation(
-            write_op,
-            retries=config.controls.max_retries,
-            retry_delay=config.controls.retry_delay,
-        )
-        return bool(result)
-    except ModbusException:
-        return False
-
-
 def set_effective_current(
     client: Any,
     config: Config,
@@ -140,12 +102,11 @@ def set_effective_current(
     last_current_set_time: float,
     schedules: list[ScheduleItem],
     logger: Any,
-    ev_power: float = 0.0,  # New parameter for local EV power
+    ev_power: float = 0.0,
     force: bool = False,
     timezone: str = "UTC",
-    last_sent_phases: int = 0,
     charging_start_time: float = 0.0,
-) -> tuple[float, float, int]:
+) -> tuple[float, float]:
     """
     Set the effective current based on mode and watchdog.
 
@@ -154,19 +115,19 @@ def set_effective_current(
         ev_power: Total power of the EV charger for excess calculation.
     """
     now = time.time()
-    effective_current, effective_phases, explanation = compute_effective_current(
+    effective_current, explanation = compute_effective_current(
         current_mode,
         start_stop,
         intended_set_current,
         station_max_current,
         now,
         schedules,
-        ev_power,  # Pass to compute
+        ev_power,
         timezone,
-        current_phases=last_sent_phases,
         charging_start_time=charging_start_time,
         min_charge_duration_seconds=config.controls.min_charge_duration_seconds,
     )
+
     current_time = time.time()
     needs_update = (
         force
@@ -176,29 +137,22 @@ def set_effective_current(
             current_time - last_current_set_time
             > config.controls.watchdog_interval_seconds
         )
-        or effective_phases != last_sent_phases
     )
     if needs_update:
-        ok_phases = True
-        if effective_phases != last_sent_phases:
-            ok_phases = set_phases(client, config, effective_phases, force_verify=True)
         ok_current = set_current(
             client, config, effective_current, station_max_current, force_verify=True
         )
-        if ok_phases and ok_current:
+        if ok_current:
             last_current_set_time = current_time
             last_sent_current = effective_current
-            last_sent_phases = effective_phases
             # Use structured logging for charging events
             structured_logger = get_logger("alfen_driver.controls")
             structured_logger.log_charging_event(
                 "effective_current_updated",
                 current=effective_current,
                 mode=EVC_MODE(current_mode).name,
-                phases=effective_phases,
                 explanation=explanation,
                 last_current=last_sent_current,
-                last_phases=last_sent_phases,
             )
     else:
         # Use structured logging for debug info
@@ -211,7 +165,7 @@ def set_effective_current(
             time_since_last_update=current_time - last_current_set_time,
             watchdog_threshold=config.controls.watchdog_interval_seconds,
         )
-    return last_sent_current, last_current_set_time, last_sent_phases
+    return last_sent_current, last_current_set_time
 
 
 def update_station_max_current(

@@ -9,7 +9,6 @@ from alfen_driver.controls import (
     clamp_value,
     set_current,
     set_effective_current,
-    set_phases,
     update_station_max_current,
 )
 from alfen_driver.exceptions import (
@@ -155,41 +154,6 @@ class TestSetCurrent:
                 assert result is False
 
 
-class TestSetPhases:
-    """Tests for set_phases function."""
-
-    def test_successful_phase_setting(self, mock_modbus_client, sample_config) -> None:
-        """Test successful phase setting."""
-        write_response = Mock()
-        write_response.isError.return_value = False
-        mock_modbus_client.write_registers.return_value = write_response
-
-        with patch("alfen_driver.controls.retry_modbus_operation") as mock_retry:
-            mock_retry.return_value = True
-
-            result = set_phases(
-                mock_modbus_client, sample_config, 3, force_verify=False
-            )
-
-            assert result is True
-
-    def test_phase_validation(self, mock_modbus_client, sample_config) -> None:
-        """Test phase count validation."""
-        with pytest.raises(ValidationError) as exc_info:
-            set_phases(mock_modbus_client, sample_config, 0)
-
-        assert "phases" in str(exc_info.value)
-        assert "must be 1 or 3" in str(exc_info.value)
-
-    def test_invalid_phase_count(self, mock_modbus_client, sample_config) -> None:
-        """Test invalid phase count."""
-        with pytest.raises(ValidationError) as exc_info:
-            set_phases(mock_modbus_client, sample_config, 2)
-
-        assert "phases" in str(exc_info.value)
-        assert "must be 1 or 3" in str(exc_info.value)
-
-
 class TestSetEffectiveCurrent:
     """Tests for set_effective_current function."""
 
@@ -206,7 +170,7 @@ class TestSetEffectiveCurrent:
                 mock_set_current.return_value = True
 
                 with patch("time.time", return_value=1000):
-                    last_current, last_time, last_phases = set_effective_current(
+                    last_current, last_time = set_effective_current(
                         mock_modbus_client,
                         sample_config,
                         EVC_MODE.MANUAL.value,
@@ -220,13 +184,11 @@ class TestSetEffectiveCurrent:
                         0.0,  # ev_power
                         force=False,
                         timezone="UTC",
-                        last_sent_phases=3,
                         charging_start_time=0.0,
                     )
 
                 assert last_current == 10.0
                 assert last_time == 1000
-                assert last_phases == 3
                 mock_set_current.assert_called_once()
 
     def test_no_current_change_needed(self, mock_modbus_client, sample_config) -> None:
@@ -238,7 +200,7 @@ class TestSetEffectiveCurrent:
 
             with patch("alfen_driver.controls.set_current") as mock_set_current:
                 with patch("time.time", return_value=1000):
-                    last_current, last_time, last_phases = set_effective_current(
+                    last_current, last_time = set_effective_current(
                         mock_modbus_client,
                         sample_config,
                         EVC_MODE.MANUAL.value,
@@ -252,7 +214,6 @@ class TestSetEffectiveCurrent:
                         0.0,
                         force=False,
                         timezone="UTC",
-                        last_sent_phases=3,
                         charging_start_time=0.0,
                     )
 
@@ -278,7 +239,7 @@ class TestSetEffectiveCurrent:
                     1000 + sample_config.controls.watchdog_interval_seconds + 10
                 )
                 with patch("time.time", return_value=current_time):
-                    last_current, last_time, last_phases = set_effective_current(
+                    last_current, last_time = set_effective_current(
                         mock_modbus_client,
                         sample_config,
                         EVC_MODE.MANUAL.value,
@@ -292,7 +253,6 @@ class TestSetEffectiveCurrent:
                         0.0,
                         force=False,
                         timezone="UTC",
-                        last_sent_phases=3,
                         charging_start_time=0.0,
                     )
 
