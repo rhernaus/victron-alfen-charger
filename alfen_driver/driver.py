@@ -119,8 +119,10 @@ class AlfenDriver:
 
     def _setup_dbus(self) -> None:
         """Setup D-Bus service and callbacks."""
-        # Create service name
-        service_name = f"com.victronenergy.evcharger.{self.config.device_instance}"
+        # Create service name - must use text prefix for D-Bus naming rules
+        service_name = (
+            f"com.victronenergy.evcharger.alfen_{self.config.device_instance}"
+        )
 
         # Register the service with all required parameters
         self.service = register_dbus_service(
