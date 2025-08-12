@@ -337,7 +337,9 @@ def calculate_session_energy_and_time(
                 new_status = EVC_STATUS.CONNECTED  # Fallback
             if new_status != new_victron_status:
                 service["/Status"] = new_status
-                logger.info(f"Status changed to {new_status} after session finish")
+                logger.info(
+                    f"Status changed to {EVC_STATUS(new_status).name} after session finish"
+                )
         logger.info(
             f"Session finished: Set status to {service['/Status']} (energy: {last_session_energy:.3f} kWh, time: {last_charging_time:.0f}s)"
         )
@@ -411,7 +413,9 @@ def process_status_and_energy(
     service["/Status"] = new_victron_status
 
     if new_victron_status != old_victron_status:
-        logger.info(f"Status changed from {old_victron_status} to {new_victron_status}")
+        logger.info(
+            f"Status changed from {EVC_STATUS(old_victron_status).name} to {EVC_STATUS(new_victron_status).name}"
+        )
 
     # Re-evaluate status after potential auto-start and current set
     new_victron_status = apply_mode_specific_status(
@@ -427,7 +431,9 @@ def process_status_and_energy(
     service["/Status"] = new_victron_status
 
     if new_victron_status != old_victron_status:
-        logger.info(f"Status changed from {old_victron_status} to {new_victron_status}")
+        logger.info(
+            f"Status changed from {EVC_STATUS(old_victron_status).name} to {EVC_STATUS(new_victron_status).name}"
+        )
 
     (
         charging_start_time,
