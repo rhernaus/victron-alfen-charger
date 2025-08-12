@@ -30,13 +30,13 @@ registers:
 defaults:
   intended_set_current: 6.0 # Default charging current in amps
   station_max_current: 32.0 # Default max current if read fails
-  timezone: Europe/Amsterdam
 
 logging:
   level: INFO # Logging level (DEBUG, INFO, WARNING, ERROR)
   file: /var/log/alfen_driver.log # Path to log file
 
-schedules:
+schedule:
+  items:
   # Default schedule: 12:00-15:00 every day (days_mask=127 sums 1+2+4+8+16+32+64 for Sun-Sat). This is normally the cheapest hours with dynamic tariffs.
   - enabled: 1 # 1 to enable this schedule, 0 to disable
     days_mask: 127 # Bitmask for days (Sun=1, Mon=2, ..., Sat=64; sum for multiple)
@@ -55,3 +55,4 @@ controls:
   min_charge_duration_seconds: 300 # Minimum charging duration in seconds once started in AUTO mode
 
 poll_interval_ms: 5000 # Base polling interval in milliseconds (adaptive in code)
+timezone: Europe/Amsterdam # Timezone for schedule operations
