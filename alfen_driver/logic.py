@@ -2,6 +2,7 @@ import logging
 import math
 import time
 from datetime import datetime
+from enum import Enum
 from typing import Any, Callable, List, Tuple
 
 import dbus
@@ -19,6 +20,48 @@ NOMINAL_VOLTAGE = 230.0  # Configurable if needed
 MIN_CURRENT = 6.0
 
 _config = None  # Module-level cache
+
+
+class AlfenStatus(Enum):
+    """Alfen charger status codes."""
+    A = "A"          # Disconnected
+    B1 = "B1"        # Connected
+    B2 = "B2"        # Connected
+    C1 = "C1"        # Connected
+    C2 = "C2"        # Charging
+    D1 = "D1"        # Connected
+    D2 = "D2"        # Charging
+    E = "E"          # Disconnected
+    F = "F"          # Fault
+
+    @property
+    def is_disconnected(self) -> bool:
+        """Check if status represents disconnected state."""
+        return self in (AlfenStatus.A, AlfenStatus.E)
+    
+    @property
+    def is_connected(self) -> bool:
+        """Check if status represents connected state."""
+        return self in (AlfenStatus.B1, AlfenStatus.B2, AlfenStatus.C1, AlfenStatus.D1)
+    
+    @property
+    def is_charging(self) -> bool:
+        """Check if status represents charging state."""
+        return self in (AlfenStatus.C2, AlfenStatus.D2)
+    
+    @property
+    def is_fault(self) -> bool:
+        """Check if status represents fault state."""
+        return self == AlfenStatus.F
+
+    def to_victron_status(self) -> int:
+        """Convert to Victron status code (0=Disconnected, 1=Connected, 2=Charging)."""
+        if self.is_charging:
+            return 2
+        elif self.is_connected:
+            return 1
+        else:  # Disconnected or Fault
+            return 0
 
 
 def clamp_value(value: float, min_val: float, max_val: float) -> float:
@@ -242,26 +285,21 @@ def map_alfen_status(client: Any, config: Config) -> int:
             .upper()
         )
 
-        # Alfen status mapping table
-        # A = Disconnected, B1 = Connected, B2 = Connected, C1 = Connected, C2 = Charging,
-        # D1 = Connected, D2 = Charging, E = Disconnected, F = Fault
-        if status_str in ("C2", "D2"):
-            return 2  # Charging
-        elif status_str in ("B1", "B2", "C1", "D1"):
-            return 1  # Connected
-        elif status_str in ("A", "E"):
-            return 0  # Disconnected
-        elif status_str == "F":
-            return 0  # Fault (treat as disconnected for safety)
-        elif status_str == "":
-            # Empty status, likely connection issue
+        # Handle empty status
+        if status_str == "":
             logging.getLogger("alfen_driver.logic").warning(
                 "Empty status string received, assuming disconnected"
             )
             return 0
-        else:
+        
+        # Try to map to AlfenStatus enum
+        try:
+            alfen_status = AlfenStatus(status_str)
+            return alfen_status.to_victron_status()
+        except ValueError:
+            # Unknown status code
             logging.getLogger("alfen_driver.logic").warning(
-                f"Unknown status string '{status_str}', assuming disconnected"
+                f"Unknown Alfen status '{status_str}', assuming disconnected"
             )
             return 0  # Disconnected for unknown states
     except Exception as e:
