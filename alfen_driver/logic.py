@@ -9,6 +9,7 @@ import dbus
 import pytz
 
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
+from .constants import ChargingLimits
 from .dbus_utils import EVC_CHARGE, EVC_MODE, EVC_STATUS
 from .exceptions import StatusMappingError
 from .logging_utils import get_logger
@@ -16,8 +17,8 @@ from .modbus_utils import decode_64bit_float, read_holding_registers
 
 MIN_CHARGING_CURRENT: float = 0.1
 
-NOMINAL_VOLTAGE = 230.0  # Configurable if needed
-MIN_CURRENT = 6.0
+NOMINAL_VOLTAGE = ChargingLimits.NOMINAL_VOLTAGE
+MIN_CURRENT = ChargingLimits.MIN_CURRENT
 
 _config = None  # Module-level cache
 

@@ -8,10 +8,12 @@ __email__ = "ron@example.com"
 from .config import Config
 from .exceptions import (
     AlfenDriverError,
+    # Compatibility aliases
     ChargingControlError,
     ConfigurationError,
     DBusError,
     ModbusConnectionError,
+    ModbusError,
     ModbusReadError,
     ModbusVerificationError,
     ModbusWriteError,
@@ -36,15 +38,17 @@ __all__ = [
     "Config",
     "AlfenDriverError",
     "ConfigurationError",
+    "ModbusError",
+    "DBusError",
+    "ValidationError",
+    # Compatibility exports
     "ModbusConnectionError",
     "ModbusReadError",
     "ModbusWriteError",
     "ModbusVerificationError",
-    "DBusError",
-    "StatusMappingError",
     "ChargingControlError",
-    "ValidationError",
     "SessionError",
+    "StatusMappingError",
     "RetryExhaustedError",
     "ServiceUnavailableError",
 ]

@@ -7,6 +7,7 @@ from pymodbus.exceptions import ModbusException
 from pymodbus.payload import BinaryPayloadBuilder, BinaryPayloadDecoder
 
 from .config import Config, DefaultsConfig, ScheduleItem
+from .constants import ModbusRegisters
 from .dbus_utils import EVC_MODE
 from .exceptions import (
     ValidationError,
@@ -57,7 +58,7 @@ def set_current(
         builder.add_32bit_float(float(target_amps))
         payload = builder.to_registers()
         client.write_registers(
-            config.registers.amps_config,
+            ModbusRegisters.SET_CURRENT,
             payload,
             slave=config.modbus.socket_slave_id,
         )
@@ -65,7 +66,7 @@ def set_current(
             time.sleep(config.controls.verification_delay)
             regs = read_holding_registers(
                 client,
-                config.registers.amps_config,
+                ModbusRegisters.SET_CURRENT,
                 2,
                 config.modbus.socket_slave_id,
             )
@@ -186,7 +187,7 @@ def update_station_max_current(
 
     def read_op() -> float:
         rr_max_c = client.read_holding_registers(
-            config.registers.station_max_current,
+            ModbusRegisters.STATION_ACTIVE_MAX_CURRENT,
             2,
             slave=config.modbus.station_slave_id,
         )

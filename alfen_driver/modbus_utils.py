@@ -43,9 +43,8 @@ from pymodbus.payload import BinaryPayloadDecoder
 from pymodbus.pdu import ModbusResponse
 
 from .exceptions import (
-    ModbusConnectionError,
-    ModbusReadError,
-    RetryExhaustedError,
+    AlfenDriverError,
+    ModbusError,
 )
 from .logging_utils import get_logger
 
@@ -69,7 +68,7 @@ def read_holding_registers(
         A list of register values as integers (16-bit unsigned values).
 
     Raises:
-        ModbusReadError: If the read operation fails, includes details about
+        ModbusError: If the read operation fails, includes details about
             the address, count, and slave ID for debugging.
         ModbusException: For low-level Modbus protocol errors.
 
@@ -79,7 +78,7 @@ def read_holding_registers(
         try:
             voltage_regs = read_holding_registers(client, 306, 6, slave=1)
             print(f"Read {len(voltage_regs)} register values")
-        except ModbusReadError as e:
+        except ModbusError as e:
             logger.error(f"Failed to read voltages: {e}")
         ```
 
@@ -91,7 +90,7 @@ def read_holding_registers(
         ModbusResponse, client.read_holding_registers(address, count, slave=slave)
     )
     if rr.isError():
-        raise ModbusReadError(address, count, slave, str(rr))
+        raise ModbusError("read", str(rr), address=address, slave_id=slave)
     return list(rr.registers)
 
 
@@ -188,7 +187,7 @@ def read_modbus_string(
             bytes_list.append((reg >> 8) & 0xFF)
             bytes_list.append(reg & 0xFF)
         return "".join(chr(b) for b in bytes_list).strip("\x00 ")
-    except ModbusReadError as e:
+    except ModbusError as e:
         logger = get_logger("alfen_driver.modbus_utils")
         logger.debug(
             "Modbus string read failed",
@@ -272,8 +271,9 @@ def reconnect(
         if max_attempts and attempt >= max_attempts:
             host = getattr(client, "host", "unknown")
             port = getattr(client, "port", 0)
-            raise ModbusConnectionError(
-                host, port, f"Failed to connect after {attempt} attempts"
+            raise ModbusError(
+                "connection",
+                f"Failed to connect to {host}:{port} after {attempt} attempts",
             )
 
         time.sleep(retry_delay)
@@ -347,8 +347,8 @@ def retry_modbus_operation(
     except Exception as e:
         last_error = e
 
-    raise RetryExhaustedError(
-        operation.__name__ if hasattr(operation, "__name__") else "unknown",
-        retries,
-        last_error,
+    op_name = operation.__name__ if hasattr(operation, "__name__") else "unknown"
+    raise AlfenDriverError(
+        f"Operation '{op_name}' failed after {retries} attempts",
+        str(last_error) if last_error else None,
     )
