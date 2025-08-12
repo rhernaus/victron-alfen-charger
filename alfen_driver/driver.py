@@ -152,17 +152,16 @@ class AlfenDriver:
         # Try to read static info, but don't fail if unavailable
         # Different Alfen models may have different register layouts
         try:
-            # Try to read firmware version
-            version_regs = read_holding_registers(
+            # Try to read firmware version (string at registers 123-139)
+            firmware = read_modbus_string(
                 self.client,
-                ModbusRegisters.VERSION_MAJOR,
-                4,
+                ModbusRegisters.FIRMWARE_VERSION_START,
+                ModbusRegisters.FIRMWARE_VERSION_LENGTH,
                 self.config.modbus.station_slave_id,
             )
-            if version_regs:
-                version = f"{version_regs[0]}.{version_regs[1]}.{version_regs[2]}"
-                self.service["/FirmwareVersion"] = version
-                self.logger.info(f"Firmware version: {version}")
+            if firmware:
+                self.service["/FirmwareVersion"] = firmware
+                self.logger.info(f"Firmware version: {firmware}")
         except Exception as e:
             self.logger.debug(f"Could not read firmware version: {e}")
 
@@ -416,16 +415,16 @@ class AlfenDriver:
             raw_data["energy"] = None
 
         try:
-            # Read station data (slave ID 200) - may not be available on all models
-            raw_data["station"] = read_holding_registers(
+            # Read socket status (slave ID 1) - Mode 3 state
+            raw_data["socket_status"] = read_holding_registers(
                 self.client,
-                ModbusRegisters.STATUS,
-                25,
-                self.config.modbus.station_slave_id,
+                ModbusRegisters.SOCKET_MODE3_STATE,
+                5,  # 5 registers for the state string
+                self.config.modbus.socket_slave_id,
             )
         except Exception as e:
-            self.logger.debug(f"Could not read station data: {e}")
-            raw_data["station"] = None
+            self.logger.debug(f"Could not read socket status: {e}")
+            raw_data["socket_status"] = None
 
         # Check if we got any data at all
         if all(v is None for v in raw_data.values()):

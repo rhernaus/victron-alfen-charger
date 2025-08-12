@@ -18,27 +18,35 @@ class ModbusRegisters:
     METER_ACTIVE_ENERGY_TOTAL = 374
 
     # Station registers (slave ID 200)
-    STATUS = 1201
-    SET_CURRENT = 1210
-    ACTUAL_CURRENT = 1211
-    MODBUS_MAX_CURRENT = 1212
-    ACTIVE_MAX_CURRENT = 1213
-    ACTIVE_PHASES = 1215
-    REAL_STATE = 1220
-    ERROR = 1221
-    STATION_ACTIVE_MAX_CURRENT = 1100
+    STATION_ACTIVE_MAX_CURRENT = 1100  # 2 registers, FLOAT32
+    STATION_TEMPERATURE = 1102  # 2 registers, FLOAT32
+    STATION_OCPP_STATE = 1104  # 1 register, UNSIGNED16
+    STATION_NR_OF_SOCKETS = 1105  # 1 register, UNSIGNED16
 
-    # Version and serial registers
-    VERSION_MAJOR = 1301
-    VERSION_MINOR = 1302
-    VERSION_PATCH = 1303
-    BOOTLOADER_VERSION = 1304
-    SERIAL_NUMBER_START = 1500
-    SERIAL_NUMBER_LENGTH = 10
+    # Product identification registers (slave ID 200)
+    PRODUCT_NAME_START = 100  # 17 registers, STRING "ALF_1000"
+    PRODUCT_NAME_LENGTH = 17
+    MANUFACTURER_START = 117  # 5 registers, STRING "Alfen NV"
+    MANUFACTURER_LENGTH = 5
+    MODBUS_TABLE_VERSION = 122  # 1 register, SIGNED16
+    FIRMWARE_VERSION_START = 123  # 17 registers, STRING
+    FIRMWARE_VERSION_LENGTH = 17
+    PLATFORM_TYPE_START = 140  # 17 registers, STRING "NG910"
+    PLATFORM_TYPE_LENGTH = 17
+    SERIAL_NUMBER_START = 157  # 11 registers, STRING
+    SERIAL_NUMBER_LENGTH = 11
 
-    # Manufacturer string registers
-    MANUFACTURER_START = 2000
-    MANUFACTURER_LENGTH = 8
+    # Socket registers (slave ID 1 or 2)
+    SOCKET_AVAILABILITY = 1200  # 1 register, 1=operative, 0=inoperative
+    SOCKET_MODE3_STATE = (
+        1201  # 5 registers, STRING - "A", "B1", "B2", "C1", "C2", "D1", "D2", "E", "F"
+    )
+    SOCKET_MAX_CURRENT = 1206  # 2 registers, FLOAT32
+    SOCKET_VALID_TIME = 1208  # 2 registers, UNSIGNED32
+    SOCKET_MODBUS_MAX_CURRENT = 1210  # 2 registers, FLOAT32 (R/W)
+    SOCKET_SAFE_CURRENT = 1212  # 2 registers, FLOAT32
+    SOCKET_SETPOINT_ACCOUNTED = 1214  # 1 register, 1=Yes, 0=No
+    SOCKET_PHASES = 1215  # 1 register (R/W), 1=1phase, 3=3phase
 
 
 class ChargingLimits:

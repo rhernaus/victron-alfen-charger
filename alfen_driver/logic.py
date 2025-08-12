@@ -9,7 +9,7 @@ import dbus
 import pytz
 
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
-from .constants import ChargingLimits
+from .constants import ChargingLimits, ModbusRegisters
 from .dbus_utils import EVC_CHARGE, EVC_MODE, EVC_STATUS
 from .exceptions import StatusMappingError
 from .logging_utils import get_logger
@@ -293,11 +293,12 @@ def map_alfen_status(client: Any, config: Config) -> int:
         0=Disconnected, 1=Connected, 2=Charging
     """
     try:
+        # Read Mode 3 state from socket (slave ID 1, register 1201)
         status_regs = read_holding_registers(
             client,
-            config.registers.status,
-            5,
-            config.modbus.socket_slave_id,
+            ModbusRegisters.SOCKET_MODE3_STATE,
+            5,  # 5 registers for the state string
+            config.modbus.socket_slave_id,  # Slave ID 1
         )
         status_str = (
             "".join([chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in status_regs])
@@ -390,7 +391,7 @@ def calculate_session_energy_and_time(
 
     energy_regs = read_holding_registers(
         client,
-        config.registers.energy,
+        ModbusRegisters.METER_ACTIVE_ENERGY_TOTAL,
         4,
         config.modbus.socket_slave_id,
     )

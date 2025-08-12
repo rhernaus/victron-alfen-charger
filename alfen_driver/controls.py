@@ -58,7 +58,7 @@ def set_current(
         builder.add_32bit_float(float(target_amps))
         payload = builder.to_registers()
         client.write_registers(
-            ModbusRegisters.SET_CURRENT,
+            ModbusRegisters.SOCKET_MODBUS_MAX_CURRENT,
             payload,
             slave=config.modbus.socket_slave_id,
         )
@@ -66,7 +66,7 @@ def set_current(
             time.sleep(config.controls.verification_delay)
             regs = read_holding_registers(
                 client,
-                ModbusRegisters.SET_CURRENT,
+                ModbusRegisters.SOCKET_MODBUS_MAX_CURRENT,
                 2,
                 config.modbus.socket_slave_id,
             )
