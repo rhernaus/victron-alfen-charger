@@ -1,3 +1,4 @@
+import logging
 import math
 import time
 from datetime import datetime
@@ -57,18 +58,18 @@ def is_within_any_schedule(
     )
     for idx, item in enumerate(schedules):
         if item.enabled == 0:
-            logger.debug(f"Schedule {idx+1} skipped: disabled")
+            logger.debug(f"Schedule {idx + 1} skipped: disabled")
             continue
         mask_check = (item.days_mask & (1 << sun_based_index)) != 0
         if not mask_check:
             logger.debug(
-                f"Schedule {idx+1} skipped: day not matched (mask={item.days_mask}, required bit={1 << sun_based_index})"
+                f"Schedule {idx + 1} skipped: day not matched (mask={item.days_mask}, required bit={1 << sun_based_index})"
             )
             continue
         start_min = parse_hhmm_to_minutes(item.start)
         end_min = parse_hhmm_to_minutes(item.end)
         if start_min == end_min:
-            logger.debug(f"Schedule {idx+1} skipped: start == end ({start_min})")
+            logger.debug(f"Schedule {idx + 1} skipped: start == end ({start_min})")
             continue
         is_overnight = start_min >= end_min
         condition = (
@@ -77,10 +78,10 @@ def is_within_any_schedule(
             else (minutes_now >= start_min or minutes_now < end_min)
         )
         logger.debug(
-            f"Schedule {idx+1}: start_min={start_min}, end_min={end_min}, overnight={is_overnight}, condition={condition}"
+            f"Schedule {idx + 1}: start_min={start_min}, end_min={end_min}, overnight={is_overnight}, condition={condition}"
         )
         if condition:
-            logger.debug(f"Schedule {idx+1} matched, returning True")
+            logger.debug(f"Schedule {idx + 1} matched, returning True")
             return True
     logger.debug("No schedules matched, returning False")
     return False

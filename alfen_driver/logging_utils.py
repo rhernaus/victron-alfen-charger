@@ -44,8 +44,10 @@ class StructuredLogger:
         self._context_store = threading.local()
         self.config = config
 
-        # Set up formatter if not already configured
-        if not self.logger.handlers:
+        # Don't add handlers if root logger is already configured
+        # The setup_root_logging() function handles this globally
+        root_logger = logging.getLogger()
+        if not root_logger.handlers and not self.logger.handlers:
             self._setup_logging()
 
     def _setup_logging(self) -> None:
