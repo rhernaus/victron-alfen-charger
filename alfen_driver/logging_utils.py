@@ -202,9 +202,17 @@ class StructuredLogger:
         **kwargs: Any,
     ) -> None:
         """Log charging-related events."""
+        # Build readable message with current value if provided
+        message_parts = [f"Charging: {event}"]
+        if current is not None:
+            message_parts.append(f"current={current:.2f}A")
+        if power is not None:
+            message_parts.append(f"power={power:.1f}W")
+        message = " ".join(message_parts)
+        
         self._log_with_context(
             logging.INFO,
-            f"Charging: {event}",
+            message,
             {
                 "operation_type": "charging",
                 "event": event,
@@ -306,9 +314,13 @@ class StructuredLogger:
 class StructuredFormatter(logging.Formatter):
     """Custom formatter for structured logging."""
 
+    def __init__(self):
+        # Set consistent datetime format
+        super().__init__(datefmt='%Y-%m-%d %H:%M:%S')
+
     def format(self, record: logging.LogRecord) -> str:
         """Format log record with structured data."""
-        # Basic formatting
+        # Basic formatting with consistent timestamp
         formatted_time = self.formatTime(record)
 
         # Get structured data if available
