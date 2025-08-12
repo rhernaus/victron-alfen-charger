@@ -125,6 +125,7 @@ class AlfenDriver:
         )
 
         # Register the service with all required parameters
+        # Note: register_dbus_service already adds /Mode, /StartStop, /SetCurrent paths
         self.service = register_dbus_service(
             service_name,
             self.config,
@@ -137,22 +138,7 @@ class AlfenDriver:
             self.set_current_callback,
         )
 
-        # Register callbacks
-        self.service.add_path(
-            "/Mode", self.current_mode.value, onchangecallback=self.mode_callback
-        )
-        self.service.add_path(
-            "/StartStop",
-            self.start_stop.value,
-            onchangecallback=self.startstop_callback,
-        )
-        self.service.add_path(
-            "/SetCurrent",
-            self.intended_set_current.value,
-            onchangecallback=self.set_current_callback,
-        )
-
-        # Initialize static paths
+        # Update static paths (these are already created by register_dbus_service)
         self.service["/FirmwareVersion"] = "Unknown"
         self.service["/Serial"] = "Unknown"
         self.service["/ProductName"] = "Alfen EV Charger"
