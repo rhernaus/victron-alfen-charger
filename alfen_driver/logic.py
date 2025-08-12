@@ -242,10 +242,17 @@ def map_alfen_status(client: Any, config: Config) -> int:
             .upper()
         )
 
+        # Alfen status mapping table
+        # A = Disconnected, B1 = Connected, B2 = Connected, C1 = Connected, C2 = Charging,
+        # D1 = Connected, D2 = Charging, E = Disconnected, F = Fault
         if status_str in ("C2", "D2"):
             return 2  # Charging
         elif status_str in ("B1", "B2", "C1", "D1"):
             return 1  # Connected
+        elif status_str in ("A", "E"):
+            return 0  # Disconnected
+        elif status_str == "F":
+            return 0  # Fault (treat as disconnected for safety)
         elif status_str == "":
             # Empty status, likely connection issue
             logging.getLogger("alfen_driver.logic").warning(
