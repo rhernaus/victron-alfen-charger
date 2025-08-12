@@ -103,45 +103,6 @@ class TestBasicIntegration:
 
         assert "modbus.port" in str(exc_info.value)
 
-    def test_error_recovery_patterns_work(self) -> None:
-        """Test that error recovery patterns can be applied."""
-        from alfen_driver.error_recovery import CircuitBreaker, with_error_recovery
-
-        # Test retry decorator
-        call_count = 0
-
-        @with_error_recovery(ValueError, max_retries=2, retry_delay=0.01)
-        def flaky_function():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 2:
-                raise ValueError("Temporary failure")
-            return "success"
-
-        with patch("time.sleep"):  # Speed up the test
-            result = flaky_function()
-            assert result == "success"
-            assert call_count == 2
-
-        # Test circuit breaker
-        breaker = CircuitBreaker(failure_threshold=2, timeout=0.1)
-
-        def failing_function():
-            raise RuntimeError("Service failure")
-
-        # Should fail twice and open circuit
-        with pytest.raises(RuntimeError):
-            breaker.call(failing_function)
-        with pytest.raises(RuntimeError):
-            breaker.call(failing_function)
-
-        # Third call should be rejected by circuit breaker
-        from alfen_driver.exceptions import AlfenDriverError
-
-        with pytest.raises(AlfenDriverError) as exc_info:
-            breaker.call(failing_function)
-        assert "Circuit breaker is OPEN" in str(exc_info.value)
-
 
 class TestDocumentationExamples:
     """Test that examples from documentation work correctly."""

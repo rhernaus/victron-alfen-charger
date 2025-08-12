@@ -275,41 +275,6 @@ class StructuredLogger:
             },
         )
 
-    def log_error_recovery(
-        self,
-        operation: str,
-        attempt: int,
-        max_attempts: int,
-        success: bool,
-        error: Optional[str] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Log error recovery attempts."""
-        if success:
-            level = logging.INFO if attempt > 1 else logging.DEBUG
-            message = (
-                f"Recovery: {operation} succeeded on attempt {attempt}/{max_attempts}"
-            )
-        else:
-            level = logging.ERROR if attempt >= max_attempts else logging.WARNING
-            message = (
-                f"Recovery: {operation} failed on attempt {attempt}/{max_attempts}"
-            )
-
-        self._log_with_context(
-            level,
-            message,
-            {
-                "operation_type": "error_recovery",
-                "operation": operation,
-                "attempt": attempt,
-                "max_attempts": max_attempts,
-                "success": success,
-                "error": error,
-                **kwargs,
-            },
-        )
-
 
 class StructuredFormatter(logging.Formatter):
     """Custom formatter for structured logging."""

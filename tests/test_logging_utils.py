@@ -187,41 +187,6 @@ class TestStructuredLogger:
             logging.INFO, "Charging: current_set", expected_data
         )
 
-    @patch("alfen_driver.logging_utils.StructuredLogger._log_with_context")
-    def test_error_recovery_logging(self, mock_log: Mock) -> None:
-        """Test error recovery logging."""
-        logger = StructuredLogger("test_logger")
-
-        # Test successful recovery
-        logger.log_error_recovery("modbus_read", 2, 3, True)
-        expected_data = {
-            "operation_type": "error_recovery",
-            "operation": "modbus_read",
-            "attempt": 2,
-            "max_attempts": 3,
-            "success": True,
-            "error": None,
-        }
-        mock_log.assert_called_with(
-            logging.INFO,
-            "Recovery: modbus_read succeeded on attempt 2/3",
-            expected_data,
-        )
-
-        # Test failed recovery
-        logger.log_error_recovery("modbus_read", 3, 3, False, "Connection timeout")
-        expected_data = {
-            "operation_type": "error_recovery",
-            "operation": "modbus_read",
-            "attempt": 3,
-            "max_attempts": 3,
-            "success": False,
-            "error": "Connection timeout",
-        }
-        mock_log.assert_called_with(
-            logging.ERROR, "Recovery: modbus_read failed on attempt 3/3", expected_data
-        )
-
 
 class TestStructuredFormatter:
     """Tests for StructuredFormatter class."""
