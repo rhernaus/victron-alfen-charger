@@ -149,8 +149,10 @@ class AlfenDriver:
             self.logger.warning("Failed to connect for static info")
             return
 
+        # Try to read static info, but don't fail if unavailable
+        # Different Alfen models may have different register layouts
         try:
-            # Read firmware version
+            # Try to read firmware version
             version_regs = read_holding_registers(
                 self.client,
                 ModbusRegisters.VERSION_MAJOR,
@@ -160,8 +162,12 @@ class AlfenDriver:
             if version_regs:
                 version = f"{version_regs[0]}.{version_regs[1]}.{version_regs[2]}"
                 self.service["/FirmwareVersion"] = version
+                self.logger.info(f"Firmware version: {version}")
+        except Exception as e:
+            self.logger.debug(f"Could not read firmware version: {e}")
 
-            # Read serial number
+        try:
+            # Try to read serial number
             serial = read_modbus_string(
                 self.client,
                 ModbusRegisters.SERIAL_NUMBER_START,
@@ -170,8 +176,12 @@ class AlfenDriver:
             )
             if serial:
                 self.service["/Serial"] = serial
+                self.logger.info(f"Serial number: {serial}")
+        except Exception as e:
+            self.logger.debug(f"Could not read serial number: {e}")
 
-            # Read manufacturer
+        try:
+            # Try to read manufacturer
             manufacturer = read_modbus_string(
                 self.client,
                 ModbusRegisters.MANUFACTURER_START,
@@ -180,9 +190,9 @@ class AlfenDriver:
             )
             if manufacturer:
                 self.service["/ProductName"] = f"{manufacturer} EV Charger"
-
+                self.logger.info(f"Manufacturer: {manufacturer}")
         except Exception as e:
-            self.logger.error(f"Error loading static info: {e}")
+            self.logger.debug(f"Could not read manufacturer: {e}")
 
     def _restore_state(self) -> None:
         """Restore persisted state and session data."""
@@ -352,10 +362,11 @@ class AlfenDriver:
                 reconnect(self.client, self.logger)
             return False
 
-    def fetch_raw_data(self) -> Dict[str, List[int]]:
+    def fetch_raw_data(self) -> Dict[str, Optional[List[int]]]:
         """Fetch raw data from Modbus registers."""
-        raw_data = {}
+        raw_data: Dict[str, Optional[List[int]]] = {}
 
+        # Try to read socket data (slave ID 1) - usually more reliable
         try:
             # Read voltages
             raw_data["voltages"] = read_holding_registers(
@@ -364,7 +375,11 @@ class AlfenDriver:
                 6,
                 self.config.modbus.socket_slave_id,
             )
+        except Exception as e:
+            self.logger.debug(f"Could not read voltages: {e}")
+            raw_data["voltages"] = None
 
+        try:
             # Read currents
             raw_data["currents"] = read_holding_registers(
                 self.client,
@@ -372,7 +387,11 @@ class AlfenDriver:
                 6,
                 self.config.modbus.socket_slave_id,
             )
+        except Exception as e:
+            self.logger.debug(f"Could not read currents: {e}")
+            raw_data["currents"] = None
 
+        try:
             # Read power
             raw_data["power"] = read_holding_registers(
                 self.client,
@@ -380,7 +399,11 @@ class AlfenDriver:
                 8,
                 self.config.modbus.socket_slave_id,
             )
+        except Exception as e:
+            self.logger.debug(f"Could not read power: {e}")
+            raw_data["power"] = None
 
+        try:
             # Read energy
             raw_data["energy"] = read_holding_registers(
                 self.client,
@@ -388,33 +411,49 @@ class AlfenDriver:
                 4,
                 self.config.modbus.socket_slave_id,
             )
+        except Exception as e:
+            self.logger.debug(f"Could not read energy: {e}")
+            raw_data["energy"] = None
 
-            # Read station data
+        try:
+            # Read station data (slave ID 200) - may not be available on all models
             raw_data["station"] = read_holding_registers(
                 self.client,
                 ModbusRegisters.STATUS,
                 25,
                 self.config.modbus.station_slave_id,
             )
+        except Exception as e:
+            self.logger.debug(f"Could not read station data: {e}")
+            raw_data["station"] = None
 
-        except ModbusException as e:
-            self.logger.error(f"Modbus read error: {e}")
-            raise ModbusError("read", f"Failed to read Modbus data: {e}") from e
+        # Check if we got any data at all
+        if all(v is None for v in raw_data.values()):
+            raise ModbusError("read", "Failed to read any Modbus data")
 
         return raw_data
 
-    def process_logic(self, raw_data: Dict[str, List[int]]) -> None:
+    def process_logic(self, raw_data: Dict[str, Optional[List[int]]]) -> None:
         """Process business logic based on raw data."""
         # Get power and energy values
-        if raw_data.get("power"):
-            power_w = decode_64bit_float(raw_data["power"][:4])
-        else:
-            power_w = 0.0
+        power_w = 0.0
+        energy_kwh = 0.0
 
-        if raw_data.get("energy"):
-            energy_kwh = decode_64bit_float(raw_data["energy"]) / 1000.0
-        else:
-            energy_kwh = 0.0
+        power_data = raw_data.get("power")
+        if power_data and len(power_data) >= 4:
+            try:
+                power_w = decode_64bit_float(power_data[:4])
+            except Exception as e:
+                self.logger.debug(f"Could not decode power: {e}")
+                power_w = 0.0
+
+        energy_data = raw_data.get("energy")
+        if energy_data and len(energy_data) >= 4:
+            try:
+                energy_kwh = decode_64bit_float(energy_data) / 1000.0
+            except Exception as e:
+                self.logger.debug(f"Could not decode energy: {e}")
+                energy_kwh = 0.0
 
         # Update session manager
         self.session_manager.update(power_w, energy_kwh)
@@ -438,49 +477,35 @@ class AlfenDriver:
             self._persist_state()
             self.logger.info("Charging session ended")
 
-    def update_dbus_paths(self, raw_data: Dict[str, List[int]]) -> None:
+    def update_dbus_paths(self, raw_data: Dict[str, Optional[List[int]]]) -> None:
         """Update D-Bus paths with fetched data."""
         # Update voltages
-        if raw_data.get("voltages"):
-            self.service["/Ac/L1/Voltage"] = round(
-                decode_64bit_float(raw_data["voltages"][:4]), 1
-            )
-            self.service["/Ac/L2/Voltage"] = round(
-                decode_64bit_float(raw_data["voltages"][2:6]), 1
-            )
-            self.service["/Ac/L3/Voltage"] = round(
-                decode_64bit_float(raw_data["voltages"][4:8]), 1
-            )
+        voltages = raw_data.get("voltages")
+        if voltages and len(voltages) >= 8:
+            self.service["/Ac/L1/Voltage"] = round(decode_64bit_float(voltages[:4]), 1)
+            self.service["/Ac/L2/Voltage"] = round(decode_64bit_float(voltages[2:6]), 1)
+            self.service["/Ac/L3/Voltage"] = round(decode_64bit_float(voltages[4:8]), 1)
 
         # Update currents
-        if raw_data.get("currents"):
-            self.service["/Ac/L1/Current"] = round(
-                decode_64bit_float(raw_data["currents"][:4]), 2
-            )
-            self.service["/Ac/L2/Current"] = round(
-                decode_64bit_float(raw_data["currents"][2:6]), 2
-            )
-            self.service["/Ac/L3/Current"] = round(
-                decode_64bit_float(raw_data["currents"][4:8]), 2
-            )
+        currents = raw_data.get("currents")
+        if currents and len(currents) >= 8:
+            self.service["/Ac/L1/Current"] = round(decode_64bit_float(currents[:4]), 2)
+            self.service["/Ac/L2/Current"] = round(decode_64bit_float(currents[2:6]), 2)
+            self.service["/Ac/L3/Current"] = round(decode_64bit_float(currents[4:8]), 2)
 
         # Update power
-        if raw_data.get("power"):
-            total_power = decode_64bit_float(raw_data["power"][:4])
+        power = raw_data.get("power")
+        if power and len(power) >= 10:
+            total_power = decode_64bit_float(power[:4])
             self.service["/Ac/Power"] = round(total_power, 0)
-            self.service["/Ac/L1/Power"] = round(
-                decode_64bit_float(raw_data["power"][2:6]), 0
-            )
-            self.service["/Ac/L2/Power"] = round(
-                decode_64bit_float(raw_data["power"][4:8]), 0
-            )
-            self.service["/Ac/L3/Power"] = round(
-                decode_64bit_float(raw_data["power"][6:10]), 0
-            )
+            self.service["/Ac/L1/Power"] = round(decode_64bit_float(power[2:6]), 0)
+            self.service["/Ac/L2/Power"] = round(decode_64bit_float(power[4:8]), 0)
+            self.service["/Ac/L3/Power"] = round(decode_64bit_float(power[6:10]), 0)
 
         # Update energy
-        if raw_data.get("energy"):
-            energy_kwh = decode_64bit_float(raw_data["energy"]) / 1000.0
+        energy = raw_data.get("energy")
+        if energy and len(energy) >= 4:
+            energy_kwh = decode_64bit_float(energy) / 1000.0
             self.service["/Ac/Energy/Forward"] = round(energy_kwh, 3)
 
         # Update session stats
