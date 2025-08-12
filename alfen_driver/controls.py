@@ -1,4 +1,3 @@
-import logging
 import math
 import time
 from typing import Any
@@ -9,6 +8,10 @@ from pymodbus.payload import BinaryPayloadBuilder, BinaryPayloadDecoder
 
 from .config import Config, DefaultsConfig, ScheduleItem
 from .dbus_utils import EVC_MODE
+from .exceptions import (
+    ValidationError,
+)
+from .logging_utils import get_logger
 from .logic import compute_effective_current
 from .modbus_utils import decode_floats, read_holding_registers, retry_modbus_operation
 
@@ -39,9 +42,17 @@ def set_current(
     Raises:
         ModbusException, ValueError: Handled with logging and retries.
     """
+    # Validate inputs
+    if target_amps < 0:
+        raise ValidationError("target_amps", target_amps, "must be non-negative")
+    if station_max_current <= 0:
+        raise ValidationError(
+            "station_max_current", station_max_current, "must be positive"
+        )
+
     target_amps = clamp_value(target_amps, 0.0, station_max_current)
 
-    def write_op():
+    def write_op() -> bool:
         builder = BinaryPayloadBuilder(byteorder=Endian.BIG, wordorder=Endian.BIG)
         builder.add_32bit_float(float(target_amps))
         payload = builder.to_registers()
@@ -70,11 +81,12 @@ def set_current(
         return True
 
     try:
-        return retry_modbus_operation(
+        result = retry_modbus_operation(
             write_op,
             retries=config.controls.max_retries,
             retry_delay=config.controls.retry_delay,
         )
+        return bool(result)
     except ModbusException:
         return False
 
@@ -88,7 +100,7 @@ def set_phases(
     if phases not in (1, 3):
         return False
 
-    def write_op():
+    def write_op() -> bool:
         client.write_register(
             config.registers.phases,
             phases,
@@ -107,11 +119,12 @@ def set_phases(
         return True
 
     try:
-        return retry_modbus_operation(
+        result = retry_modbus_operation(
             write_op,
             retries=config.controls.max_retries,
             retry_delay=config.controls.retry_delay,
         )
+        return bool(result)
     except ModbusException:
         return False
 
@@ -126,7 +139,7 @@ def set_effective_current(
     last_sent_current: float,
     last_current_set_time: float,
     schedules: list[ScheduleItem],
-    logger: logging.Logger,
+    logger: Any,
     ev_power: float = 0.0,  # New parameter for local EV power
     force: bool = False,
     timezone: str = "UTC",
@@ -176,15 +189,27 @@ def set_effective_current(
             last_current_set_time = current_time
             last_sent_current = effective_current
             last_sent_phases = effective_phases
-            mode_name = EVC_MODE(current_mode).name
-            log_message = (
-                f"Set effective current to {effective_current:.2f} A (mode: {mode_name}"
+            # Use structured logging for charging events
+            structured_logger = get_logger("alfen_driver.controls")
+            structured_logger.log_charging_event(
+                "effective_current_updated",
+                current=effective_current,
+                mode=EVC_MODE(current_mode).name,
+                phases=effective_phases,
+                explanation=explanation,
+                last_current=last_sent_current,
+                last_phases=last_sent_phases,
             )
-            log_message += f"). Calculation: {explanation}"
-            logger.info(log_message)
     else:
-        logger.debug(
-            f"No update needed for effective current (current: {last_sent_current:.2f}A, proposed: {effective_current:.2f}A). Calculation: {explanation}"
+        # Use structured logging for debug info
+        structured_logger = get_logger("alfen_driver.controls")
+        structured_logger.debug(
+            "No effective current update needed",
+            current_current=last_sent_current,
+            proposed_current=effective_current,
+            explanation=explanation,
+            time_since_last_update=current_time - last_current_set_time,
+            watchdog_threshold=config.controls.watchdog_interval_seconds,
         )
     return last_sent_current, last_current_set_time, last_sent_phases
 
@@ -194,7 +219,7 @@ def update_station_max_current(
     config: Config,
     service: Any,
     defaults: DefaultsConfig,
-    logger: logging.Logger,
+    logger: Any,
 ) -> float:
     """
     Update the station max current from Modbus with retries.
@@ -205,7 +230,7 @@ def update_station_max_current(
     References Alfen Modbus spec for register 1100 (Max Current).
     """
 
-    def read_op():
+    def read_op() -> float:
         rr_max_c = client.read_holding_registers(
             config.registers.station_max_current,
             2,
@@ -220,12 +245,13 @@ def update_station_max_current(
         raise ModbusException("Read failed")
 
     try:
-        return retry_modbus_operation(
+        result = retry_modbus_operation(
             read_op,
             retries=config.controls.max_retries,
             retry_delay=config.controls.retry_delay,
             logger=logger,
         )
+        return float(result)
     except ModbusException:
         logger.warning(
             "Failed to read station max current after retries. Using fallback."

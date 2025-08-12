@@ -1,14 +1,15 @@
-import logging
 import math
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, List, Tuple
 
 import dbus
 import pytz
 
 from .config import Config, ScheduleItem, parse_hhmm_to_minutes
 from .dbus_utils import EVC_CHARGE, EVC_MODE, EVC_STATUS
+from .exceptions import StatusMappingError
+from .logging_utils import get_logger
 from .modbus_utils import decode_64bit_float, read_holding_registers
 
 MIN_CHARGING_CURRENT: float = 0.1
@@ -24,7 +25,7 @@ def clamp_value(value: float, min_val: float, max_val: float) -> float:
 
 
 def is_within_any_schedule(
-    schedules: list[ScheduleItem],
+    schedules: List[ScheduleItem],
     now: float,
     timezone: str,
 ) -> bool:
@@ -45,9 +46,14 @@ def is_within_any_schedule(
     weekday = local_dt.weekday()  # Mon=0..Sun=6
     sun_based_index = (weekday + 1) % 7
     minutes_now = local_dt.hour * 60 + local_dt.minute
-    logger = logging.getLogger("alfen_driver.logic")
+    logger = get_logger("alfen_driver.logic")
     logger.debug(
-        f"Checking schedules at local time {local_dt.strftime('%H:%M %A')} (minutes={minutes_now}, index={sun_based_index}, timezone={timezone})"
+        "Checking charging schedules",
+        local_time=local_dt.strftime("%H:%M %A"),
+        minutes_now=minutes_now,
+        day_index=sun_based_index,
+        timezone=timezone,
+        total_schedules=len(schedules),
     )
     for idx, item in enumerate(schedules):
         if item.enabled == 0:
@@ -86,7 +92,7 @@ def get_excess_solar_current(
     current_phases: int = 3,
     charging_start_time: float = 0.0,
     min_charge_duration_seconds: int = 300,
-) -> tuple[float, int, str]:
+) -> Tuple[float, int, str]:
     global _config
     try:
         bus = dbus.SystemBus()
@@ -169,13 +175,13 @@ def compute_effective_current(
     intended_set_current: float,
     station_max_current: float,
     now: float,
-    schedules: list[ScheduleItem],
+    schedules: List[ScheduleItem],
     ev_power: float = 0.0,  # New parameter
     timezone: str = "UTC",
     current_phases: int = 3,
     charging_start_time: float = 0.0,
     min_charge_duration_seconds: int = 300,
-) -> tuple[float, int, str]:
+) -> Tuple[float, int, str]:
     effective = 0.0
     explanation = ""
     if current_mode == EVC_MODE.MANUAL:
@@ -222,23 +228,39 @@ def compute_effective_current(
 
 def map_alfen_status(client: Any, config: Config) -> int:
     """Map Alfen status string to raw status code (0=Disconnected, 1=Connected, 2=Charging)."""
-    status_regs = read_holding_registers(
-        client,
-        config.registers.status,
-        5,
-        config.modbus.socket_slave_id,
-    )
-    status_str = (
-        "".join([chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in status_regs])
-        .strip("\x00 ")
-        .upper()
-    )
-    if status_str in ("C2", "D2"):
-        return 2  # Charging
-    elif status_str in ("B1", "B2", "C1", "D1"):
-        return 1  # Connected
-    else:
-        return 0  # Disconnected
+    try:
+        status_regs = read_holding_registers(
+            client,
+            config.registers.status,
+            5,
+            config.modbus.socket_slave_id,
+        )
+        status_str = (
+            "".join([chr((r >> 8) & 0xFF) + chr(r & 0xFF) for r in status_regs])
+            .strip("\x00 ")
+            .upper()
+        )
+
+        if status_str in ("C2", "D2"):
+            return 2  # Charging
+        elif status_str in ("B1", "B2", "C1", "D1"):
+            return 1  # Connected
+        elif status_str == "":
+            # Empty status, likely connection issue
+            logging.getLogger("alfen_driver.logic").warning(
+                "Empty status string received, assuming disconnected"
+            )
+            return 0
+        else:
+            logging.getLogger("alfen_driver.logic").warning(
+                f"Unknown status string '{status_str}', assuming disconnected"
+            )
+            return 0  # Disconnected for unknown states
+    except Exception as e:
+        logging.getLogger("alfen_driver.logic").error(
+            f"Failed to map Alfen status: {e}"
+        )
+        raise StatusMappingError(f"Failed to read status registers: {e}")
 
 
 def apply_mode_specific_status(
@@ -246,7 +268,7 @@ def apply_mode_specific_status(
     connected: bool,
     start_stop: EVC_CHARGE,
     intended_set_current: float,
-    schedules: list[ScheduleItem],
+    schedules: List[ScheduleItem],
     new_victron_status: int,
     timezone: str,
     effective_current: float = 0.0,  # Add param for effective
@@ -288,11 +310,11 @@ def calculate_session_energy_and_time(
     session_start_energy_kwh: float,
     last_charging_time: float,
     last_session_energy: float,
-    persist_config_to_disk: callable,
+    persist_config_to_disk: Callable[[], None],
     raw_status: int,  # Add param
     effective_current: float,  # Add param
     current_mode: EVC_MODE,  # Add param
-    logger: logging.Logger,
+    logger: Any,
 ) -> tuple[float, float, float, float]:
     energy_regs = read_holding_registers(
         client,
@@ -363,18 +385,17 @@ def process_status_and_energy(
     current_mode: EVC_MODE,
     start_stop: EVC_CHARGE,
     intended_set_current: float,
-    schedules: list[ScheduleItem],
+    schedules: List[ScheduleItem],
     station_max_current: float,
     charging_start_time: float,
     session_start_energy_kwh: float,
     last_charging_time: float,
     last_session_energy: float,
-    set_current: callable,
-    persist_config_to_disk: callable,
-    logger: logging.Logger,
+    set_current: Callable[[float, bool], bool],
+    persist_config_to_disk: Callable[[], None],
+    logger: Any,
     timezone: str,
-) -> tuple[float, float, float, float, bool]:
-
+) -> Tuple[float, float, float, float, bool]:
     raw_status = map_alfen_status(client, config)
 
     old_victron_status = service["/Status"]

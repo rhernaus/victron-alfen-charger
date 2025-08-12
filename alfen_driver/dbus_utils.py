@@ -1,5 +1,6 @@
 import enum
 import logging
+from typing import Any, Callable, Dict, List
 
 import dbus
 from vedbus import VeDbusService
@@ -34,15 +35,15 @@ def register_dbus_service(
     current_mode: EVC_MODE,
     start_stop: EVC_CHARGE,
     intended_set_current: float,
-    schedules: list[ScheduleItem],
-    mode_callback: callable,
-    startstop_callback: callable,
-    set_current_callback: callable,
+    schedules: List[ScheduleItem],
+    mode_callback: Callable[[str, int], bool],
+    startstop_callback: Callable[[str, int], bool],
+    set_current_callback: Callable[[str, float], bool],
 ) -> VeDbusService:
     service = VeDbusService(service_name, register=False)
     modbus_config = config.modbus
     device_instance = config.device_instance
-    dbus_paths = [
+    dbus_paths: List[Dict[str, Any]] = [
         {"path": "/Mgmt/ProcessName", "value": __file__},
         {"path": "/Mgmt/ProcessVersion", "value": "1.4"},
         {
@@ -92,12 +93,13 @@ def register_dbus_service(
         {"path": "/Ac/L3/Current", "value": 0.0},
         {"path": "/Ac/L3/Power", "value": 0.0},
     ]
-    for p in dbus_paths:
+    path_info: Dict[str, Any]
+    for path_info in dbus_paths:
         service.add_path(
-            p["path"],
-            p["value"],
-            writeable=p.get("writeable", False),
-            onchangecallback=p.get("callback", None),
+            path_info["path"],
+            path_info["value"],
+            writeable=path_info.get("writeable", False),
+            onchangecallback=path_info.get("callback", None),
         )
     service.register()
     return service

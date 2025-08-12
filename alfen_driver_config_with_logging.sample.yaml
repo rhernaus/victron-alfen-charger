@@ -1,0 +1,90 @@
+# Alfen EV Charger Driver Configuration
+# Enhanced sample with structured logging configuration
+
+modbus:
+  ip: "192.168.1.100"  # IP address of the Alfen charger
+  port: 502
+  socket_slave_id: 1    # Socket/connector slave ID
+  station_slave_id: 200 # Station slave ID
+
+device_instance: 0  # Victron device instance (0-99)
+
+# Modbus register addresses (should match your Alfen model)
+registers:
+  voltages: 306       # Voltage readings (L1, L2, L3)
+  currents: 320       # Current readings (L1, L2, L3)
+  power: 344          # Power readings
+  energy: 374         # Energy counter
+  status: 1201        # Charging status
+  amps_config: 1210   # Current setting register
+  phases: 1215        # Number of phases
+  firmware_version: 123
+  firmware_version_count: 17
+  station_serial: 157
+  station_serial_count: 11
+  manufacturer: 117
+  manufacturer_count: 5
+  platform_type: 140
+  platform_type_count: 17
+  station_max_current: 1100
+
+# Default charging parameters
+defaults:
+  intended_set_current: 6.0    # Default charging current (A)
+  station_max_current: 32.0    # Station maximum current (A)
+
+# Enhanced Structured Logging Configuration
+logging:
+  level: "INFO"                       # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "/var/log/alfen_driver.log"   # Log file path
+  format: "structured"                # "structured" or "simple"
+  max_file_size_mb: 10               # Max log file size before rotation
+  backup_count: 5                    # Number of backup files to keep
+  console_output: true               # Whether to also log to console
+  json_format: false                 # Use JSON format for structured logs
+
+# Charging schedules (up to 3 schedules supported)
+schedule:
+  items:
+    - enabled: 1          # 1=enabled, 0=disabled
+      days_mask: 62       # Mon-Fri (bits: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64)
+      start: "09:00"      # Start time (HH:MM)
+      end: "17:00"        # End time (HH:MM)
+
+    - enabled: 1          # Weekend charging
+      days_mask: 65       # Sat-Sun (64 + 1)
+      start: "10:00"
+      end: "16:00"
+
+    - enabled: 0          # Disabled schedule
+      days_mask: 0
+      start: "00:00"
+      end: "00:00"
+
+# Control parameters
+controls:
+  current_tolerance: 0.25               # Tolerance for current verification (A)
+  update_difference_threshold: 0.1      # Minimum change to trigger update (A)
+  verification_delay: 0.1               # Delay after write before verification (s)
+  retry_delay: 0.5                      # Delay between retries (s)
+  max_retries: 3                        # Maximum retry attempts
+  watchdog_interval_seconds: 30         # Periodic current refresh interval (s)
+  max_set_current: 64.0                 # Maximum settable current (A)
+  min_charge_duration_seconds: 300      # Minimum charging duration (5 min)
+
+# Polling configuration
+poll_interval_ms: 1000  # Base polling interval in milliseconds
+
+# Timezone for schedule calculations
+timezone: "UTC"  # Change to your local timezone (e.g., "Europe/Amsterdam", "America/New_York")
+
+# Examples of logging output with structured logging:
+#
+# Console Output (Human Readable):
+# 2024-01-15 10:30:15.123 [INFO    ] alfen_driver: Modbus client initialized [component=driver, session_id=abc12345] (took 2.3ms)
+# 2024-01-15 10:30:15.456 [INFO    ] alfen_driver.controls: Charging: effective_current_updated [component=controls, operation=set_current]
+# 2024-01-15 10:30:15.789 [DEBUG   ] alfen_driver.logic: Checking charging schedules [component=logic, local_time=10:30 Monday]
+#
+# JSON Output (when json_format: true):
+# {"timestamp": "2024-01-15T10:30:15.123Z", "level": "INFO", "logger": "alfen_driver", "message": "Modbus client initialized", "component": "driver", "session_id": "abc12345", "duration_ms": 2.3}
+# {"timestamp": "2024-01-15T10:30:15.456Z", "level": "INFO", "logger": "alfen_driver.controls", "message": "Charging: effective_current_updated", "operation_type": "charging", "event": "effective_current_updated", "current": 12.0}

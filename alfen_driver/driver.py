@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 
 import json
-import logging
 import math
 import os
 import sys
 import time
+import uuid
 
 sys.path.insert(
     1, os.path.join(os.path.dirname(__file__), "/opt/victronenergy/dbus-modbus-client")
 )
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from gi.repository import GLib
 from pymodbus.client import ModbusTcpClient
@@ -20,6 +20,12 @@ from pymodbus.exceptions import ModbusException
 from .config import Config, ScheduleItem, load_config, load_config_from_disk
 from .controls import set_current, set_effective_current, update_station_max_current
 from .dbus_utils import EVC_CHARGE, EVC_MODE, register_dbus_service
+from .exceptions import (
+    ChargingControlError,
+    ModbusConnectionError,
+    ModbusReadError,
+)
+from .logging_utils import LogContext, get_logger, setup_root_logging
 from .logic import (
     apply_mode_specific_status,
     compute_effective_current,
@@ -40,7 +46,7 @@ except ImportError:  # pragma: no cover
 
 
 class MutableValue:
-    def __init__(self, value):
+    def __init__(self, value: Any) -> None:
         self.value = value
 
 
@@ -49,35 +55,37 @@ class AlfenDriver:
     IDLE_POLL_MS: int = 5000
     ACTIVE_POLL_MS: int = 1000
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initialize the AlfenDriver with default values and setup.
 
-        Sets up logging, loads configuration, initializes Modbus client,
+        Sets up structured logging, loads configuration, initializes Modbus client,
         and registers D-Bus service with paths and callbacks.
         """
-        # Initialize default logging before config load
-        logging.basicConfig(
-            level=logging.INFO,  # Default level
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=[
-                logging.FileHandler("/var/log/alfen_driver.log"),  # Default file
-                logging.StreamHandler(sys.stdout),
-            ],
+        # Load configuration first (with temporary logger)
+        temp_logger = get_logger("alfen_driver.init")
+        self.config: Config = load_config(temp_logger)
+
+        # Set up structured logging with loaded config
+        setup_root_logging(self.config)
+        self.logger = get_logger("alfen_driver", self.config)
+
+        # Generate session ID for this driver instance
+        self.session_id = str(uuid.uuid4())[:8]
+
+        # Set initial logging context
+        self.logger.set_context(
+            LogContext(
+                component="driver",
+                session_id=self.session_id,
+                device_instance=self.config.device_instance,
+            )
         )
-        self.logger: logging.Logger = logging.getLogger("alfen_driver")
 
-        self.config: Config = load_config(self.logger)
-
-        # Reconfigure logging with loaded config values
-        logging.basicConfig(
-            level=self.config.logging.level,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=[
-                logging.FileHandler(self.config.logging.file),
-                logging.StreamHandler(sys.stdout),
-            ],
-            force=True,  # Force reconfiguration
+        self.logger.log_config_event(
+            "Driver initialization started",
+            source="startup",
+            config_version=getattr(self.config, "version", "unknown"),
         )
 
         self.charging_start_time: float = 0
@@ -96,18 +104,50 @@ class AlfenDriver:
         self.max_current_update_counter = 0
         self.last_charging_time: float = 0.0
         self.last_session_energy: float = 0.0
+        # Initialize Modbus client
         modbus_config = self.config.modbus
         self.client = ModbusTcpClient(host=modbus_config.ip, port=modbus_config.port)
+
+        self.logger.info(
+            "Modbus client initialized", host=modbus_config.ip, port=modbus_config.port
+        )
+
+        # Try to read initial phases configuration
         try:
+            start_time = time.time()
             reg = self.client.read_holding_registers(
                 self.config.registers.phases,
                 1,
                 slave=self.config.modbus.socket_slave_id,
             )
+            duration_ms = (time.time() - start_time) * 1000
+
             if not reg.isError():
                 self.last_sent_phases = reg.registers[0]
+                self.logger.log_modbus_operation(
+                    "read_initial_phases",
+                    self.config.modbus.socket_slave_id,
+                    self.config.registers.phases,
+                    True,
+                    duration_ms,
+                    phases=self.last_sent_phases,
+                )
+            else:
+                self.logger.log_modbus_operation(
+                    "read_initial_phases",
+                    self.config.modbus.socket_slave_id,
+                    self.config.registers.phases,
+                    False,
+                    duration_ms,
+                    error=str(reg),
+                )
         except ModbusException as e:
-            self.logger.warning(f"Failed to read initial phases: {e}")
+            self.logger.error(
+                "Failed to read initial phases configuration",
+                error=str(e),
+                slave_id=self.config.modbus.socket_slave_id,
+                address=self.config.registers.phases,
+            )
         device_instance = self.config.device_instance
         self.service_name = f"com.victronenergy.evcharger.alfen_{device_instance}"
         self.config_file_path = f"/data/evcharger_alfen_{device_instance}.json"
@@ -266,9 +306,9 @@ class AlfenDriver:
             self.logger.warning(f"Failed to persist config: {e}")
 
     def _ensure_soc_proxy(self) -> bool:
-        pass
+        return False
 
-    def _read_battery_soc(self) -> float | None:
+    def _read_battery_soc(self) -> Optional[float]:
         return None
 
     def mode_callback(self, path: str, value: Any) -> bool:
@@ -277,19 +317,22 @@ class AlfenDriver:
             self._persist_config()
             now = time.time()
             if self.current_mode.value == EVC_MODE.MANUAL.value:
-                effective_current, effective_phases, explanation = (
-                    compute_effective_current(
-                        self.current_mode.value,
-                        self.start_stop.value,
-                        self.intended_set_current.value,
-                        self.station_max_current,
-                        now,
-                        self.schedules,
-                        self.config.timezone,
-                        current_phases=self.last_sent_phases,
-                        charging_start_time=self.charging_start_time,
-                        min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
-                    )
+                (
+                    effective_current,
+                    effective_phases,
+                    explanation,
+                ) = compute_effective_current(
+                    self.current_mode.value,
+                    self.start_stop.value,
+                    self.intended_set_current.value,
+                    self.station_max_current,
+                    now,
+                    self.schedules,
+                    0.0,  # ev_power
+                    self.config.timezone,
+                    current_phases=self.last_sent_phases,
+                    charging_start_time=self.charging_start_time,
+                    min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
                 )
                 if set_current(
                     self.client,
@@ -325,24 +368,31 @@ class AlfenDriver:
                     if self.start_stop.value == EVC_CHARGE.ENABLED.value
                     else 0.0
                 )
-                effective_current, effective_phases, explanation = (
-                    compute_effective_current(
-                        self.current_mode.value,
-                        self.start_stop.value,
-                        self.intended_set_current.value,
-                        self.station_max_current,
-                        time.time(),
-                        self.schedules,
-                        self.config.timezone,
-                        current_phases=self.last_sent_phases,
-                        charging_start_time=self.charging_start_time,
-                        min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
-                    )
+                (
+                    effective_current,
+                    effective_phases,
+                    explanation,
+                ) = compute_effective_current(
+                    self.current_mode.value,
+                    self.start_stop.value,
+                    self.intended_set_current.value,
+                    self.station_max_current,
+                    time.time(),
+                    self.schedules,
+                    0.0,  # ev_power
+                    self.config.timezone,
+                    current_phases=self.last_sent_phases,
+                    charging_start_time=self.charging_start_time,
+                    min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
                 )
                 ok_phases = True
                 if effective_phases != self.last_sent_phases:
                     ok_phases = set_current(
-                        self.client, self.config, effective_phases, force_verify=True
+                        self.client,
+                        self.config,
+                        effective_phases,
+                        self.station_max_current,
+                        force_verify=True,
                     )
                 if ok_phases and set_current(
                     self.client,
@@ -360,25 +410,31 @@ class AlfenDriver:
                     log_msg += f". Calculation: {explanation}"
                     self.logger.info(log_msg)
             else:
-                effective_current, effective_phases, explanation = (
-                    compute_effective_current(
-                        self.current_mode.value,
-                        self.start_stop.value,
-                        self.intended_set_current.value,
-                        self.station_max_current,
-                        time.time(),
-                        self.schedules,
-                        0.0,
-                        self.config.timezone,
-                        current_phases=self.last_sent_phases,
-                        charging_start_time=self.charging_start_time,
-                        min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
-                    )
+                (
+                    effective_current,
+                    effective_phases,
+                    explanation,
+                ) = compute_effective_current(
+                    self.current_mode.value,
+                    self.start_stop.value,
+                    self.intended_set_current.value,
+                    self.station_max_current,
+                    time.time(),
+                    self.schedules,
+                    0.0,
+                    self.config.timezone,
+                    current_phases=self.last_sent_phases,
+                    charging_start_time=self.charging_start_time,
+                    min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
                 )
                 ok_phases = True
                 if effective_phases != self.last_sent_phases:
                     ok_phases = set_current(
-                        self.client, self.config, effective_phases, force_verify=True
+                        self.client,
+                        self.config,
+                        effective_phases,
+                        self.station_max_current,
+                        force_verify=True,
                     )
                 if ok_phases and set_current(
                     self.client,
@@ -420,19 +476,22 @@ class AlfenDriver:
             self._persist_config()
 
             if self.current_mode.value == EVC_MODE.MANUAL.value:
-                effective_current, effective_phases, explanation = (
-                    compute_effective_current(
-                        self.current_mode.value,
-                        self.start_stop.value,
-                        self.intended_set_current.value,
-                        self.station_max_current,
-                        time.time(),
-                        self.schedules,
-                        self.config.timezone,
-                        current_phases=self.last_sent_phases,
-                        charging_start_time=self.charging_start_time,
-                        min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
-                    )
+                (
+                    effective_current,
+                    effective_phases,
+                    explanation,
+                ) = compute_effective_current(
+                    self.current_mode.value,
+                    self.start_stop.value,
+                    self.intended_set_current.value,
+                    self.station_max_current,
+                    time.time(),
+                    self.schedules,
+                    0.0,  # ev_power
+                    self.config.timezone,
+                    current_phases=self.last_sent_phases,
+                    charging_start_time=self.charging_start_time,
+                    min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
                 )
                 if set_current(
                     self.client,
@@ -464,11 +523,7 @@ class AlfenDriver:
             self.logger.error(f"Unexpected error in set_current_callback: {e}")
             return False
 
-    def autostart_callback(self, path: str, value: Any) -> bool:
-        self.auto_start.value = int(value)
-        self._persist_config()
-        self.logger.info(f"AutoStart changed to {self.auto_start.value}")
-        return True
+    # autostart_callback removed - not implemented
 
     def fetch_raw_data(self) -> Dict[str, List[int]]:
         """
@@ -595,24 +650,26 @@ class AlfenDriver:
             + self.service["/Ac/L2/Power"]
             + self.service["/Ac/L3/Power"]
         )
-        self.last_sent_current, self.last_current_set_time, self.last_sent_phases = (
-            set_effective_current(
-                self.client,
-                self.config,
-                self.current_mode.value,
-                self.start_stop.value,
-                self.intended_set_current.value,
-                self.station_max_current,
-                self.last_sent_current,
-                self.last_current_set_time,
-                self.schedules,
-                self.logger,
-                ev_power,  # Pass local ev_power
-                force=self.just_connected,
-                timezone=self.config.timezone,
-                last_sent_phases=self.last_sent_phases,
-                charging_start_time=self.charging_start_time,
-            )
+        (
+            self.last_sent_current,
+            self.last_current_set_time,
+            self.last_sent_phases,
+        ) = set_effective_current(
+            self.client,
+            self.config,
+            self.current_mode.value,
+            self.start_stop.value,
+            self.intended_set_current.value,
+            self.station_max_current,
+            self.last_sent_current,
+            self.last_current_set_time,
+            self.schedules,
+            self.logger,
+            ev_power,  # Pass local ev_power
+            force=self.just_connected,
+            timezone=self.config.timezone,
+            last_sent_phases=self.last_sent_phases,
+            charging_start_time=self.charging_start_time,
         )
 
     def poll(self) -> bool:
@@ -628,14 +685,28 @@ class AlfenDriver:
             self.apply_controls()
             self.service["/Connected"] = 1
             return True
+        except ModbusReadError as e:
+            self.logger.error(f"Modbus read error during poll: {e}")
+            self.service["/Connected"] = 0
+            try:
+                reconnect(self.client, self.logger, max_attempts=3)
+            except ModbusConnectionError as conn_e:
+                self.logger.error(f"Failed to reconnect during poll: {conn_e}")
+            return True  # Continue polling even after connection failure
         except ModbusException as e:
             self.logger.error(f"Modbus error during poll: {e}")
             self.service["/Connected"] = 0
-            reconnect(self.client, self.logger)
-            return True  # Changed to True to continue polling
+            try:
+                reconnect(self.client, self.logger, max_attempts=3)
+            except ModbusConnectionError as conn_e:
+                self.logger.error(f"Failed to reconnect during poll: {conn_e}")
+            return True
+        except ChargingControlError as e:
+            self.logger.error(f"Charging control error during poll: {e}")
+            return True  # Continue polling despite control errors
         except Exception as e:
             self.logger.error(f"Unexpected error during poll: {e}")
-            return True  # Changed to True to continue polling
+            return True
 
     def run(self) -> None:
         """

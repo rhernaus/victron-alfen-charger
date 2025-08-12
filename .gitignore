@@ -164,3 +164,9 @@ cython_debug/
 .DS_Store
 
 .trunk
+
+# Project-specific configuration with sensitive data
+alfen_driver_config.yaml
+
+# Log files location
+/var/log/alfen_driver.log
