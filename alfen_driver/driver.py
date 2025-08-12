@@ -528,7 +528,10 @@ class AlfenDriver:
             return
 
         # Get current power for AUTO mode
-        ev_power = self.service.get("/Ac/Power", 0.0)
+        try:
+            ev_power = self.service["/Ac/Power"]
+        except (KeyError, AttributeError):
+            ev_power = 0.0
 
         # Compute and apply effective current
         effective_current, explanation = compute_effective_current(

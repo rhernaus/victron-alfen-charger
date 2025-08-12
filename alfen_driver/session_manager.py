@@ -50,14 +50,20 @@ class ChargingSessionManager:
 
     def update(self, power_w: float, total_energy_kwh: float) -> None:
         """Update session state based on power and energy readings."""
-        charging = power_w > 0
+        # Consider charging if power > 100W (to avoid noise)
+        charging = power_w > 100
+
+        # Don't start a session on the very first update
+        if self._last_energy_kwh == 0.0 and total_energy_kwh > 0:
+            # First reading, just store the baseline
+            self._last_energy_kwh = total_energy_kwh
+            self._last_power = power_w
+            return
 
         if charging and self.current_session is None:
-            # Start new session
-            if (
-                abs(total_energy_kwh - self._last_energy_kwh)
-                > SessionDefaults.ENERGY_THRESHOLD_KWH
-            ):
+            # Start new session only if energy has actually increased
+            energy_delta = total_energy_kwh - self._last_energy_kwh
+            if energy_delta > SessionDefaults.ENERGY_THRESHOLD_KWH:
                 self._start_session(total_energy_kwh)
 
         elif not charging and self.current_session is not None:
