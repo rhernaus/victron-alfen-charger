@@ -62,9 +62,8 @@ class AlfenDriver:
         Sets up structured logging, loads configuration, initializes Modbus client,
         and registers D-Bus service with paths and callbacks.
         """
-        # Load configuration first (with temporary logger)
-        temp_logger = get_logger("alfen_driver.init")
-        self.config: Config = load_config(temp_logger)
+        # Load configuration first
+        self.config: Config = load_config()
 
         # Set up structured logging with loaded config
         setup_root_logging(self.config)
