@@ -52,5 +52,6 @@ controls:
   max_retries: 3 # Max retry attempts for Modbus operations
   watchdog_interval_seconds: 30 # Interval to refresh current (watchdog)
   max_set_current: 64.0 # Absolute max settable current (safety limit)
+  min_charge_duration_seconds: 300 # Minimum charging duration in seconds once started in AUTO mode
 
 poll_interval_ms: 1000 # Base polling interval in milliseconds (adaptive in code)

@@ -287,6 +287,8 @@ class AlfenDriver:
                         self.schedules,
                         self.config.timezone,
                         current_phases=self.last_sent_phases,
+                        charging_start_time=self.charging_start_time,
+                        min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
                     )
                 )
                 if set_current(
@@ -333,6 +335,8 @@ class AlfenDriver:
                         self.schedules,
                         self.config.timezone,
                         current_phases=self.last_sent_phases,
+                        charging_start_time=self.charging_start_time,
+                        min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
                     )
                 )
                 ok_phases = True
@@ -367,6 +371,8 @@ class AlfenDriver:
                         0.0,
                         self.config.timezone,
                         current_phases=self.last_sent_phases,
+                        charging_start_time=self.charging_start_time,
+                        min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
                     )
                 )
                 ok_phases = True
@@ -424,6 +430,8 @@ class AlfenDriver:
                         self.schedules,
                         self.config.timezone,
                         current_phases=self.last_sent_phases,
+                        charging_start_time=self.charging_start_time,
+                        min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
                     )
                 )
                 if set_current(
@@ -603,6 +611,7 @@ class AlfenDriver:
                 force=self.just_connected,
                 timezone=self.config.timezone,
                 last_sent_phases=self.last_sent_phases,
+                charging_start_time=self.charging_start_time,
             )
         )
 

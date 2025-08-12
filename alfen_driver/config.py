@@ -69,6 +69,7 @@ class ControlsConfig:
     max_retries: int = 3
     watchdog_interval_seconds: int = 30
     max_set_current: float = 64.0
+    min_charge_duration_seconds: int = 300
 
     def __post_init__(self):
         if self.current_tolerance < 0:

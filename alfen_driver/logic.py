@@ -81,7 +81,11 @@ def is_within_any_schedule(
 
 
 def get_excess_solar_current(
-    ev_power: float = 0.0, station_max: float = float("inf"), current_phases: int = 3
+    ev_power: float = 0.0,
+    station_max: float = float("inf"),
+    current_phases: int = 3,
+    charging_start_time: float = 0.0,
+    min_charge_duration_seconds: int = 300,
 ) -> tuple[float, int, str]:
     global _config
     try:
@@ -141,6 +145,18 @@ def get_excess_solar_current(
             f"excess={excess:.2f}W, "
             f"raw_current={current:.2f}A{clamp_reason} -> {clamped_current:.2f}A, phases={new_phases}"
         )
+
+        if (
+            clamped_current == 0.0
+            and charging_start_time > 0
+            and (time.time() - charging_start_time) < min_charge_duration_seconds
+        ):
+            clamped_current = MIN_CURRENT
+            new_phases = 1
+            explanation += (
+                f" (forced to {MIN_CURRENT}A on 1 phase due to minimum charge duration)"
+            )
+
         return clamped_current, new_phases, explanation
     except Exception as e:
         logging.error(f"Error calculating excess solar: {e}")
@@ -157,6 +173,8 @@ def compute_effective_current(
     ev_power: float = 0.0,  # New parameter
     timezone: str = "UTC",
     current_phases: int = 3,
+    charging_start_time: float = 0.0,
+    min_charge_duration_seconds: int = 300,
 ) -> tuple[float, int, str]:
     effective = 0.0
     explanation = ""
@@ -175,7 +193,11 @@ def compute_effective_current(
             explanation = "Auto mode disabled by start_stop"
         else:
             effective, effective_phases, excess_exp = get_excess_solar_current(
-                ev_power, station_max_current, current_phases
+                ev_power,
+                station_max_current,
+                current_phases,
+                charging_start_time,
+                min_charge_duration_seconds,
             )
             explanation = f"Auto mode excess solar: {excess_exp}"
     elif current_mode == EVC_MODE.SCHEDULED:
@@ -363,6 +385,8 @@ def process_status_and_energy(
         0.0,  # Default ev_power
         timezone,
         3,  # current_phases
+        charging_start_time,
+        config.controls.min_charge_duration_seconds,
     )
 
     new_victron_status = raw_status

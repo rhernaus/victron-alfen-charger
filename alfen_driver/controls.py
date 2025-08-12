@@ -131,6 +131,7 @@ def set_effective_current(
     force: bool = False,
     timezone: str = "UTC",
     last_sent_phases: int = 0,
+    charging_start_time: float = 0.0,
 ) -> tuple[float, float, int]:
     """
     Set the effective current based on mode and watchdog.
@@ -150,6 +151,8 @@ def set_effective_current(
         ev_power,  # Pass to compute
         timezone,
         current_phases=last_sent_phases,
+        charging_start_time=charging_start_time,
+        min_charge_duration_seconds=config.controls.min_charge_duration_seconds,
     )
     current_time = time.time()
     needs_update = (
