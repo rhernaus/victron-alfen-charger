@@ -308,6 +308,9 @@ def calculate_session_energy_and_time(
         service["/ChargingTime"] = 0
         service["/Ac/Energy/Forward"] = 0.0
         persist_config_to_disk()
+        logger.info(
+            f"New charging session started (status changed to {new_victron_status})"
+        )
     elif new_victron_status == 2:
         # Continuing session
         service["/ChargingTime"] = time.time() - charging_start_time
@@ -327,11 +330,14 @@ def calculate_session_energy_and_time(
         # Detect charged: Transition from charging to connected while effective current was sufficient
         if raw_status == EVC_STATUS.CONNECTED:
             if effective_current >= MIN_CURRENT:
-                service["/Status"] = EVC_STATUS.CHARGED
+                new_status = EVC_STATUS.CHARGED
             elif current_mode == EVC_MODE.AUTO:
-                service["/Status"] = EVC_STATUS.WAIT_SUN  # Tie-in with WAIT_SUN
+                new_status = EVC_STATUS.WAIT_SUN  # Tie-in with WAIT_SUN
             else:
-                service["/Status"] = EVC_STATUS.CONNECTED  # Fallback
+                new_status = EVC_STATUS.CONNECTED  # Fallback
+            if new_status != new_victron_status:
+                service["/Status"] = new_status
+                logger.info(f"Status changed to {new_status} after session finish")
         logger.info(
             f"Session finished: Set status to {service['/Status']} (energy: {last_session_energy:.3f} kWh, time: {last_charging_time:.0f}s)"
         )
@@ -404,6 +410,9 @@ def process_status_and_energy(
 
     service["/Status"] = new_victron_status
 
+    if new_victron_status != old_victron_status:
+        logger.info(f"Status changed from {old_victron_status} to {new_victron_status}")
+
     # Re-evaluate status after potential auto-start and current set
     new_victron_status = apply_mode_specific_status(
         current_mode,
@@ -416,6 +425,9 @@ def process_status_and_energy(
         effective_current,  # Pass again
     )
     service["/Status"] = new_victron_status
+
+    if new_victron_status != old_victron_status:
+        logger.info(f"Status changed from {old_victron_status} to {new_victron_status}")
 
     (
         charging_start_time,
