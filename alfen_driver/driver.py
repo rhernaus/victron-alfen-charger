@@ -519,12 +519,11 @@ class AlfenDriver:
         """Apply control logic based on current mode."""
         now = time.time()
 
-        # Skip if recently updated (use watchdog_interval_seconds)
-        if (
+        # Force update if watchdog interval has elapsed
+        force_update = (
             now - self.last_current_set_time
-            < self.config.controls.watchdog_interval_seconds
-        ):
-            return
+            >= self.config.controls.watchdog_interval_seconds
+        )
 
         # Get current power for AUTO mode
         try:
@@ -546,8 +545,8 @@ class AlfenDriver:
             min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
         )
 
-        # Only update if different from last sent
-        if abs(effective_current - self.last_sent_current) > 0.1:
+        # Update if different from last sent OR if watchdog interval elapsed
+        if abs(effective_current - self.last_sent_current) > 0.1 or force_update:
             if set_current(
                 self.client,
                 self.config,
@@ -557,8 +556,10 @@ class AlfenDriver:
             ):
                 self.last_current_set_time = now
                 self.last_sent_current = effective_current
+                watchdog_note = " (Watchdog update)" if force_update else ""
                 self.logger.debug(
-                    f"Applied control current: {effective_current:.2f} A. {explanation}"
+                    f"Applied control current: {effective_current:.2f} A. "
+                    f"{explanation}{watchdog_note}"
                 )
 
     def poll(self) -> bool:
