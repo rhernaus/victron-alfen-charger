@@ -21,6 +21,14 @@ MIN_CURRENT = 6.0
 
 _config = None  # Module-level cache
 
+# Schedule check cache to reduce excessive logging
+_schedule_cache = {
+    'last_check_time': 0,
+    'last_result': False,
+    'last_log_time': 0,
+}
+SCHEDULE_LOG_INTERVAL = 60  # Only log schedule checks every 60 seconds
+
 
 class AlfenStatus(Enum):
     """Alfen charger status codes."""
@@ -90,29 +98,39 @@ def is_within_any_schedule(
     weekday = local_dt.weekday()  # Mon=0..Sun=6
     sun_based_index = (weekday + 1) % 7
     minutes_now = local_dt.hour * 60 + local_dt.minute
+    
+    # Throttle schedule checking logs to reduce spam
     logger = get_logger("alfen_driver.logic")
-    logger.debug(
-        "Checking charging schedules",
-        local_time=local_dt.strftime("%H:%M %A"),
-        minutes_now=minutes_now,
-        day_index=sun_based_index,
-        timezone=timezone,
-        total_schedules=len(schedules),
-    )
+    current_minute = int(now // 60)  # Round to minute for caching
+    should_log = (now - _schedule_cache['last_log_time']) >= SCHEDULE_LOG_INTERVAL
+    
+    if should_log:
+        logger.debug(
+            "Checking charging schedules",
+            local_time=local_dt.strftime("%H:%M %A"),
+            minutes_now=minutes_now,
+            day_index=sun_based_index,
+            timezone=timezone,
+            total_schedules=len(schedules),
+        )
+        _schedule_cache['last_log_time'] = now
     for idx, item in enumerate(schedules):
         if item.enabled == 0:
-            logger.debug(f"Schedule {idx + 1} skipped: disabled")
+            if should_log:
+                logger.debug(f"Schedule {idx + 1} skipped: disabled")
             continue
         mask_check = (item.days_mask & (1 << sun_based_index)) != 0
         if not mask_check:
-            logger.debug(
-                f"Schedule {idx + 1} skipped: day not matched (mask={item.days_mask}, required bit={1 << sun_based_index})"
-            )
+            if should_log:
+                logger.debug(
+                    f"Schedule {idx + 1} skipped: day not matched (mask={item.days_mask}, required bit={1 << sun_based_index})"
+                )
             continue
         start_min = parse_hhmm_to_minutes(item.start)
         end_min = parse_hhmm_to_minutes(item.end)
         if start_min == end_min:
-            logger.debug(f"Schedule {idx + 1} skipped: start == end ({start_min})")
+            if should_log:
+                logger.debug(f"Schedule {idx + 1} skipped: start == end ({start_min})")
             continue
         is_overnight = start_min >= end_min
         condition = (
@@ -120,13 +138,16 @@ def is_within_any_schedule(
             if not is_overnight
             else (minutes_now >= start_min or minutes_now < end_min)
         )
-        logger.debug(
-            f"Schedule {idx + 1}: start_min={start_min}, end_min={end_min}, overnight={is_overnight}, condition={condition}"
-        )
+        if should_log:
+            logger.debug(
+                f"Schedule {idx + 1}: start_min={start_min}, end_min={end_min}, overnight={is_overnight}, condition={condition}"
+            )
         if condition:
-            logger.debug(f"Schedule {idx + 1} matched, returning True")
+            if should_log:
+                logger.debug(f"Schedule {idx + 1} matched, returning True")
             return True
-    logger.debug("No schedules matched, returning False")
+    if should_log:
+        logger.debug("No schedules matched, returning False")
     return False
 
 
@@ -331,14 +352,18 @@ def apply_mode_specific_status(
             new_victron_status = EVC_STATUS.WAIT_START
         elif effective_current < MIN_CURRENT:
             new_victron_status = EVC_STATUS.WAIT_SUN  # Not enough excess solar
+    # Cache schedule check result to avoid duplicate calls
+    within_schedule = None
+    if current_mode == EVC_MODE.SCHEDULED:
+        within_schedule = is_within_any_schedule(schedules, time.time(), timezone)
+    
     if current_mode == EVC_MODE.SCHEDULED and connected:
-        if not is_within_any_schedule(schedules, time.time(), timezone):
+        if not within_schedule:
             new_victron_status = EVC_STATUS.WAIT_START
 
     # General: If charging disabled but connected, wait for start
     charging_disabled = start_stop == EVC_CHARGE.DISABLED or (
-        current_mode == EVC_MODE.SCHEDULED
-        and not is_within_any_schedule(schedules, time.time(), timezone)
+        current_mode == EVC_MODE.SCHEDULED and not within_schedule
     )
     if connected and charging_disabled and new_victron_status == EVC_STATUS.CONNECTED:
         new_victron_status = EVC_STATUS.WAIT_START
