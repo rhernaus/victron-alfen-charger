@@ -47,6 +47,7 @@ class ModbusRegisters:
     SOCKET_SAFE_CURRENT = 1212  # 2 registers, FLOAT32
     SOCKET_SETPOINT_ACCOUNTED = 1214  # 1 register, 1=Yes, 0=No
     SOCKET_PHASES = 1215  # 1 register (R/W), 1=1phase, 3=3phase
+    ACTIVE_PHASES = 1215  # Alias for SOCKET_PHASES
 
 
 class ChargingLimits:

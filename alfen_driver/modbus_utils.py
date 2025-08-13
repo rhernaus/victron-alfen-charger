@@ -149,6 +149,24 @@ def decode_64bit_float(registers: List[int]) -> float:
     return val if not math.isnan(val) else 0.0
 
 
+def read_uint16(client: ModbusTcpClient, address: int, slave: int) -> int:
+    """Read a single 16-bit unsigned integer from a Modbus register.
+
+    Args:
+        client: The Modbus TCP client instance.
+        address: The register address to read.
+        slave: The Modbus slave/unit identifier.
+
+    Returns:
+        The 16-bit unsigned integer value.
+
+    Raises:
+        ModbusError: If the read operation fails.
+    """
+    regs = read_holding_registers(client, address, 1, slave)
+    return regs[0]
+
+
 def read_modbus_string(
     client: ModbusTcpClient, address: int, count: int, slave: int
 ) -> str:

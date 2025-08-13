@@ -41,10 +41,19 @@ logging:
   console_output: true # Whether to also log to console
   json_format: false # Use JSON format for structured logs
 
+# Tibber integration for dynamic electricity pricing (used in SCHEDULED mode)
+tibber:
+  enabled: false # Set to true to enable Tibber integration
+  access_token: "" # Your Tibber API access token
+  home_id: "" # Optional: specific home ID if you have multiple homes
+  charge_on_cheap: true # Charge when price is CHEAP
+  charge_on_very_cheap: true # Charge when price is VERY_CHEAP
+
+# Legacy time-based schedules (only used if Tibber is disabled)
 schedule:
   items:
-    # Default schedule: 12:00-15:00 every day (days_mask=127 sums 1+2+4+8+16+32+64 for Sun-Sat). This is normally the cheapest hours with dynamic tariffs.
-    - enabled: 1 # 1 to enable this schedule, 0 to disable
+    # Default schedule: 12:00-15:00 every day (days_mask=127 sums 1+2+4+8+16+32+64 for Sun-Sat)
+    - enabled: 0 # 1 to enable this schedule, 0 to disable (disabled by default since Tibber is preferred)
       days_mask: 127 # Bitmask for days (Sun=1, Mon=2, ..., Sat=64; sum for multiple)
       start: "12:00" # Start time in HH:MM (24h format)
       end: "15:00" # End time in HH:MM
@@ -59,6 +68,7 @@ controls:
   watchdog_interval_seconds: 30 # Interval to refresh current (watchdog)
   max_set_current: 64.0 # Absolute max settable current (safety limit)
   min_charge_duration_seconds: 300 # Minimum charging duration in seconds once started in AUTO mode
+  min_battery_soc: 20.0 # Minimum battery SOC (%) below which car won't charge in AUTO mode
   current_update_interval: 30000 # Interval for refreshing current settings (ms)
   verify_delay: 100 # Verification delay in milliseconds
 

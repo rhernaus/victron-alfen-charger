@@ -4,3 +4,4 @@ pymodbus==3.6.4
 
 pyyaml==6.0.1  # For YAML config parsing
 pytz
+aiohttp==3.9.1  # For Tibber API integration

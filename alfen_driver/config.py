@@ -223,6 +223,25 @@ class ScheduleItem:
 
 
 @dataclasses.dataclass
+class TibberConfig:
+    """Tibber API configuration for dynamic pricing.
+
+    Attributes:
+        access_token: Tibber API access token.
+        enabled: Whether Tibber integration is enabled.
+        home_id: Optional specific home ID (if multiple homes).
+        charge_on_cheap: Charge when price level is CHEAP.
+        charge_on_very_cheap: Charge when price level is VERY_CHEAP.
+    """
+
+    access_token: str = ""
+    enabled: bool = False
+    home_id: str = ""
+    charge_on_cheap: bool = True
+    charge_on_very_cheap: bool = True
+
+
+@dataclasses.dataclass
 class ScheduleConfig:
     """Schedule configuration container.
 
@@ -247,6 +266,7 @@ class ControlsConfig:
         max_set_current: Maximum settable current in amperes.
         min_charge_duration_seconds: Minimum charging session duration.
         current_update_interval: Interval for refreshing current settings.
+        min_battery_soc: Min battery SOC (%) below which car won't charge in AUTO.
         verify_delay: Verification delay in milliseconds.
     """
 
@@ -260,6 +280,7 @@ class ControlsConfig:
     min_charge_duration_seconds: int = 300
     current_update_interval: int = 30000
     verify_delay: int = 100
+    min_battery_soc: float = 20.0  # Default 20% minimum battery SOC
 
     def __post_init__(self) -> None:
         """Validate control configuration."""
@@ -292,6 +313,7 @@ class Config:
         defaults: Default operational values.
         logging: Logging configuration.
         schedule: Schedule configuration.
+        tibber: Tibber API configuration for dynamic pricing.
         controls: Control and safety limits.
         poll_interval_ms: Polling interval in milliseconds.
         timezone: Timezone for schedule operations.
@@ -303,6 +325,7 @@ class Config:
     defaults: DefaultsConfig = dataclasses.field(default_factory=DefaultsConfig)
     logging: LoggingConfig = dataclasses.field(default_factory=LoggingConfig)
     schedule: ScheduleConfig = dataclasses.field(default_factory=ScheduleConfig)
+    tibber: TibberConfig = dataclasses.field(default_factory=TibberConfig)
     controls: ControlsConfig = dataclasses.field(default_factory=ControlsConfig)
     poll_interval_ms: int = 1000
     timezone: str = "UTC"
@@ -366,6 +389,7 @@ class Config:
         defaults = DefaultsConfig(**data.get("defaults", {}))
         logging_cfg = LoggingConfig(**data.get("logging", {}))
         controls = ControlsConfig(**data.get("controls", {}))
+        tibber = TibberConfig(**data.get("tibber", {}))
 
         # Handle schedule configuration
         schedule_data = data.get("schedule", {})
@@ -383,6 +407,7 @@ class Config:
             defaults=defaults,
             logging=logging_cfg,
             schedule=schedule,
+            tibber=tibber,
             controls=controls,
             poll_interval_ms=data.get("poll_interval_ms", 1000),
             timezone=data.get("timezone", "UTC"),

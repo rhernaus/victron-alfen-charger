@@ -13,7 +13,7 @@ from .constants import ChargingLimits, ModbusRegisters
 from .dbus_utils import EVC_CHARGE, EVC_MODE, EVC_STATUS
 from .exceptions import StatusMappingError
 from .logging_utils import get_logger
-from .modbus_utils import decode_64bit_float, read_holding_registers
+from .modbus_utils import decode_64bit_float, read_holding_registers, read_uint16
 
 MIN_CHARGING_CURRENT: float = 0.1
 
@@ -21,6 +21,13 @@ NOMINAL_VOLTAGE = ChargingLimits.NOMINAL_VOLTAGE
 MIN_CURRENT = ChargingLimits.MIN_CURRENT
 
 _config = None  # Module-level cache
+
+
+def set_config(config: Config) -> None:
+    """Set the module-level config for use in Tibber integration."""
+    global _config
+    _config = config
+
 
 # Schedule check cache to reduce excessive logging
 _schedule_cache = {
@@ -161,9 +168,11 @@ def is_within_any_schedule(
 def get_excess_solar_current(
     ev_power: float = 0.0,
     station_max: float = float("inf"),
-    charging_start_time: float = 0.0,
+    insufficient_solar_start: float = 0.0,
     min_charge_duration_seconds: int = 300,
-) -> Tuple[float, str]:
+    active_phases: int = 3,
+    min_battery_soc: float = 0.0,
+) -> Tuple[float, str, float, bool]:
     global _config
     try:
         bus = dbus.SystemBus()
@@ -183,15 +192,26 @@ def get_excess_solar_current(
         battery_power = all_values.get(
             "Dc/Battery/Power", 0.0
         )  # Positive: charging, negative: discharging
-        # Adjust excess: subtract battery charging (if positive) as it's using solar
-        excess = max(0.0, total_pv - adjusted_consumption - max(0.0, battery_power))
-        # Calculate current for 3 phases
-        current = excess / (3 * NOMINAL_VOLTAGE)
-        min_power_3 = MIN_CURRENT * 3 * NOMINAL_VOLTAGE
+        battery_soc = all_values.get("Dc/Battery/Soc", 100.0)
+
+        # Check if battery SOC is too low
+        low_soc = battery_soc < min_battery_soc
+
+        # Only subtract battery discharge (negative power) from excess
+        # Ignore battery charging (positive) - it will adapt to available solar
+        battery_discharge = abs(min(0.0, battery_power))
+        excess = max(0.0, total_pv - adjusted_consumption - battery_discharge)
+
+        # If battery SOC too low, set excess to 0
+        if low_soc:
+            excess = 0.0
+        # Calculate current based on active phases
+        current = excess / (active_phases * NOMINAL_VOLTAGE)
+        min_power_phases = MIN_CURRENT * active_phases * NOMINAL_VOLTAGE
         clamp_reason = ""
 
-        # If insufficient power for 3-phase minimum, set to 0
-        if excess < min_power_3:
+        # If insufficient power for minimum based on active phases, set to 0
+        if excess < min_power_phases:
             current = 0.0
 
         clamped_current = min(current, station_max)
@@ -203,27 +223,45 @@ def get_excess_solar_current(
             f"total_pv={total_pv:.2f}W, "
             f"adjusted_consumption={adjusted_consumption:.2f}W "
             f"(consumption={consumption:.2f}W - ev_power={ev_power:.2f}W), "
-            f"battery_charging={max(0.0, battery_power):.2f}W, "
+            f"battery_power={battery_power:.2f}W "
+            f"(discharge={battery_discharge:.2f}W subtracted), "
+            f"battery_soc={battery_soc:.1f}% (min={min_battery_soc:.1f}%), "
             f"excess={excess:.2f}W, "
             f"raw_current={current:.2f}A{clamp_reason} -> "
-            f"{clamped_current:.2f}A (3-phase)"
+            f"{clamped_current:.2f}A ({active_phases}-phase)"
         )
 
-        time_since_start = time.time() - charging_start_time
-        if (
-            clamped_current == 0.0
-            and charging_start_time > 0
-            and time_since_start < min_charge_duration_seconds
-        ):
-            clamped_current = MIN_CURRENT
-            explanation += (
-                f" (forced to {MIN_CURRENT}A due to " f"minimum charge duration)"
-            )
+        if low_soc:
+            explanation += f" (LOW SOC: {battery_soc:.1f}% < {min_battery_soc:.1f}%)"
 
-        return clamped_current, explanation
+        # Handle insufficient solar timer
+        new_insufficient_start = insufficient_solar_start
+        if clamped_current == 0.0 and ev_power > 0:  # Currently charging but no excess
+            if insufficient_solar_start == 0:
+                # Just started having insufficient solar
+                new_insufficient_start = time.time()
+                clamped_current = MIN_CURRENT
+                explanation += f" (starting {min_charge_duration_seconds}s timer)"
+            else:
+                # Check if timer expired
+                time_insufficient = time.time() - insufficient_solar_start
+                if time_insufficient < min_charge_duration_seconds:
+                    # Keep charging
+                    clamped_current = MIN_CURRENT
+                    remaining = min_charge_duration_seconds - time_insufficient
+                    explanation += f" (timer: {remaining:.0f}s remaining)"
+                else:
+                    # Timer expired, stop charging
+                    explanation += " (timer expired, stopping)"
+        elif clamped_current >= MIN_CURRENT and insufficient_solar_start > 0:
+            # Sufficient solar again, reset timer
+            new_insufficient_start = 0
+            explanation += " (sufficient solar, timer reset)"
+
+        return clamped_current, explanation, new_insufficient_start, low_soc
     except Exception as e:
         logging.error(f"Error calculating excess solar: {e}")
-        return 0.0, f"Error: {str(e)}"
+        return 0.0, f"Error: {str(e)}", insufficient_solar_start, False
 
 
 def compute_effective_current(
@@ -235,11 +273,16 @@ def compute_effective_current(
     schedules: List[ScheduleItem],
     ev_power: float = 0.0,
     timezone: str = "UTC",
-    charging_start_time: float = 0.0,
+    insufficient_solar_start: float = 0.0,
     min_charge_duration_seconds: int = 300,
-) -> Tuple[float, str]:
+    active_phases: int = 3,
+    min_battery_soc: float = 0.0,
+) -> Tuple[float, str, float, bool]:
     effective = 0.0
     explanation = ""
+    new_insufficient_start = insufficient_solar_start
+    low_soc = False
+
     if current_mode == EVC_MODE.MANUAL:
         if start_stop == EVC_CHARGE.ENABLED:
             effective = intended_set_current
@@ -256,38 +299,88 @@ def compute_effective_current(
             effective = 0.0
             explanation = "Auto mode disabled by start_stop"
         else:
-            effective, excess_exp = get_excess_solar_current(
+            (
+                effective,
+                excess_exp,
+                new_insufficient_start,
+                low_soc,
+            ) = get_excess_solar_current(
                 ev_power,
                 station_max_current,
-                charging_start_time,
+                insufficient_solar_start,
                 min_charge_duration_seconds,
+                active_phases,
+                min_battery_soc,
             )
             explanation = f"Auto mode excess solar: {excess_exp}"
     elif current_mode == EVC_MODE.SCHEDULED:
-        utc_dt = datetime.utcfromtimestamp(now)
-        local_tz = pytz.timezone(timezone)
-        local_dt = utc_dt.replace(tzinfo=pytz.utc).astimezone(local_tz)
-        local_time_str = local_dt.strftime("%H:%M")
-        day_str = local_dt.strftime("%A")
         if start_stop == EVC_CHARGE.DISABLED:
             effective = 0.0
-            explanation = (
-                f"Scheduled mode disabled by start_stop "
-                f"(local time: {local_time_str} on {day_str}, timezone: {timezone})"
-            )
+            explanation = "Scheduled mode disabled by start_stop"
         else:
-            within = is_within_any_schedule(schedules, now, timezone)
-            effective = station_max_current if within else 0.0
-            status = "within" if within else "not within"
-            explanation = (
-                f"Scheduled mode: {status} schedule "
-                f"(local time: {local_time_str} on {day_str}, timezone: {timezone}), "
-                f"set to {effective:.2f}A"
-            )
+            # Check if we should use Tibber or legacy schedules
+            global _config
+            if _config and hasattr(_config, "tibber") and _config.tibber.enabled:
+                # Use Tibber API for dynamic pricing
+                from .tibber import check_tibber_schedule
+
+                should_charge, tibber_explanation = check_tibber_schedule(
+                    _config.tibber
+                )
+                effective = station_max_current if should_charge else 0.0
+                explanation = (
+                    f"Scheduled mode (Tibber): {tibber_explanation}, "
+                    f"set to {effective:.2f}A"
+                )
+            else:
+                # Use legacy time-based schedules
+                utc_dt = datetime.utcfromtimestamp(now)
+                local_tz = pytz.timezone(timezone)
+                local_dt = utc_dt.replace(tzinfo=pytz.utc).astimezone(local_tz)
+                local_time_str = local_dt.strftime("%H:%M")
+                day_str = local_dt.strftime("%A")
+                within = is_within_any_schedule(schedules, now, timezone)
+                effective = station_max_current if within else 0.0
+                status = "within" if within else "not within"
+                explanation = (
+                    f"Scheduled mode: {status} schedule "
+                    f"(local time: {local_time_str} on {day_str}, "
+                    f"timezone: {timezone}), set to {effective:.2f}A"
+                )
     clamped_effective = max(0.0, min(effective, station_max_current))
     if not math.isclose(clamped_effective, effective, abs_tol=0.01):
         explanation += f" (clamped from {effective:.2f}A to {clamped_effective:.2f}A)"
-    return clamped_effective, explanation
+    return clamped_effective, explanation, new_insufficient_start, low_soc
+
+
+def read_active_phases(client: Any, config: Config) -> int:
+    """Read the number of active phases from the charger.
+
+    Returns:
+        Number of active phases (1 or 3). Defaults to 3 if read fails.
+    """
+    try:
+        phases = read_uint16(
+            client,
+            ModbusRegisters.ACTIVE_PHASES,
+            config.modbus.socket_slave_id,
+        )
+        # Alfen only supports 1 or 3 phase charging
+        if phases == 1:
+            return 1
+        elif phases in (2, 3):
+            # 2-phase gets treated as 3-phase
+            return 3
+        else:
+            logging.getLogger("alfen_driver.logic").warning(
+                f"Invalid phase count {phases}, defaulting to 3"
+            )
+            return 3
+    except Exception as e:
+        logging.getLogger("alfen_driver.logic").debug(
+            f"Could not read active phases: {e}, defaulting to 3"
+        )
+        return 3
 
 
 def map_alfen_status(client: Any, config: Config) -> int:
@@ -485,7 +578,10 @@ def process_status_and_energy(
     persist_config_to_disk: Callable[[], None],
     logger: Any,
     timezone: str,
-) -> Tuple[float, float, float, float, bool]:
+    insufficient_solar_start: float = 0.0,
+    active_phases: int = 3,
+    min_battery_soc: float = 0.0,
+) -> Tuple[float, float, float, float, bool, float]:
     raw_status = map_alfen_status(client, config)
 
     old_victron_status = service["/Status"]
@@ -493,21 +589,35 @@ def process_status_and_energy(
     was_disconnected = old_victron_status == 0
     now_connected = connected
 
+    # Read current EV power from service
+    ev_power = service.get("/Ac/Power", 0.0)
+
     # Compute effective early to inform status
-    effective_current, explanation = compute_effective_current(
+    (
+        effective_current,
+        explanation,
+        new_insufficient_start,
+        low_soc,
+    ) = compute_effective_current(
         current_mode,
         start_stop,
         intended_set_current,
         station_max_current,
         time.time(),
         schedules,
-        0.0,  # Default ev_power
+        ev_power,
         timezone,
-        charging_start_time,
+        insufficient_solar_start,
         config.controls.min_charge_duration_seconds,
+        active_phases,
+        min_battery_soc,
     )
 
     new_victron_status = raw_status
+
+    # Apply LOW_SOC status if battery SOC is too low
+    if low_soc and connected and current_mode == EVC_MODE.AUTO:
+        new_victron_status = EVC_STATUS.LOW_SOC
 
     new_victron_status = apply_mode_specific_status(
         current_mode,
@@ -576,4 +686,5 @@ def process_status_and_energy(
         last_charging_time,
         last_session_energy,
         (now_connected and was_disconnected),
+        new_insufficient_start,
     )

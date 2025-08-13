@@ -13,7 +13,7 @@ from .exceptions import (
     ValidationError,
 )
 from .logging_utils import get_logger, log_charging_event
-from .logic import compute_effective_current
+from .logic import compute_effective_current, read_active_phases
 from .modbus_utils import decode_floats, read_holding_registers, retry_modbus_operation
 
 CLAMP_EPSILON = 0.01  # Tolerance for clamping comparison
@@ -111,8 +111,8 @@ def set_effective_current(
     ev_power: float = 0.0,
     force: bool = False,
     timezone: str = "UTC",
-    charging_start_time: float = 0.0,
-) -> tuple[float, float]:
+    insufficient_solar_start: float = 0.0,
+) -> tuple[float, float, float]:
     """
     Set the effective current based on mode and watchdog.
 
@@ -121,7 +121,16 @@ def set_effective_current(
         ev_power: Total power of the EV charger for excess calculation.
     """
     now = time.time()
-    effective_current, explanation = compute_effective_current(
+
+    # Read active phases from charger
+    active_phases = read_active_phases(client, config)
+
+    (
+        effective_current,
+        explanation,
+        new_insufficient_start,
+        low_soc,
+    ) = compute_effective_current(
         current_mode,
         start_stop,
         intended_set_current,
@@ -130,8 +139,12 @@ def set_effective_current(
         schedules,
         ev_power,
         timezone,
-        charging_start_time=charging_start_time,
-        min_charge_duration_seconds=config.controls.min_charge_duration_seconds,
+        insufficient_solar_start,
+        config.controls.min_charge_duration_seconds,
+        active_phases,
+        config.controls.min_battery_soc
+        if hasattr(config.controls, "min_battery_soc")
+        else 0.0,
     )
 
     current_time = time.time()
@@ -176,7 +189,7 @@ def set_effective_current(
                 }
             },
         )
-    return last_sent_current, last_current_set_time
+    return last_sent_current, last_current_set_time, new_insufficient_start
 
 
 def update_station_max_current(

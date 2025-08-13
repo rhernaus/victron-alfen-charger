@@ -35,6 +35,10 @@ from .logging_utils import (  # noqa: E402
 )
 from .logic import (  # noqa: E402
     compute_effective_current,
+    read_active_phases,
+)
+from .logic import (  # noqa: E402
+    set_config as set_logic_config,
 )
 from .modbus_utils import (  # noqa: E402
     decode_64bit_float,
@@ -92,6 +96,9 @@ class AlfenDriver:
         # Initialize state
         self._init_state()
 
+        # Set config in logic module for Tibber access
+        set_logic_config(self.config)
+
         # Setup D-Bus service
         self._setup_dbus()
 
@@ -106,11 +113,15 @@ class AlfenDriver:
     def _init_state(self) -> None:
         """Initialize driver state variables."""
         self.charging_start_time: float = 0
+        self.insufficient_solar_start: float = (
+            0  # Track when insufficient solar started
+        )
         self.last_current_set_time: float = 0
         self.last_sent_current: float = 0.0
         self.station_max_current: float = ChargingLimits.MAX_CURRENT
         self.current_update_counter: int = 0
         self.last_poll_time: float = 0
+        self.active_phases: int = 3  # Default to 3-phase
 
         # Mutable values for D-Bus callbacks
         self.current_mode = MutableValue(self.persistence.mode)
@@ -207,6 +218,9 @@ class AlfenDriver:
 
         # Restore charging session state
         self.charging_start_time = self.persistence.get("charging_start_time", 0)
+        self.insufficient_solar_start = self.persistence.get(
+            "insufficient_solar_start", 0
+        )
 
         self.logger.info("Restored persisted state")
 
@@ -218,6 +232,7 @@ class AlfenDriver:
                 "start_stop": self.start_stop.value,
                 "set_current": self.intended_set_current.value,
                 "charging_start_time": self.charging_start_time,
+                "insufficient_solar_start": self.insufficient_solar_start,
             }
         )
 
@@ -245,8 +260,16 @@ class AlfenDriver:
         """
         now = time.time()
 
+        # Read active phases from charger
+        self.active_phases = read_active_phases(self.client, self.config)
+
         # Compute effective current based on mode and state
-        effective_current, explanation = compute_effective_current(
+        (
+            effective_current,
+            explanation,
+            self.insufficient_solar_start,
+            low_soc,
+        ) = compute_effective_current(
             EVC_MODE(self.current_mode.value),
             EVC_CHARGE(self.start_stop.value),
             self.intended_set_current.value,
@@ -255,8 +278,12 @@ class AlfenDriver:
             self.schedules,
             0.0,  # ev_power - will be set in AUTO mode
             self.config.timezone,
-            charging_start_time=self.charging_start_time,
-            min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
+            self.insufficient_solar_start,
+            self.config.controls.min_charge_duration_seconds,
+            self.active_phases,
+            self.config.controls.min_battery_soc
+            if hasattr(self.config.controls, "min_battery_soc")
+            else 0.0,
         )
 
         # Apply the current setting
@@ -536,8 +563,16 @@ class AlfenDriver:
         except (KeyError, AttributeError):
             ev_power = 0.0
 
+        # Read active phases from charger
+        self.active_phases = read_active_phases(self.client, self.config)
+
         # Compute and apply effective current
-        effective_current, explanation = compute_effective_current(
+        (
+            effective_current,
+            explanation,
+            self.insufficient_solar_start,
+            low_soc,
+        ) = compute_effective_current(
             EVC_MODE(self.current_mode.value),
             EVC_CHARGE(self.start_stop.value),
             self.intended_set_current.value,
@@ -546,8 +581,12 @@ class AlfenDriver:
             self.schedules,
             ev_power,
             self.config.timezone,
-            charging_start_time=self.charging_start_time,
-            min_charge_duration_seconds=self.config.controls.min_charge_duration_seconds,
+            self.insufficient_solar_start,
+            self.config.controls.min_charge_duration_seconds,
+            self.active_phases,
+            self.config.controls.min_battery_soc
+            if hasattr(self.config.controls, "min_battery_soc")
+            else 0.0,
         )
 
         # Update if different from last sent OR if watchdog interval elapsed
