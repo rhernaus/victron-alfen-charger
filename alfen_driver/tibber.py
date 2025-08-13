@@ -266,11 +266,13 @@ class TibberClient:
 
             # Cache upcoming windows [{startsAt, total, level} sorted]
             combined = [*prices_today, *prices_tomorrow]
+
             def parse_ts(s: str) -> float:
                 try:
                     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
                 except Exception:
                     return 0.0
+
             combined.sort(key=lambda e: parse_ts(e.get("startsAt", "")))
             self._cached_upcoming = combined
 
@@ -365,7 +367,11 @@ class TibberClient:
         """Compute dynamic threshold if using percentile strategy."""
         if self.config.strategy != "percentile":
             return None
-        upcoming = [e for e in self._get_upcoming_prices_window() if isinstance(e.get("total"), (int, float))]
+        upcoming = [
+            e
+            for e in self._get_upcoming_prices_window()
+            if isinstance(e.get("total"), (int, float))
+        ]
         if not upcoming:
             return None
         # pick percentile of price values
@@ -376,6 +382,7 @@ class TibberClient:
         if p >= 1:
             return prices[-1]
         import math
+
         idx = max(0, min(len(prices) - 1, math.floor(p * len(prices)) - 1))
         return prices[idx]
 
@@ -401,7 +408,11 @@ class TibberClient:
                 current_total = None
 
         # Strategy: threshold
-        if self.config.strategy == "threshold" and current_total is not None and self.config.max_price_total > 0:
+        if (
+            self.config.strategy == "threshold"
+            and current_total is not None
+            and self.config.max_price_total > 0
+        ):
             return current_total <= self.config.max_price_total
 
         # Strategy: percentile
@@ -484,8 +495,11 @@ def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
             starts = price_info.get("startsAt")
             if isinstance(starts, str):
                 explanation_parts.append(f"slot={starts}")
-        except Exception:
-            pass
+        except Exception as exc:
+            # Log and continue; explanation is optional meta
+            get_logger("alfen_driver.tibber").debug(
+                f"Failed to enrich Tibber explanation: {exc}"
+            )
 
     if config.strategy == "threshold" and config.max_price_total > 0:
         explanation_parts.append(f"strategy=threshold<= {config.max_price_total:.4f}")
