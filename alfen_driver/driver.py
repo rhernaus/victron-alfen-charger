@@ -421,7 +421,6 @@ class AlfenDriver:
         )
 
         # Apply the current setting
-        previous_sent = self.last_sent_current
         if self._set_current_with_logging(
             effective_current,
             explanation,
@@ -430,10 +429,7 @@ class AlfenDriver:
         ):
             self.last_current_set_time = now
             self.last_sent_current = effective_current
-            if (
-                effective_current >= ChargingLimits.MIN_CURRENT
-                and previous_sent < ChargingLimits.MIN_CURRENT
-            ):
+            if effective_current >= ChargingLimits.MIN_CURRENT:
                 self.last_positive_set_time = now
 
             # Build log message
@@ -747,7 +743,6 @@ class AlfenDriver:
         self.active_phases = read_active_phases(self.client, self.config)
 
         # Compute and apply effective current
-        previous_sent = self.last_sent_current
         (
             effective_current,
             explanation,
@@ -776,10 +771,7 @@ class AlfenDriver:
             ):
                 self.last_current_set_time = now
                 self.last_sent_current = effective_current
-                if (
-                    effective_current >= ChargingLimits.MIN_CURRENT
-                    and previous_sent < ChargingLimits.MIN_CURRENT
-                ):
+                if effective_current >= ChargingLimits.MIN_CURRENT:
                     self.last_positive_set_time = now
                 watchdog_note = " (Watchdog update)" if force_update else ""
                 self.logger.debug(
