@@ -257,9 +257,15 @@ class AlfenDriver:
             mode_name = EVC_MODE(self.current_mode.value).name
             if self.current_mode.value != EVC_MODE.AUTO:
                 # Log for non-AUTO modes (AUTO already logged above)
-                self.logger.info(
-                    f"{source}: Set current to {effective_current:.2f}A ({mode_name})"
-                )
+                if self.current_mode.value == EVC_MODE.SCHEDULED and explanation:
+                    self.logger.info(
+                        f"{source}: Set current to {effective_current:.2f}A ({mode_name})\n"
+                        f"  Details: {explanation}"
+                    )
+                else:
+                    self.logger.info(
+                        f"{source}: Set current to {effective_current:.2f}A ({mode_name})"
+                    )
 
         return success
 
