@@ -25,7 +25,12 @@ from .controls import (  # noqa: E402
     set_current,
     update_station_max_current,
 )
-from .dbus_utils import EVC_CHARGE, EVC_MODE, register_dbus_service  # noqa: E402
+from .dbus_utils import (  # noqa: E402
+    EVC_CHARGE,
+    EVC_MODE,
+    EVC_STATUS,  # noqa: E402
+    register_dbus_service,
+)
 from .exceptions import ModbusError  # noqa: E402
 from .logging_utils import (  # noqa: E402
     LogContext,
@@ -34,6 +39,7 @@ from .logging_utils import (  # noqa: E402
     setup_root_logging,
 )
 from .logic import (  # noqa: E402
+    apply_mode_specific_status,  # noqa: E402
     compute_effective_current,
     get_complete_status,
     read_active_phases,
@@ -50,8 +56,6 @@ from .modbus_utils import (  # noqa: E402
 )
 from .persistence import PersistenceManager  # noqa: E402
 from .session_manager import ChargingSessionManager  # noqa: E402
-from .logic import apply_mode_specific_status  # noqa: E402
-from .dbus_utils import EVC_STATUS  # noqa: E402
 
 try:
     import dbus
@@ -834,9 +838,7 @@ class AlfenDriver:
                 old_name = status_names.get(
                     self.last_status, f"Unknown({self.last_status})"
                 )
-                new_name = status_names.get(
-                    final_status, f"Unknown({final_status})"
-                )
+                new_name = status_names.get(final_status, f"Unknown({final_status})")
                 self.logger.info(f"EV Status changed: {old_name} -> {new_name}")
 
             self.service["/Status"] = final_status
