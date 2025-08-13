@@ -312,6 +312,28 @@ class AlfenDriver:
                 self.last_status, f"Unknown({self.last_status})"
             )
             self.logger.info(f"Initial charger status: {status_name}")
+
+            # If charger is already charging at startup, initialize session
+            if self.last_status == 2:  # Charging status
+                # Read current energy to initialize session
+                try:
+                    energy_regs = read_holding_registers(
+                        self.client,
+                        ModbusRegisters.METER_ACTIVE_ENERGY_TOTAL,
+                        4,
+                        self.config.modbus.socket_slave_id,
+                    )
+                    if energy_regs:
+                        total_energy_kwh = decode_64bit_float(energy_regs) / 1000.0
+                        # Force start a session in the manager
+                        self.session_manager._last_energy_kwh = total_energy_kwh
+                        self.session_manager._start_session(total_energy_kwh)
+                        self.logger.info(
+                            f"Initialized active charging session at "
+                            f"{total_energy_kwh:.2f} kWh"
+                        )
+                except Exception as e:
+                    self.logger.warning(f"Failed to initialize charging session: {e}")
         except Exception as e:
             self.logger.warning(f"Failed to read initial status: {e}")
 
@@ -705,7 +727,10 @@ class AlfenDriver:
             self.service["/Ac/L3/Current"] = round(i3, 2)
             # Set /Ac/Current to max phase current
             # (likely what Victron displays as charging current)
-            self.service["/Ac/Current"] = round(max(i1, i2, i3), 2)
+            max_current = round(max(i1, i2, i3), 2)
+            self.service["/Ac/Current"] = max_current
+            # Also update /Current for Victron UI display
+            self.service["/Current"] = max_current
 
         # Update power
         power = raw_data.get("power")
