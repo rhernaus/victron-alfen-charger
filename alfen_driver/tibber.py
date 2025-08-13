@@ -504,13 +504,15 @@ def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
     should_charge = client.should_charge(price_level)
 
     # Build explanation including strategy & threshold if available
-    explanation_parts: list[str] = [f"Tibber price is {price_level.value}"]
+    explanation_parts: list[str] = []
     price_info = client._cache.get("current_price") if client._cache else None
+    current_total = None
     if price_info is not None:
         try:
             total_val = price_info.get("total")
             if isinstance(total_val, (int, float)):
-                explanation_parts.append(f"total={float(total_val):.4f}")
+                current_total = float(total_val)
+                explanation_parts.append(f"total={current_total:.4f}")
             starts = price_info.get("startsAt")
             if isinstance(starts, str):
                 explanation_parts.append(f"slot={starts}")
@@ -520,7 +522,9 @@ def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
                 f"Failed to enrich Tibber explanation: {exc}"
             )
 
-    if config.strategy == "threshold" and config.max_price_total > 0:
+    if config.strategy == "level":
+        explanation_parts.insert(0, f"level={price_level.value}")
+    elif config.strategy == "threshold" and config.max_price_total > 0:
         explanation_parts.append(f"strategy=threshold<= {config.max_price_total:.4f}")
     elif config.strategy == "percentile":
         threshold = client._determine_threshold()
@@ -533,7 +537,7 @@ def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
                 f"strategy=percentile p={config.cheap_percentile:.2f} (thr n/a)"
             )
     else:
-        explanation_parts.append("strategy=level")
+        explanation_parts.append("strategy=unknown")
 
     if should_charge:
         return True, ", ".join(explanation_parts) + " - charging enabled"
