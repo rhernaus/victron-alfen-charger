@@ -134,7 +134,12 @@ class TibberClient:
                                     level
                                     startsAt
                                 }
-                                next {
+                                today {
+                                    total
+                                    level
+                                    startsAt
+                                }
+                                tomorrow {
                                     total
                                     level
                                     startsAt
@@ -238,39 +243,67 @@ class TibberClient:
                 self.logger.warning(f"Home {self.config.home_id} not found")
                 return None
 
-            # Get current and next price info
+            # Get current and upcoming price info
             price_info = (
                 target_home.get("currentSubscription", {})
                 .get("priceInfo", {})
                 .get("current", {})
             )
-            next_info = (
-                target_home.get("currentSubscription", {})
-                .get("priceInfo", {})
-                .get("next", {})
+            price_info_container = target_home.get("currentSubscription", {}).get(
+                "priceInfo", {}
             )
+            prices_today = price_info_container.get("today", []) or []
+            prices_tomorrow = price_info_container.get("tomorrow", []) or []
 
             if not price_info:
                 self.logger.warning("No price info available")
                 return None
 
-            # Update cache
-            self._cache = {"current_price": price_info, "next_price": next_info}
+            # Update cache (store current and a computed next if available)
+            self._cache = {"current_price": price_info}
             self._cache_time = now
 
-            # Determine next refresh time based on next.startsAt
+            # Determine next refresh time by finding the next slot in today/tomorrow lists
             next_refresh: float = 0.0
             try:
-                next_starts_at = (
-                    next_info.get("startsAt") if isinstance(next_info, dict) else None
-                )
-                if isinstance(next_starts_at, str) and next_starts_at:
-                    # Handle potential trailing 'Z'
-                    starts_str = next_starts_at.replace("Z", "+00:00")
-                    dt = datetime.fromisoformat(starts_str)
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    next_refresh = dt.timestamp()
+                # Build a combined chronological list of all upcoming starts
+                upcoming_starts: list[float] = []
+                for entry in [*prices_today, *prices_tomorrow]:
+                    starts_at = entry.get("startsAt")
+                    if isinstance(starts_at, str) and starts_at:
+                        starts_str = starts_at.replace("Z", "+00:00")
+                        try:
+                            dt = datetime.fromisoformat(starts_str)
+                            if dt.tzinfo is None:
+                                dt = dt.replace(tzinfo=timezone.utc)
+                            ts = dt.timestamp()
+                            upcoming_starts.append(ts)
+                        except Exception as parse_err:
+                            self.logger.debug(
+                                f"Failed to parse startsAt '{starts_at}': {parse_err}"
+                            )
+                            continue
+                upcoming_starts.sort()
+
+                # Prefer the next period strictly after current.startsAt (or now if missing)
+                cur_start_ts = None
+                try:
+                    cur_starts = price_info.get("startsAt")
+                    if isinstance(cur_starts, str) and cur_starts:
+                        cur_str = cur_starts.replace("Z", "+00:00")
+                        cur_dt = datetime.fromisoformat(cur_str)
+                        if cur_dt.tzinfo is None:
+                            cur_dt = cur_dt.replace(tzinfo=timezone.utc)
+                        cur_start_ts = cur_dt.timestamp()
+                except Exception:
+                    cur_start_ts = None
+
+                # Find the first upcoming start that is greater than current start (or now)
+                baseline = cur_start_ts or now
+                for ts in upcoming_starts:
+                    if ts > baseline + 1e-6:
+                        next_refresh = ts
+                        break
             except Exception:
                 next_refresh = 0.0
 
