@@ -166,6 +166,14 @@ def set_effective_current(
             last_sent_current = effective_current
             # Use structured logging for charging events
             logger = get_logger("alfen_driver.controls")
+
+            # Always log details for Auto mode
+            if current_mode == EVC_MODE.AUTO:
+                logger.info(
+                    f"AUTO MODE: Setting current to {effective_current:.2f}A\n"
+                    f"  Calculation: {explanation}"
+                )
+
             log_charging_event(
                 logger,
                 "effective_current_updated",

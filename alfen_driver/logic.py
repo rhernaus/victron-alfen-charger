@@ -220,16 +220,16 @@ def get_excess_solar_current(
             clamp_reason = f" (below min {MIN_CURRENT}A, set to 0)"
 
         explanation = (
-            f"total_pv={total_pv:.2f}W, "
-            f"adjusted_consumption={adjusted_consumption:.2f}W "
-            f"(consumption={consumption:.2f}W - ev_power={ev_power:.2f}W), "
-            f"battery_power={battery_power:.2f}W "
-            f"(discharge={battery_discharge:.2f}W subtracted), "
-            f"battery_soc={battery_soc:.1f}% (min={min_battery_soc:.1f}%), "
-            f"excess={excess:.2f}W, "
-            f"raw_current={current:.2f}A{clamp_reason} -> "
-            f"{clamped_current:.2f}A ({active_phases}-phase)"
+            f"PV: {total_pv:.0f}W | "
+            f"Consumption: {consumption:.0f}W "
+            f"(adj: {adjusted_consumption:.0f}W after EV {ev_power:.0f}W) | "
+            f"Battery: {battery_power:+.0f}W (SOC: {battery_soc:.0f}%) | "
+            f"Excess: {excess:.0f}W = {current:.1f}A "
+            f"on {active_phases}ph -> {clamped_current:.1f}A"
         )
+
+        if clamp_reason:
+            explanation += clamp_reason
 
         if low_soc:
             explanation += f" (LOW SOC: {battery_soc:.1f}% < {min_battery_soc:.1f}%)"

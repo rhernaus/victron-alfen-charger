@@ -108,6 +108,9 @@ class AlfenDriver:
         # Restore persisted state
         self._restore_state()
 
+        # Log current configuration settings at startup
+        self._log_startup_settings()
+
         self.logger.info("Driver initialization complete")
 
     def _init_state(self) -> None:
@@ -223,6 +226,35 @@ class AlfenDriver:
         )
 
         self.logger.info("Restored persisted state")
+
+    def _log_startup_settings(self) -> None:
+        """Log current configuration settings at startup."""
+        mode_str = EVC_MODE(self.current_mode.value).name
+        charge_str = EVC_CHARGE(self.start_stop.value).name
+
+        self.logger.info(
+            f"=== Current Settings at Startup ===\n"
+            f"  Mode: {mode_str}\n"
+            f"  Charging: {charge_str}\n"
+            f"  Intended Current: {self.intended_set_current.value:.2f}A\n"
+            f"  Station Max Current: {self.station_max_current:.2f}A\n"
+            f"  Active Phases: {self.active_phases}\n"
+            f"  Modbus IP: {self.config.modbus.ip}:{self.config.modbus.port}\n"
+            f"  Device Instance: {self.config.device_instance}\n"
+            f"  Min Battery SOC: {self.config.controls.min_battery_soc:.1f}%\n"
+            f"  Min Charge Duration: "
+            f"{self.config.controls.min_charge_duration_seconds}s\n"
+            f"  Schedules Configured: {len(self.schedules)} active"
+        )
+
+        # Log schedule details if any are configured
+        if self.schedules:
+            for idx, schedule in enumerate(self.schedules):
+                if schedule.enabled:
+                    self.logger.info(
+                        f"  Schedule {idx+1}: {schedule.start} - {schedule.end}, "
+                        f"Days: {bin(schedule.days_mask)[2:].zfill(7)}"
+                    )
 
     def _persist_state(self) -> None:
         """Persist current state to disk."""
