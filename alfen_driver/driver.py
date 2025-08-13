@@ -25,7 +25,12 @@ from .controls import (  # noqa: E402
     set_current,
     update_station_max_current,
 )
-from .dbus_utils import EVC_CHARGE, EVC_MODE, register_dbus_service  # noqa: E402
+from .dbus_utils import (  # noqa: E402
+    EVC_CHARGE,
+    EVC_MODE,
+    EVC_STATUS,  # noqa: E402
+    register_dbus_service,
+)
 from .exceptions import ModbusError  # noqa: E402
 from .logging_utils import (  # noqa: E402
     LogContext,
@@ -34,6 +39,7 @@ from .logging_utils import (  # noqa: E402
     setup_root_logging,
 )
 from .logic import (  # noqa: E402
+    apply_mode_specific_status,  # noqa: E402
     compute_effective_current,
     get_complete_status,
     read_active_phases,
@@ -312,6 +318,8 @@ class AlfenDriver:
                 0: "Disconnected",
                 1: "Connected",
                 2: "Charging",
+                4: "Wait Sun",
+                6: "Wait Start",
                 7: "Low SOC",
             }
             status_name = status_names.get(
@@ -638,50 +646,6 @@ class AlfenDriver:
         if prev_session_active != curr_session_active:
             self._persist_state()
 
-        # Get and update status
-        try:
-            current_status = get_complete_status(
-                self.client,
-                self.config,
-                EVC_MODE(self.current_mode.value),
-                self.active_phases,
-            )
-
-            # Update D-Bus status
-            self.service["/Status"] = current_status
-
-            # Log status changes
-            if current_status != self.last_status:
-                status_names = {
-                    0: "Disconnected",
-                    1: "Connected",
-                    2: "Charging",
-                    7: "Low SOC",
-                }
-                old_name = status_names.get(
-                    self.last_status, f"Unknown({self.last_status})"
-                )
-                new_name = status_names.get(
-                    current_status, f"Unknown({current_status})"
-                )
-
-                self.logger.info(f"EV Status changed: {old_name} -> {new_name}")
-
-                # Log additional context for connection
-                if current_status == 1 and self.last_status == 0:
-                    self.logger.info("Car connected, waiting for charging to start")
-                    # Note: Battery SOC check is handled in Auto mode calculation
-                elif current_status == 0 and self.last_status > 0:
-                    self.logger.info("Car disconnected")
-                elif current_status == 2 and self.last_status < 2:
-                    self.logger.info("Charging started")
-                elif current_status < 2 and self.last_status == 2:
-                    self.logger.info("Charging stopped")
-
-                self.last_status = current_status
-        except Exception as e:
-            self.logger.debug(f"Failed to read charger status: {e}")
-
     def update_dbus_paths(self, raw_data: Dict[str, Optional[List[int]]]) -> None:
         """Update D-Bus paths with fetched data."""
         # Update voltages
@@ -799,6 +763,46 @@ class AlfenDriver:
                     f"Applied control current: {effective_current:.2f} A. "
                     f"{explanation}{watchdog_note}"
                 )
+
+        # Update Victron status with mode-specific adjustments (e.g. WAIT_SUN, LOW_SOC)
+        try:
+            base_status = get_complete_status(
+                self.client,
+                self.config,
+                EVC_MODE(self.current_mode.value),
+                self.active_phases,
+            )
+            connected_flag = base_status != EVC_STATUS.DISCONNECTED
+            final_status = apply_mode_specific_status(
+                EVC_MODE(self.current_mode.value),
+                connected_flag,
+                EVC_CHARGE(self.start_stop.value),
+                self.intended_set_current.value,
+                self.schedules,
+                base_status,
+                self.config.timezone,
+                effective_current=effective_current,
+            )
+
+            if final_status != self.last_status:
+                status_names = {
+                    0: "Disconnected",
+                    1: "Connected",
+                    2: "Charging",
+                    4: "Wait Sun",
+                    6: "Wait Start",
+                    7: "Low SOC",
+                }
+                old_name = status_names.get(
+                    self.last_status, f"Unknown({self.last_status})"
+                )
+                new_name = status_names.get(final_status, f"Unknown({final_status})")
+                self.logger.info(f"EV Status changed: {old_name} -> {new_name}")
+
+            self.service["/Status"] = final_status
+            self.last_status = final_status
+        except Exception as e:
+            self.logger.debug(f"Failed to update status: {e}")
 
     def poll(self) -> bool:
         """Main polling loop iteration."""
