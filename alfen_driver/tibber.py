@@ -40,6 +40,7 @@ class TibberClient:
         self._cache_time: float = 0
         self._cache_ttl: int = 300  # Cache for 5 minutes
         self._cache_next_refresh: float = 0.0  # Absolute epoch when we should refresh
+        self._cached_upcoming: list[dict[str, Any]] = []
 
     def _fetch_graphql_sync(self, query: str) -> Optional[Dict[str, Any]]:
         """Synchronous GraphQL POST using standard library (fallback if aiohttp is missing)."""
@@ -263,6 +264,18 @@ class TibberClient:
             self._cache = {"current_price": price_info}
             self._cache_time = now
 
+            # Cache upcoming windows [{startsAt, total, level} sorted]
+            combined = [*prices_today, *prices_tomorrow]
+
+            def parse_ts(s: str) -> float:
+                try:
+                    return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    return 0.0
+
+            combined.sort(key=lambda e: parse_ts(e.get("startsAt", "")))
+            self._cached_upcoming = combined
+
             # Determine next refresh time by finding the next slot in today/tomorrow lists
             next_refresh: float = 0.0
             try:
@@ -328,10 +341,29 @@ class TibberClient:
             self._cache_next_refresh = max(next_refresh + 1.0, now + 5.0)
 
             level_str = price_info.get("level", "NORMAL")
-            self.logger.info(
-                f"Current Tibber price level: {level_str} "
-                f"(price: {price_info.get('total', 0):.4f})"
-            )
+            total_val = price_info.get("total", 0)
+            if self.config.strategy == "level":
+                self.logger.info(
+                    f"Current Tibber price level: {level_str} (price: {float(total_val):.4f})"
+                )
+            elif (
+                self.config.strategy == "threshold" and self.config.max_price_total > 0
+            ):
+                self.logger.info(
+                    f"Current Tibber price total: {float(total_val):.4f} (strategy=threshold<= {self.config.max_price_total:.4f})"
+                )
+            elif self.config.strategy == "percentile":
+                thr = self._determine_threshold()
+                if thr is not None:
+                    self.logger.info(
+                        f"Current Tibber price total: {float(total_val):.4f} (strategy=percentile p={self.config.cheap_percentile:.2f} thr={thr:.4f})"
+                    )
+                else:
+                    self.logger.info(
+                        f"Current Tibber price total: {float(total_val):.4f} (strategy=percentile p={self.config.cheap_percentile:.2f} thr n/a)"
+                    )
+            else:
+                self.logger.info(f"Current Tibber price total: {float(total_val):.4f}")
 
             return PriceLevel(level_str)
 
@@ -346,18 +378,69 @@ class TibberClient:
             self._cache_next_refresh = max(self._cache_next_refresh, now + 60)
             return None
 
+    def _get_upcoming_prices_window(self) -> list[dict[str, Any]]:
+        """Return cached upcoming prices list if available."""
+        return list(self._cached_upcoming)
+
+    def _determine_threshold(self) -> Optional[float]:
+        """Compute dynamic threshold if using percentile strategy."""
+        if self.config.strategy != "percentile":
+            return None
+        upcoming = [
+            e
+            for e in self._get_upcoming_prices_window()
+            if isinstance(e.get("total"), (int, float))
+        ]
+        if not upcoming:
+            return None
+        # pick percentile of price values
+        prices = sorted([float(e["total"]) for e in upcoming])
+        p = self.config.cheap_percentile
+        if p <= 0:
+            return prices[0]
+        if p >= 1:
+            return prices[-1]
+        import math
+
+        idx = max(0, min(len(prices) - 1, math.floor(p * len(prices)) - 1))
+        return prices[idx]
+
     def should_charge(self, price_level: Optional[PriceLevel]) -> bool:
-        """Determine if charging should be enabled based on price level.
+        """Determine if charging should be enabled based on strategy.
 
-        Args:
-            price_level: Current price level.
-
-        Returns:
-            True if charging should be enabled.
+        - strategy=="level": keep legacy level-based behavior using charge_on_cheap and charge_on_very_cheap.
+        - strategy=="threshold": charge when current total <= max_price_total (if configured), otherwise fallback to level.
+        - strategy=="percentile": charge when current total <= dynamic computed percentile over upcoming prices; fallback to level if unavailable.
         """
         if not price_level:
             return False
 
+        # Fetch current total if present in cache
+        current_total = None
+        price_info = self._cache.get("current_price") if self._cache else None
+        if price_info is not None:
+            try:
+                val = price_info.get("total")
+                if isinstance(val, (int, float)):
+                    current_total = float(val)
+            except Exception:
+                current_total = None
+
+        # Strategy: threshold
+        if (
+            self.config.strategy == "threshold"
+            and current_total is not None
+            and self.config.max_price_total > 0
+        ):
+            return current_total <= self.config.max_price_total
+
+        # Strategy: percentile
+        if self.config.strategy == "percentile" and current_total is not None:
+            threshold = self._determine_threshold()
+            if threshold is not None:
+                return current_total <= threshold
+
+        # Default strategy: level
         if price_level == PriceLevel.VERY_CHEAP and self.config.charge_on_very_cheap:
             return True
         if price_level == PriceLevel.CHEAP and self.config.charge_on_cheap:
@@ -420,7 +503,43 @@ def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
 
     should_charge = client.should_charge(price_level)
 
-    if should_charge:
-        return True, f"Tibber price is {price_level.value} - charging enabled"
+    # Build explanation including strategy & threshold if available
+    explanation_parts: list[str] = []
+    price_info = client._cache.get("current_price") if client._cache else None
+    current_total = None
+    if price_info is not None:
+        try:
+            total_val = price_info.get("total")
+            if isinstance(total_val, (int, float)):
+                current_total = float(total_val)
+                explanation_parts.append(f"total={current_total:.4f}")
+            starts = price_info.get("startsAt")
+            if isinstance(starts, str):
+                explanation_parts.append(f"slot={starts}")
+        except Exception as exc:
+            # Log and continue; explanation is optional meta
+            get_logger("alfen_driver.tibber").debug(
+                f"Failed to enrich Tibber explanation: {exc}"
+            )
+
+    if config.strategy == "level":
+        explanation_parts.insert(0, f"level={price_level.value}")
+    elif config.strategy == "threshold" and config.max_price_total > 0:
+        explanation_parts.append(f"strategy=threshold<= {config.max_price_total:.4f}")
+    elif config.strategy == "percentile":
+        threshold = client._determine_threshold()
+        if threshold is not None:
+            explanation_parts.append(
+                f"strategy=percentile p={config.cheap_percentile:.2f} thr={threshold:.4f}"
+            )
+        else:
+            explanation_parts.append(
+                f"strategy=percentile p={config.cheap_percentile:.2f} (thr n/a)"
+            )
     else:
-        return False, f"Tibber price is {price_level.value} - waiting for cheaper price"
+        explanation_parts.append("strategy=unknown")
+
+    if should_charge:
+        return True, ", ".join(explanation_parts) + " - charging enabled"
+    else:
+        return False, ", ".join(explanation_parts) + " - waiting for cheaper price"

@@ -232,6 +232,9 @@ class TibberConfig:
         home_id: Optional specific home ID (if multiple homes).
         charge_on_cheap: Charge when price level is CHEAP.
         charge_on_very_cheap: Charge when price level is VERY_CHEAP.
+        strategy: Selection strategy. "level" (default) to use coarse price levels, "threshold" to compare against max_price_total, or "percentile" to compare against a percentile of upcoming prices.
+        max_price_total: Absolute price threshold (same units as Tibber total) for strategy=="threshold".
+        cheap_percentile: Fraction (0..1) of cheapest upcoming prices that should be considered chargeable for strategy=="percentile".
     """
 
     access_token: str = ""
@@ -239,6 +242,9 @@ class TibberConfig:
     home_id: str = ""
     charge_on_cheap: bool = True
     charge_on_very_cheap: bool = True
+    strategy: str = "level"
+    max_price_total: float = 0.0
+    cheap_percentile: float = 0.3
 
 
 @dataclasses.dataclass
