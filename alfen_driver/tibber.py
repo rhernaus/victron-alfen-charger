@@ -341,10 +341,29 @@ class TibberClient:
             self._cache_next_refresh = max(next_refresh + 1.0, now + 5.0)
 
             level_str = price_info.get("level", "NORMAL")
-            self.logger.info(
-                f"Current Tibber price level: {level_str} "
-                f"(price: {price_info.get('total', 0):.4f})"
-            )
+            total_val = price_info.get("total", 0)
+            if self.config.strategy == "level":
+                self.logger.info(
+                    f"Current Tibber price level: {level_str} (price: {float(total_val):.4f})"
+                )
+            elif (
+                self.config.strategy == "threshold" and self.config.max_price_total > 0
+            ):
+                self.logger.info(
+                    f"Current Tibber price total: {float(total_val):.4f} (strategy=threshold<= {self.config.max_price_total:.4f})"
+                )
+            elif self.config.strategy == "percentile":
+                thr = self._determine_threshold()
+                if thr is not None:
+                    self.logger.info(
+                        f"Current Tibber price total: {float(total_val):.4f} (strategy=percentile p={self.config.cheap_percentile:.2f} thr={thr:.4f})"
+                    )
+                else:
+                    self.logger.info(
+                        f"Current Tibber price total: {float(total_val):.4f} (strategy=percentile p={self.config.cheap_percentile:.2f} thr n/a)"
+                    )
+            else:
+                self.logger.info(f"Current Tibber price total: {float(total_val):.4f}")
 
             return PriceLevel(level_str)
 
