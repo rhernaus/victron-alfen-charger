@@ -689,17 +689,23 @@ class AlfenDriver:
         """Update D-Bus paths with fetched data."""
         # Update voltages
         voltages = raw_data.get("voltages")
-        if voltages and len(voltages) >= 8:
-            self.service["/Ac/L1/Voltage"] = round(decode_64bit_float(voltages[:4]), 1)
-            self.service["/Ac/L2/Voltage"] = round(decode_64bit_float(voltages[2:6]), 1)
-            self.service["/Ac/L3/Voltage"] = round(decode_64bit_float(voltages[4:8]), 1)
+        if voltages and len(voltages) >= 6:
+            self.service["/Ac/L1/Voltage"] = round(decode_32bit_float(voltages[0:2]), 1)
+            self.service["/Ac/L2/Voltage"] = round(decode_32bit_float(voltages[2:4]), 1)
+            self.service["/Ac/L3/Voltage"] = round(decode_32bit_float(voltages[4:6]), 1)
 
         # Update currents
         currents = raw_data.get("currents")
-        if currents and len(currents) >= 8:
-            self.service["/Ac/L1/Current"] = round(decode_64bit_float(currents[:4]), 2)
-            self.service["/Ac/L2/Current"] = round(decode_64bit_float(currents[2:6]), 2)
-            self.service["/Ac/L3/Current"] = round(decode_64bit_float(currents[4:8]), 2)
+        if currents and len(currents) >= 6:
+            i1 = decode_32bit_float(currents[0:2])
+            i2 = decode_32bit_float(currents[2:4])
+            i3 = decode_32bit_float(currents[4:6])
+            self.service["/Ac/L1/Current"] = round(i1, 2)
+            self.service["/Ac/L2/Current"] = round(i2, 2)
+            self.service["/Ac/L3/Current"] = round(i3, 2)
+            # Set /Ac/Current to max phase current
+            # (likely what Victron displays as charging current)
+            self.service["/Ac/Current"] = round(max(i1, i2, i3), 2)
 
         # Update power
         power = raw_data.get("power")
@@ -710,11 +716,25 @@ class AlfenDriver:
             total_power = decode_32bit_float(power[6:8])
             self.service["/Ac/Power"] = round(total_power, 0)
 
-        # Update energy
+        # Update energy (session-based)
         energy = raw_data.get("energy")
+        energy_kwh = 0.0
         if energy and len(energy) >= 4:
             energy_kwh = decode_64bit_float(energy) / 1000.0
-            self.service["/Ac/Energy/Forward"] = round(energy_kwh, 3)
+        if self.session_manager.current_session:
+            session_energy = max(
+                0.0, energy_kwh - self.session_manager.current_session.start_energy_kwh
+            )
+            self.service["/Ac/Energy/Forward"] = round(session_energy, 3)
+        elif (
+            self.session_manager.last_session
+            and self.session_manager.last_session.end_energy_kwh is not None
+        ):
+            self.service["/Ac/Energy/Forward"] = round(
+                self.session_manager.last_session.energy_delivered_kwh, 3
+            )
+        else:
+            self.service["/Ac/Energy/Forward"] = 0.0
 
         # Update session stats
         stats = self.session_manager.get_session_stats()
