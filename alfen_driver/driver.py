@@ -120,6 +120,7 @@ class AlfenDriver:
         self.insufficient_solar_start: float = (
             0  # Track when insufficient solar started
         )
+        self.last_positive_set_time: float = 0.0
         self.last_current_set_time: float = 0
         self.last_sent_current: float = 0.0
         self.station_max_current: float = ChargingLimits.MAX_CURRENT
@@ -420,6 +421,7 @@ class AlfenDriver:
         )
 
         # Apply the current setting
+        previous_sent = self.last_sent_current
         if self._set_current_with_logging(
             effective_current,
             explanation,
@@ -428,6 +430,11 @@ class AlfenDriver:
         ):
             self.last_current_set_time = now
             self.last_sent_current = effective_current
+            if (
+                effective_current >= ChargingLimits.MIN_CURRENT
+                and previous_sent < ChargingLimits.MIN_CURRENT
+            ):
+                self.last_positive_set_time = now
 
             # Build log message
             mode_name = EVC_MODE(self.current_mode.value).name
@@ -740,6 +747,7 @@ class AlfenDriver:
         self.active_phases = read_active_phases(self.client, self.config)
 
         # Compute and apply effective current
+        previous_sent = self.last_sent_current
         (
             effective_current,
             explanation,
@@ -757,6 +765,7 @@ class AlfenDriver:
             self.insufficient_solar_start,
             self.config.controls.min_charge_duration_seconds,
             self.active_phases,
+            self.last_positive_set_time,
         )
 
         # Update if different from last sent OR if watchdog interval elapsed
@@ -767,6 +776,11 @@ class AlfenDriver:
             ):
                 self.last_current_set_time = now
                 self.last_sent_current = effective_current
+                if (
+                    effective_current >= ChargingLimits.MIN_CURRENT
+                    and previous_sent < ChargingLimits.MIN_CURRENT
+                ):
+                    self.last_positive_set_time = now
                 watchdog_note = " (Watchdog update)" if force_update else ""
                 self.logger.debug(
                     f"Applied control current: {effective_current:.2f} A. "

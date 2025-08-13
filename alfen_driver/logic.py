@@ -171,6 +171,7 @@ def get_excess_solar_current(
     insufficient_solar_start: float = 0.0,
     min_charge_duration_seconds: int = 300,
     active_phases: int = 3,
+    last_positive_set_time: float = 0.0,
 ) -> Tuple[float, str, float, bool]:
     global _config
     try:
@@ -201,8 +202,7 @@ def get_excess_solar_current(
 
         # Only subtract battery discharge (negative power) from excess
         # Ignore battery charging (positive) - it will adapt to available solar
-        battery_discharge = abs(min(0.0, battery_power))
-        excess = max(0.0, total_pv - adjusted_consumption - battery_discharge)
+        excess = max(0.0, total_pv - adjusted_consumption)
 
         # If battery SOC too low, set excess to 0
         if low_soc:
@@ -238,7 +238,11 @@ def get_excess_solar_current(
 
         # Handle insufficient solar timer
         new_insufficient_start = insufficient_solar_start
-        if clamped_current == 0.0 and ev_power > 0:  # Currently charging but no excess
+        grace_period = 10  # seconds to handle measurement lag
+        is_recently_set = time.time() - last_positive_set_time < grace_period
+        if clamped_current == 0.0 and (
+            ev_power > 0 or is_recently_set
+        ):  # Currently or recently started charging but no excess
             if insufficient_solar_start == 0:
                 # Just started having insufficient solar
                 new_insufficient_start = time.time()
@@ -278,6 +282,7 @@ def compute_effective_current(
     insufficient_solar_start: float = 0.0,
     min_charge_duration_seconds: int = 300,
     active_phases: int = 3,
+    last_positive_set_time: float = 0.0,
 ) -> Tuple[float, str, float, bool]:
     effective = 0.0
     explanation = ""
@@ -311,6 +316,7 @@ def compute_effective_current(
                 insufficient_solar_start,
                 min_charge_duration_seconds,
                 active_phases,
+                last_positive_set_time,
             )
             explanation = f"Auto mode excess solar: {excess_exp}"
     elif current_mode == EVC_MODE.SCHEDULED:
