@@ -12,11 +12,12 @@ logger = logging.getLogger(__name__)
 class ChargingSession:
     """Represents a single charging session."""
 
-    def __init__(self, start_energy_kwh: float):
-        self.start_time = datetime.now()
+    def __init__(self, start_energy_kwh: float, start_time: Optional[datetime] = None):
+        self.start_time = start_time or datetime.now()
         self.start_energy_kwh = start_energy_kwh
         self.end_time: Optional[datetime] = None
         self.end_energy_kwh: Optional[float] = None
+        self.current_energy_kwh: float = start_energy_kwh  # Track current energy
 
     @property
     def duration_seconds(self) -> float:
@@ -27,9 +28,12 @@ class ChargingSession:
     @property
     def energy_delivered_kwh(self) -> float:
         """Get energy delivered during session."""
-        if self.end_energy_kwh is None:
-            return 0.0
-        return self.end_energy_kwh - self.start_energy_kwh
+        if self.end_energy_kwh is not None:
+            # Session ended, use final energy
+            return self.end_energy_kwh - self.start_energy_kwh
+        else:
+            # Session active, use current energy
+            return max(0.0, self.current_energy_kwh - self.start_energy_kwh)
 
     def end(self, end_energy_kwh: float) -> None:
         """End the charging session."""
@@ -69,6 +73,10 @@ class ChargingSessionManager:
         elif not charging and self.current_session is not None:
             # End current session
             self._end_session(total_energy_kwh)
+
+        # Update current energy for active session
+        if self.current_session is not None:
+            self.current_session.current_energy_kwh = total_energy_kwh
 
         self._last_power = power_w
         self._last_energy_kwh = total_energy_kwh
@@ -130,10 +138,35 @@ class ChargingSessionManager:
         self.total_energy_kwh = state.get("total_energy_kwh", 0.0)
         self._last_energy_kwh = state.get("last_energy_kwh", 0.0)
 
+        # Restore active session if it was persisted
+        if state.get("active_session"):
+            session_data = state["active_session"]
+            start_time = datetime.fromisoformat(session_data["start_time"])
+            self.current_session = ChargingSession(
+                session_data["start_energy_kwh"], start_time
+            )
+            self.current_session.current_energy_kwh = session_data.get(
+                "current_energy_kwh", session_data["start_energy_kwh"]
+            )
+            logger.info(
+                f"Restored active session: started {start_time}, "
+                f"energy delivered: {self.current_session.energy_delivered_kwh:.2f} kWh"
+            )
+
     def get_state(self) -> Dict[str, Any]:
         """Get state for persistence."""
-        return {
+        state: Dict[str, Any] = {
             "total_sessions": self.total_sessions,
             "total_energy_kwh": self.total_energy_kwh,
             "last_energy_kwh": self._last_energy_kwh,
         }
+
+        # Persist active session if present
+        if self.current_session:
+            state["active_session"] = {
+                "start_time": self.current_session.start_time.isoformat(),
+                "start_energy_kwh": self.current_session.start_energy_kwh,
+                "current_energy_kwh": self.current_session.current_energy_kwh,
+            }
+
+        return state

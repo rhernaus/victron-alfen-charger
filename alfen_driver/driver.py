@@ -117,7 +117,7 @@ class AlfenDriver:
 
     def _init_state(self) -> None:
         """Initialize driver state variables."""
-        self.charging_start_time: float = 0
+
         self.insufficient_solar_start: float = (
             0  # Track when insufficient solar started
         )
@@ -312,28 +312,6 @@ class AlfenDriver:
                 self.last_status, f"Unknown({self.last_status})"
             )
             self.logger.info(f"Initial charger status: {status_name}")
-
-            # If charger is already charging at startup, initialize session
-            if self.last_status == 2:  # Charging status
-                # Read current energy to initialize session
-                try:
-                    energy_regs = read_holding_registers(
-                        self.client,
-                        ModbusRegisters.METER_ACTIVE_ENERGY_TOTAL,
-                        4,
-                        self.config.modbus.socket_slave_id,
-                    )
-                    if energy_regs:
-                        total_energy_kwh = decode_64bit_float(energy_regs) / 1000.0
-                        # Force start a session in the manager
-                        self.session_manager._last_energy_kwh = total_energy_kwh
-                        self.session_manager._start_session(total_energy_kwh)
-                        self.logger.info(
-                            f"Initialized active charging session at "
-                            f"{total_energy_kwh:.2f} kWh"
-                        )
-                except Exception as e:
-                    self.logger.warning(f"Failed to initialize charging session: {e}")
         except Exception as e:
             self.logger.warning(f"Failed to read initial status: {e}")
 
@@ -344,8 +322,7 @@ class AlfenDriver:
         if session_state:
             self.session_manager.restore_state(session_state)
 
-        # Restore charging session state
-        self.charging_start_time = self.persistence.get("charging_start_time", 0)
+        # Restore other state
         self.insufficient_solar_start = self.persistence.get(
             "insufficient_solar_start", 0
         )
@@ -391,7 +368,6 @@ class AlfenDriver:
                 "mode": self.current_mode.value,
                 "start_stop": self.start_stop.value,
                 "set_current": self.intended_set_current.value,
-                "charging_start_time": self.charging_start_time,
                 "insufficient_solar_start": self.insufficient_solar_start,
             }
         )
@@ -644,8 +620,16 @@ class AlfenDriver:
                 self.logger.debug(f"Could not decode energy: {e}")
                 energy_kwh = 0.0
 
+        # Persist state if session state changed
+        prev_session_active = self.session_manager.current_session is not None
+
         # Update session manager
         self.session_manager.update(power_w, energy_kwh)
+
+        # Check if session state changed and persist if needed
+        curr_session_active = self.session_manager.current_session is not None
+        if prev_session_active != curr_session_active:
+            self._persist_state()
 
         # Get and update status
         try:
@@ -690,22 +674,6 @@ class AlfenDriver:
                 self.last_status = current_status
         except Exception as e:
             self.logger.debug(f"Failed to read charger status: {e}")
-
-        # Simple session detection based on power
-        was_charging = self.charging_start_time > 0
-        is_charging = power_w > 100  # Charging if power > 100W
-
-        # Detect session changes based on power
-        if not was_charging and is_charging:
-            # New session started
-            self.charging_start_time = time.time()
-            self._persist_state()
-            self.logger.info("Power-based: New charging session started")
-        elif was_charging and not is_charging:
-            # Session ended
-            self.charging_start_time = 0
-            self._persist_state()
-            self.logger.info("Power-based: Charging session ended")
 
     def update_dbus_paths(self, raw_data: Dict[str, Optional[List[int]]]) -> None:
         """Update D-Bus paths with fetched data."""
