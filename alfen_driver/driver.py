@@ -35,6 +35,7 @@ from .logging_utils import (  # noqa: E402
 )
 from .logic import (  # noqa: E402
     compute_effective_current,
+    map_alfen_status,
     read_active_phases,
 )
 from .logic import (  # noqa: E402
@@ -125,6 +126,7 @@ class AlfenDriver:
         self.current_update_counter: int = 0
         self.last_poll_time: float = 0
         self.active_phases: int = 3  # Default to 3-phase
+        self.last_status: int = 0  # Track last status for change detection
 
         # Mutable values for D-Bus callbacks
         self.current_mode = MutableValue(self.persistence.mode)
@@ -289,6 +291,18 @@ class AlfenDriver:
                 f"using default: {self.active_phases}"
             )
 
+        # Read initial status
+        try:
+            self.last_status = map_alfen_status(self.client, self.config)
+            self.service["/Status"] = self.last_status
+            status_names = {0: "Disconnected", 1: "Connected", 2: "Charging"}
+            status_name = status_names.get(
+                self.last_status, f"Unknown({self.last_status})"
+            )
+            self.logger.info(f"Initial charger status: {status_name}")
+        except Exception as e:
+            self.logger.warning(f"Failed to read initial status: {e}")
+
     def _restore_state(self) -> None:
         """Restore persisted state and session data."""
         # Restore session manager state
@@ -308,9 +322,12 @@ class AlfenDriver:
         """Log current configuration settings at startup."""
         mode_str = EVC_MODE(self.current_mode.value).name
         charge_str = EVC_CHARGE(self.start_stop.value).name
+        status_names = {0: "Disconnected", 1: "Connected", 2: "Charging"}
+        status_str = status_names.get(self.last_status, f"Unknown({self.last_status})")
 
         self.logger.info(
             f"=== Current Settings at Startup ===\n"
+            f"  EV Status: {status_str}\n"
             f"  Mode: {mode_str}\n"
             f"  Charging: {charge_str}\n"
             f"  Intended Current: {self.intended_set_current.value:.2f}A\n"
@@ -597,24 +614,55 @@ class AlfenDriver:
         # Update session manager
         self.session_manager.update(power_w, energy_kwh)
 
-        # Get status (not currently used but may be needed later)
-        # status = map_alfen_status(self.client, self.config)
+        # Get and update status
+        try:
+            current_status = map_alfen_status(self.client, self.config)
+
+            # Update D-Bus status
+            self.service["/Status"] = current_status
+
+            # Log status changes
+            if current_status != self.last_status:
+                status_names = {0: "Disconnected", 1: "Connected", 2: "Charging"}
+                old_name = status_names.get(
+                    self.last_status, f"Unknown({self.last_status})"
+                )
+                new_name = status_names.get(
+                    current_status, f"Unknown({current_status})"
+                )
+
+                self.logger.info(f"EV Status changed: {old_name} -> {new_name}")
+
+                # Log additional context for connection
+                if current_status == 1 and self.last_status == 0:
+                    self.logger.info("Car connected, waiting for charging to start")
+                    # Note: Battery SOC check is handled in Auto mode calculation
+                elif current_status == 0 and self.last_status > 0:
+                    self.logger.info("Car disconnected")
+                elif current_status == 2 and self.last_status < 2:
+                    self.logger.info("Charging started")
+                elif current_status < 2 and self.last_status == 2:
+                    self.logger.info("Charging stopped")
+
+                self.last_status = current_status
+        except Exception as e:
+            self.logger.debug(f"Failed to read charger status: {e}")
 
         # Simple session detection based on power
         was_charging = self.charging_start_time > 0
         is_charging = power_w > 100  # Charging if power > 100W
 
-        # Detect session changes
+        # Detect session changes based on power
         if not was_charging and is_charging:
             # New session started
             self.charging_start_time = time.time()
             self._persist_state()
-            self.logger.info("New charging session started")
+            self.logger.info("Power-based: New charging session started")
         elif was_charging and not is_charging:
             # Session ended
             self.charging_start_time = 0
             self._persist_state()
-            self.logger.info("Charging session ended")
+            self.logger.info("Power-based: Charging session ended")
 
     def update_dbus_paths(self, raw_data: Dict[str, Optional[List[int]]]) -> None:
         """Update D-Bus paths with fetched data."""
