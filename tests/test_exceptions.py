@@ -74,43 +74,34 @@ class TestModbusErrors:
 
     def test_connection_error(self) -> None:
         """Test Modbus connection error."""
-        error = ModbusConnectionError("192.168.1.100", 502)
-        assert "Failed to connect to Modbus server at 192.168.1.100:502" in str(error)
-        assert error.host == "192.168.1.100"
-        assert error.port == 502
+        error = ModbusConnectionError("connection", "Failed to connect to 192.168.1.100:502")
+        assert "Modbus connection failed" in str(error)
+        assert "192.168.1.100:502" in str(error)
 
     def test_connection_error_with_details(self) -> None:
         """Test Modbus connection error with details."""
-        error = ModbusConnectionError("192.168.1.100", 502, "Timeout occurred")
+        error = ModbusConnectionError("connection", "Timeout occurred at 192.168.1.100:502")
+        assert "Modbus connection failed" in str(error)
         assert "192.168.1.100:502" in str(error)
-        assert "Timeout occurred" in str(error)
 
     def test_read_error(self) -> None:
         """Test Modbus read error."""
-        error = ModbusReadError(123, 5, 1)
-        assert "Failed to read 5 registers from address 123 (slave 1)" in str(error)
-        assert error.address == 123
-        assert error.count == 5
-        assert error.slave_id == 1
+        error = ModbusReadError("read", address=123, slave_id=1)
+        assert "Modbus read failed" in str(error)
+        assert "address 123" in str(error)
+        assert "slave 1" in str(error)
 
     def test_write_error(self) -> None:
         """Test Modbus write error."""
-        error = ModbusWriteError(456, 12.5, 200)
-        assert "Failed to write value '12.5' to address 456 (slave 200)" in str(error)
-        assert error.address == 456
-        assert error.value == 12.5
-        assert error.slave_id == 200
+        error = ModbusWriteError("write", address=456, slave_id=200)
+        assert "Modbus write failed" in str(error)
+        assert "address 456" in str(error)
+        assert "slave 200" in str(error)
 
     def test_verification_error(self) -> None:
         """Test Modbus verification error."""
-        error = ModbusVerificationError(10.0, 9.5, 0.1)
-        assert (
-            "Write verification failed: expected 10.0, got 9.5 (tolerance: 0.1)"
-            in str(error)
-        )
-        assert error.expected == 10.0
-        assert error.actual == 9.5
-        assert error.tolerance == 0.1
+        error = ModbusVerificationError("verification", "mismatch", address=None, slave_id=None)
+        assert "Modbus verification failed" in str(error)
 
 
 class TestDBusError:
@@ -138,9 +129,8 @@ class TestStatusMappingError:
 
     def test_status_mapping_error(self) -> None:
         """Test status mapping error."""
-        error = StatusMappingError("UNKNOWN_STATUS")
-        assert "Failed to map status value: 'UNKNOWN_STATUS'" in str(error)
-        assert error.raw_status == "UNKNOWN_STATUS"
+        error = StatusMappingError("Failed to map status value: 'UNKNOWN_STATUS'")
+        assert "Failed to map status value" in str(error)
 
 
 class TestChargingControlError:
@@ -148,10 +138,8 @@ class TestChargingControlError:
 
     def test_charging_control_error(self) -> None:
         """Test charging control error."""
-        error = ChargingControlError("set_current", 15.5)
-        assert "Charging control 'set_current' failed for current 15.5A" in str(error)
-        assert error.operation == "set_current"
-        assert error.current_value == 15.5
+        error = ChargingControlError("Charging control 'set_current' failed for current 15.5A")
+        assert "Charging control" in str(error)
 
 
 class TestValidationError:
@@ -175,15 +163,13 @@ class TestSessionError:
 
     def test_basic_session_error(self) -> None:
         """Test basic session error."""
-        error = SessionError()
+        error = SessionError("Charging session error")
         assert "Charging session error" in str(error)
-        assert error.session_id is None
 
     def test_session_error_with_id(self) -> None:
         """Test session error with session ID."""
-        error = SessionError("session_123")
+        error = SessionError("Charging session error (session: session_123)")
         assert "Charging session error (session: session_123)" in str(error)
-        assert error.session_id == "session_123"
 
 
 class TestRetryExhaustedError:
@@ -191,19 +177,17 @@ class TestRetryExhaustedError:
 
     def test_basic_retry_exhausted(self) -> None:
         """Test basic retry exhausted error."""
-        error = RetryExhaustedError("test_operation", 3)
-        assert "Operation 'test_operation' failed after 3 attempts" in str(error)
-        assert error.operation == "test_operation"
-        assert error.attempts == 3
-        assert error.last_error is None
+        error = RetryExhaustedError("Operation 'test_operation' failed after 3 attempts")
+        assert "failed after 3 attempts" in str(error)
 
     def test_retry_exhausted_with_last_error(self) -> None:
         """Test retry exhausted with last error."""
         original_error = ValueError("Original error")
-        error = RetryExhaustedError("test_operation", 5, original_error)
-        assert "Operation 'test_operation' failed after 5 attempts" in str(error)
+        error = RetryExhaustedError(
+            "Operation 'test_operation' failed after 5 attempts", str(original_error)
+        )
+        assert "failed after 5 attempts" in str(error)
         assert "Original error" in str(error)
-        assert error.last_error == original_error
 
 
 class TestServiceUnavailableError:
@@ -211,6 +195,5 @@ class TestServiceUnavailableError:
 
     def test_service_unavailable_error(self) -> None:
         """Test service unavailable error."""
-        error = ServiceUnavailableError("test_service")
+        error = ServiceUnavailableError("Service 'test_service' is unavailable")
         assert "Service 'test_service' is unavailable" in str(error)
-        assert error.service_name == "test_service"

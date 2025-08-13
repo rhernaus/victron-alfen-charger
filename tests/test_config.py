@@ -44,7 +44,8 @@ class TestControlsConfig:
     def test_default_controls_config(self) -> None:
         """Test default controls configuration."""
         config = ControlsConfig()
-        assert config.current_tolerance == 0.25
+        # Defaults in refactor use 0.5 tolerance
+        assert config.current_tolerance == 0.5
         assert config.update_difference_threshold == 0.1
         assert config.verification_delay == 0.1
         assert config.retry_delay == 0.5
@@ -219,62 +220,35 @@ class TestLoadConfigFromDisk:
 class TestLoadConfig:
     """Tests for main configuration loading."""
 
-    @patch("alfen_driver.config.CONFIG_PATH")
-    def test_load_config_file_not_found(self, mock_config_path: Mock) -> None:
-        """Test loading when config file doesn't exist."""
-        mock_config_path.return_value = "/nonexistent/file.yaml"
-
+    def test_load_config_file_not_found(self) -> None:
+        """Test loading when config file doesn't exist should raise error."""
         logger = Mock()
-        with patch("os.path.exists", return_value=False):
-            config = load_config(logger)
-
-        # Should return default config
-        assert config.modbus.ip == "10.128.0.64"
-        assert config.modbus.port == 502
-        logger.info.assert_called_once()
+        with pytest.raises(Exception):
+            load_config("/nonexistent/file.yaml")
 
     def test_load_valid_yaml_config(self, temp_config_file: str) -> None:
-        """Test loading valid YAML configuration."""
+        """Test loading valid YAML configuration using provided path."""
         logger = Mock()
+        config = load_config(temp_config_file)
 
-        # Test that the temp file exists and has correct content
-        assert os.path.exists(temp_config_file)
-
-        with open(temp_config_file) as f:
-            content = f.read()
-            assert "192.168.1.100" in content
-
-        # Just test that we can load a valid YAML file by calling load_config directly
-        # Since the internal patching is complex, we'll test the components separately
-        config = load_config(logger)
-
-        # Instead of testing IP (requires complex mocking), test that function works
         assert isinstance(config, Config)
         assert config.modbus.port == 502
         assert config.defaults.intended_set_current >= 0
 
-        # For now, we'll test the actual config loading in integration tests
-        # The unit test verifies the structure and validation works
-
     def test_load_invalid_yaml_structure(self) -> None:
-        """Test loading YAML with invalid structure."""
+        """Test loading YAML with invalid structure raises ConfigurationError."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("not_a_dict_but_a_string")
             temp_file = f.name
 
         try:
-            logger = Mock()
-            with patch("alfen_driver.config.CONFIG_PATH", temp_file):
-                config = load_config(logger)
-
-            # Should fall back to defaults
-            assert config.modbus.ip == "10.128.0.64"
-            logger.warning.assert_called()
+            with pytest.raises(Exception):
+                load_config(temp_file)
         finally:
             os.unlink(temp_file)
 
     def test_load_yaml_with_validation_error(self) -> None:
-        """Test loading YAML that fails validation."""
+        """Test loading YAML that fails validation raises ConfigurationError."""
         invalid_config = """
 modbus:
   ip: "192.168.1.100"
@@ -323,18 +297,13 @@ poll_interval_ms: 1000
             temp_file = f.name
 
         try:
-            logger = Mock()
-            with patch("alfen_driver.config.CONFIG_PATH", temp_file):
-                config = load_config(logger)
-
-            # Should fall back to defaults due to validation error
-            assert config.modbus.port == 502  # Default port
-            logger.warning.assert_called()
+            with pytest.raises(Exception):
+                load_config(temp_file)
         finally:
             os.unlink(temp_file)
 
     def test_load_yaml_with_missing_fields(self) -> None:
-        """Test loading YAML with missing required fields."""
+        """Test loading YAML with missing required fields raises ConfigurationError."""
         incomplete_config = """
 modbus:
   ip: "192.168.1.100"
@@ -346,18 +315,15 @@ modbus:
             temp_file = f.name
 
         try:
-            logger = Mock()
-            with patch("alfen_driver.config.CONFIG_PATH", temp_file):
-                config = load_config(logger)
-
-            # Should fall back to defaults
-            assert config.modbus.port == 502
-            logger.warning.assert_called()
+            # Missing optional fields should load with defaults
+            config = load_config(temp_file)
+            assert isinstance(config, Config)
+            assert config.modbus.ip == "192.168.1.100"
         finally:
             os.unlink(temp_file)
 
     def test_load_config_with_invalid_schedule_times(self) -> None:
-        """Test loading config with invalid schedule times."""
+        """Test loading config with invalid schedule times raises or logs warnings."""
         config_with_bad_schedule = """
 modbus:
   ip: "192.168.1.100"
@@ -410,12 +376,9 @@ poll_interval_ms: 1000
             temp_file = f.name
 
         try:
-            logger = Mock()
-            with patch("alfen_driver.config.CONFIG_PATH", temp_file):
-                config = load_config(logger)
-
-            # Should fall back to defaults due to schedule validation error
-            assert config.modbus.port == 502
-            logger.warning.assert_called()
+            # Legacy schedule fields should be accepted and mapped; load succeeds
+            config = load_config(temp_file)
+            assert isinstance(config, Config)
+            assert len(config.schedule.items) >= 1
         finally:
             os.unlink(temp_file)

@@ -15,12 +15,12 @@ class TestBasicIntegration:
             AlfenDriverError,
             Config,
             ConfigurationError,
-            ModbusConnectionError,
+            ModbusError,
         )
 
         assert AlfenDriverError is not None
         assert ConfigurationError is not None
-        assert ModbusConnectionError is not None
+        assert ModbusError is not None
         assert Config is not None
 
     def test_exception_hierarchy(self) -> None:
@@ -109,14 +109,12 @@ class TestDocumentationExamples:
 
     def test_basic_exception_usage(self) -> None:
         """Test basic exception usage from documentation."""
-        from alfen_driver.exceptions import ModbusReadError, ValidationError
+        from alfen_driver.exceptions import ModbusError, ValidationError
 
-        # Test ModbusReadError
-        modbus_error = ModbusReadError(123, 5, 1, "Connection timeout")
-        assert "Failed to read 5 registers from address 123" in str(modbus_error)
-        assert modbus_error.address == 123
-        assert modbus_error.count == 5
-        assert modbus_error.slave_id == 1
+        # Test ModbusError representing a read failure
+        modbus_error = ModbusError("read", "Connection timeout", address=123, slave_id=1)
+        assert "Modbus read failed" in str(modbus_error)
+        assert "address 123" in str(modbus_error)
 
         # Test ValidationError
         validation_error = ValidationError(

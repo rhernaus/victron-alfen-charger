@@ -6,8 +6,7 @@ import pytest
 from pymodbus.exceptions import ModbusException
 
 from alfen_driver.exceptions import (
-    ModbusConnectionError,
-    ModbusReadError,
+    ModbusError,
     RetryExhaustedError,
 )
 from alfen_driver.modbus_utils import (
@@ -45,12 +44,12 @@ class TestReadHoldingRegisters:
         mock_response.isError.return_value = True
         mock_modbus_client.read_holding_registers.return_value = mock_response
 
-        with pytest.raises(ModbusReadError) as exc_info:
+        with pytest.raises(ModbusError) as exc_info:
             read_holding_registers(mock_modbus_client, 123, 3, 1)
 
-        assert exc_info.value.address == 123
-        assert exc_info.value.count == 3
-        assert exc_info.value.slave_id == 1
+        assert "read failed" in str(exc_info.value)
+        assert "address 123" in str(exc_info.value)
+        assert "slave 1" in str(exc_info.value)
 
     def test_modbus_exception(self, mock_modbus_client) -> None:
         """Test handling of Modbus exception."""
@@ -177,8 +176,8 @@ class TestReadModbusString:
 
     def test_read_string_modbus_error(self, mock_modbus_client) -> None:
         """Test handling of Modbus error during string read."""
-        mock_modbus_client.read_holding_registers.side_effect = ModbusReadError(
-            100, 2, 1
+        mock_modbus_client.read_holding_registers.side_effect = ModbusError(
+            "read", address=100, slave_id=1
         )
 
         with patch("logging.getLogger") as mock_logger_get:
@@ -226,12 +225,10 @@ class TestReconnect:
         mock_modbus_client.host = "test_host"
         mock_modbus_client.port = 502
 
-        with pytest.raises(ModbusConnectionError) as exc_info:
+        with pytest.raises(ModbusError) as exc_info:
             reconnect(mock_modbus_client, mock_logger, retry_delay=0.01, max_attempts=2)
 
-        assert exc_info.value.host == "test_host"
-        assert exc_info.value.port == 502
-        assert "Failed to connect after 2 attempts" in str(exc_info.value)
+        assert "Failed to connect to test_host:502 after 2 attempts" in str(exc_info.value)
 
         # Should have attempted connection twice
         assert mock_modbus_client.connect.call_count == 2
@@ -302,12 +299,8 @@ class TestRetryModbusOperation:
             with pytest.raises(RetryExhaustedError) as exc_info:
                 retry_modbus_operation(operation, 2, 0.1, mock_logger)
 
-        # The operation name will be something like "Mock" or empty
-        assert exc_info.value.operation in ["<lambda>", "Mock", "unknown", ""]
-        assert exc_info.value.attempts == 2
-        assert isinstance(exc_info.value.last_error, ModbusException)
-
-        # The function tries 2 retries + 1 extra attempt to get the last error
+        # Message should include attempts info
+        assert "failed after 2 attempts" in str(exc_info.value)
         assert operation.call_count == 3
         mock_logger.error.assert_called()
 
@@ -359,4 +352,4 @@ class TestRetryModbusOperation:
             with pytest.raises(RetryExhaustedError) as exc_info:
                 retry_modbus_operation(named_operation, 1, 0.1, mock_logger)
 
-        assert exc_info.value.operation == "named_operation"
+        assert "named_operation" in str(exc_info.value)
