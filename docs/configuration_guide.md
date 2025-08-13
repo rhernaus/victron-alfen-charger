@@ -211,7 +211,7 @@ Configures logging behavior.
 |-------|------|---------|--------------|-------------|
 | `level` | string | "INFO" | DEBUG, INFO, WARNING, ERROR, CRITICAL | Log level |
 | `file` | string | "/var/log/alfen_driver.log" | Valid path | Log file path |
-| `max_size` | integer | 10485760 | 1024-104857600 | Max log file size (bytes) |
+| `max_file_size_mb` | integer | 10 | 1-100 | Max log file size (MB) |
 | `backup_count` | integer | 5 | 0-100 | Number of backup files |
 | `format` | string | See defaults | - | Log message format |
 
@@ -220,7 +220,7 @@ Configures logging behavior.
 logging:
   level: "INFO"
   file: "/var/log/alfen_driver.log"
-  max_size: 10485760  # 10MB
+  max_file_size_mb: 10  # 10MB
   backup_count: 5
 ```
 
@@ -409,7 +409,7 @@ timezone: "Europe/Amsterdam"
 logging:
   level: "INFO"
   file: "/var/log/alfen_driver.log"
-  max_size: 10485760
+  max_file_size_mb: 10
   backup_count: 5
 ```
 
@@ -445,7 +445,7 @@ Use appropriate log levels and rotation:
 logging:
   level: "INFO"  # Use INFO for production, DEBUG for troubleshooting
   file: "/var/log/alfen_driver.log"
-  max_size: 10485760  # 10MB
+  max_file_size_mb: 10  # 10MB
   backup_count: 5     # Keep 5 old logs
 ```
 

@@ -31,7 +31,7 @@ The exception hierarchy follows the pattern:
     ├── ChargingControlError
     ├── ValidationError
     ├── SessionError
-    ├── RetryExhaustedException
+    ├── RetryExhaustedError
     └── ServiceUnavailableError
 """
 ```
@@ -167,7 +167,7 @@ class ModbusReadError(AlfenDriverError):
 
 2. **`modbus_utils.py`** - Modbus communication utilities
    - Complete module overview with key features
-   - All 6 functions fully documented
+   - Functions documented with examples and error handling
    - Detailed examples for register reading and decoding
    - Error handling and retry mechanism documentation
 
