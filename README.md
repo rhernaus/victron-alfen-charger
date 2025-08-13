@@ -1,150 +1,143 @@
-# Victron-Alfen-Charger Integration
+# Victron–Alfen Charger Integration
 
-This project provides a Python script to integrate an Alfen Eve Pro Line EV charger with a Victron GX device via Modbus TCP and DBus. The charger is exposed as a first-class EV charger in the Victron ecosystem.
+Integrate an Alfen Eve (Pro Line and similar NG9xx platform) EV charger with a Victron GX device (Venus OS) using Modbus TCP and D‑Bus. The charger is exposed as a first‑class EV charger in the Victron ecosystem.
+
+## Features
+
+- MANUAL, AUTO (excess‑solar), and SCHEDULED modes
+- Optional Tibber dynamic pricing support in SCHEDULED mode (level/threshold/percentile strategies)
+- Robust Modbus reads/writes with retries and reconnection
+- D‑Bus service: `com.victronenergy.evcharger.alfen_<device_instance>`
+- Exposes key paths: `/Mode`, `/StartStop`, `/SetCurrent`, `/MaxCurrent`, `/Ac/Current`, `/Ac/Power`, `/Ac/Energy/Forward`, `/Status`, phase voltages/currents/power
+- Session tracking and energy accounting per charging session
+- Structured logging to console and `/var/log/alfen_driver.log`
 
 ## Requirements
 
-- Python 3.6+
-- pymodbus==3.6.4 (install via pip)
-- Victron Venus OS (for driver.py)
-- Access to Alfen charger via Modbus TCP (configured as slave)
+- Python 3.8+
+- Access to Alfen charger via Modbus TCP (slave)
+- On Victron Venus OS: system libraries are preinstalled/provided (dbus, gi/GLib, vedbus)
+- Python packages (installed via pip):
+  - `pymodbus==3.6.4`
+  - `pyyaml>=6.0.1`
+  - `pytz`
+  - Optional: `aiohttp>=3.9.1,<4` for faster Tibber API
 
-## Files
+See `requirements.txt` and `requirements-dev.txt`.
 
-- **main.py**: Entry point script that initializes and runs the AlfenDriver.
-- **alfen_driver/**: Package containing the core driver logic:
-  - driver.py: Main AlfenDriver class handling polling, Modbus, and D-Bus.
-  - config.py: Configuration loading and dataclass definitions.
-  - controls.py: Functions for setting currents, clamping, and retries.
-  - dbus_utils.py: D-Bus service registration and enums.
-  - logic.py: Business logic for modes, scheduling, low SOC, etc.
-  - modbus_utils.py: Utilities for Modbus reads, decoding, and reconnections.
-- **alfen_driver_config.yaml**: Configuration file for Modbus settings, registers, defaults, etc. (copy from sample and edit)
-- **requirements.txt**: List of pip dependencies.
-- **test_modbus.py**: Test script for local Modbus verification.
+## Quick start (local testing)
 
-## Setup
-
-1. Clone the repository:
+1) Clone and enter the repo
 
 ```bash
 git clone https://github.com/yourusername/victron-alfen-charger.git
 cd victron-alfen-charger
 ```
 
-2. Copy and configure the sample config:
-
-```bash
-cp alfen_driver_config.sample.yaml alfen_driver_config.yaml
-# Edit alfen_driver_config.yaml with your text editor (e.g., nano alfen_driver_config.yaml)
-# Update at least the modbus.ip to your charger's IP. Review other fields as needed.
-# The sample file includes comments explaining each option. YAML format allows inline comments for better readability.
-```
-
-3. Create and activate a virtual environment:
+2) Create a virtualenv and install deps
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-4. Install dependencies:
-
-```bash
 pip install -r requirements.txt
 ```
 
-5. Update `ALFEN_IP` in the scripts to match your charger's IP address.
-
-## Usage
-
-### Testing Modbus Locally
-
-Run the test script on your PC to check communication:
+3) Configure
 
 ```bash
+cp alfen_driver_config.sample.yaml alfen_driver_config.yaml
+# Edit alfen_driver_config.yaml and set at least:
+# modbus.ip: "<your-charger-ip>"
+```
+
+4) Run driver (on a system with D‑Bus available)
+
+```bash
+python3 main.py
+```
+
+5) Modbus-only smoke test (no D‑Bus)
+
+```bash
+# Edit ALFEN_IP in test_modbus.py first
 python3 test_modbus.py
 ```
 
-It will poll and print charger data every 5 seconds.
+## Running on Victron GX (Venus OS)
 
-### Running on Victron GX
+1) Enable SSH (Venus OS Settings → Services → SSH) and log in as `root`
 
-Victron GX devices run Venus OS, a Linux-based system. You'll need SSH access enabled on the GX (via Settings > Services > SSH).
+2) Install minimal tooling
 
-1. SSH into your Victron GX device (default username: root, set password in Venus OS settings).
+```bash
+opkg update
+opkg install git python3 python3-pip
+```
 
-2. Update package list and install required tools (git, python3, pip):
+3) Fetch code and configure
 
-   ```bash
-   opkg update
-   opkg install git
-   opkg install python3
-   opkg install python3-pip
-   ```
+```bash
+cd /data
+git clone https://github.com/yourusername/victron-alfen-charger.git
+cd victron-alfen-charger
+cp alfen_driver_config.sample.yaml alfen_driver_config.yaml
+vi alfen_driver_config.yaml   # set modbus.ip and other fields as needed
+pip3 install -r requirements.txt
+chmod +x main.py
+```
 
-3. Clone the repository:
+4) Test run
 
-   ```bash
-   cd /data
-   git clone https://github.com/rhernaus/victron-alfen-charger.git
-   cd victron-alfen-charger
-   ```
+```bash
+./main.py
+```
 
-4. Copy and configure the sample config:
+5) Auto‑start on boot (rc.local)
 
-   ```bash
-   cp alfen_driver_config.sample.yaml alfen_driver_config.yaml
-   nano alfen_driver_config.yaml  # Update modbus.ip to your charger's IP, review other fields
-   ```
+```bash
+echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local
+chmod +x /data/rc.local
+```
 
-5. Install dependencies:
+Logs: `/var/log/alfen_driver.log`
 
-   ```bash
-   pip3 install -r requirements.txt
-   ```
+## Configuration
 
-6. Make the script executable:
+- Primary file: `alfen_driver_config.yaml` (copy from the provided sample)
+- Validated on startup with clear errors and suggestions
+- Key sections:
+  - `modbus`: `ip`, optional `port`, `socket_slave_id`, `station_slave_id`
+  - `defaults`: `intended_set_current`, `station_max_current`
+  - `controls`: verification tolerance, watchdog interval, retries, etc.
+  - `schedule`: optional legacy time windows (used when Tibber disabled)
+  - `tibber`: optional dynamic pricing integration and strategy
+  - `logging`: level, file, rotation
+  - `timezone`, `device_instance`, `poll_interval_ms`
 
-   ```bash
-   chmod +x main.py
-   ```
+Minimal example:
 
-7. Test the script manually:
+```yaml
+modbus:
+  ip: "192.168.1.100"
 
-   ```bash
-   ./main.py
-   ```
+defaults:
+  intended_set_current: 16.0
+  station_max_current: 32.0
 
-   Check for errors and ensure it connects to the charger and publishes to DBus.
+controls:
+  max_set_current: 32.0
+  current_tolerance: 0.5
 
-8. Set up as a persistent service:
-   - Add to `/data/rc.local` (create if it doesn't exist):
-     ```bash
-     echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local
-     chmod +x /data/rc.local
-     ```
+timezone: "Europe/Amsterdam"
+```
 
-If issues arise, check logs with `tail -f /var/log/alfen_driver.log` or debug manually.
+For a detailed, field‑by‑field guide (validation ranges, examples, troubleshooting), see `docs/configuration_guide.md`.
 
-## Notes
-
-- The script assumes 3-phase configuration; adjust registers/defaults in alfen_driver_config.yaml if needed.
-- Configuration is highly customizable via alfen_driver_config.yaml, including polling intervals, retries, tolerances, and more.
-- Recent refactoring improved maintainability with dataclasses for config, modular functions, and centralized utilities.
-- Ensure the Alfen charger is set up with Active Load Balancing and Modbus TCP enabled.
-
-## License
-
-MIT License (or specify your license).
-
-## Architecture Overview
-
-The driver bridges the Alfen charger (via Modbus TCP) and Victron's Venus OS (via D-Bus). Here's a high-level diagram:
+## Architecture overview
 
 ```mermaid
 graph TD
-    A[Alfen Charger] -- Modbus TCP --> B[AlfenDriver Script]
+    A[Alfen Charger] -- Modbus TCP --> B[Driver]
     B -- Polls Metrics --> C[Modbus Utils]
     B -- Processes Logic --> D[Logic & Controls]
     B -- Publishes Data --> E[D-Bus Service]
@@ -153,40 +146,53 @@ graph TD
     H[Persistence JSON] -- Saves/Loads State --> B
 ```
 
-- **Modbus Polling**: Reads registers for voltages, currents, etc.
-- **Logic**: Computes effective current, handles modes (Manual/Auto/Scheduled), low SOC, scheduling.
-- **D-Bus**: Exposes paths like /Ac/Power for Victron integration.
+- Modbus polling: voltages, currents, power, energy, status
+- Logic: mode handling (MANUAL/AUTO/SCHEDULED), low SOC checks, excess‑solar calculation, dynamic scheduling (Tibber or legacy windows)
+- D‑Bus: exposes EV‑charger paths for the Victron UI and ecosystem
 
-## Assumptions
+## D‑Bus interface (selected paths)
 
-- **Hardware**: Assumes a 3-phase Alfen Eve Pro Line charger. Single-phase setups may report 0/NaN for unused phases, but the code doesn't dynamically adapt—manual config adjustments may be needed.
-- **Environment**: Designed for Victron Venus OS on GX devices. Requires SSH access, opkg-installed tools (git, python3, pip), and paths like /opt/victronenergy/dbus-modbus-client.
-- **Charger Setup**: Alfen charger must have Modbus TCP enabled as slave, with Active Load Balancing configured if needed.
-- **Dependencies**: Specific versions (e.g., pymodbus==3.6.4) for compatibility. D-Bus paths (e.g., /Dc/Battery/Soc) assume a standard Victron battery setup.
-- **Network**: Charger IP is static and reachable; no dynamic discovery.
+- `/Mode` (0=MANUAL, 1=AUTO, 2=SCHEDULED)
+- `/StartStop` (0=disabled, 1=enabled)
+- `/SetCurrent` (A)
+- `/MaxCurrent` (A)
+- `/Status` (0=Disconnected, 1=Connected, 2=Charging, 7=Low SOC; also WAIT_SUN/WAIT_START via UI state mapping)
+- `/Ac/Current`, `/Ac/Power`, `/Ac/Energy/Forward`
+- `/Ac/L{1,2,3}/Voltage`, `/Ac/L{1,2,3}/Current`, `/Ac/L{1,2,3}/Power`
+
+Service name: `com.victronenergy.evcharger.alfen_<device_instance>`
+
+## Development
+
+- Make targets:
+  - `make install` / `make install-dev`
+  - `make test` / `make test-cov`
+  - `make lint` / `make format` / `make type-check` / `make security`
+  - `make pre-commit` / `make all`
+- Tests: `pytest` with coverage (see `tests/` and `pyproject.toml` for settings)
+- Style/quality: black, ruff, mypy, bandit, pre-commit hooks
 
 ## Troubleshooting
 
-Common issues and fixes:
+- Modbus connection failures
+  - Verify `modbus.ip` (port 502), network reachability, and that Modbus TCP is enabled on the charger
+- Register read errors / wrong values
+  - Confirm register addresses match your firmware; adjust `registers` in config if needed
+- Charger not visible in Victron UI
+  - Ensure the process is running, check logs, and verify `device_instance` uniqueness
+- Set current not applied
+  - Check logs for write/verify warnings; increase retries/tolerances if network is flaky
+- Low SOC behavior
+  - In AUTO mode, charging pauses when Victron battery SOC < system minimum; adjust the minimum SOC in Victron settings
 
-- **Modbus Connection Failures**:
-  - Symptom: Logs show "Failed to connect" or "Poll error: ConnectionException".
-  - Fix: Verify modbus.ip in alfen_driver_config.yaml, ensure charger Modbus TCP is enabled (port 502), check network (ping the IP). Restart the script or device.
+Logs: `/var/log/alfen_driver.log`. Enable DEBUG via `logging.level: DEBUG`.
 
-- **Register Read Errors** (e.g., "Error reading registers at X"):
-  - Symptom: Data like voltages show 0 or NaN persistently.
-  - Fix: Confirm register addresses match Alfen docs (reference/Implementation_of_Modbus_Slave_TCPIP_for_Alfen_NG9xx_platform.pdf). Slave IDs (1 for socket, 200 for station) may need adjustment in alfen_driver_config.yaml.
+## Notes & assumptions
 
-- **D-Bus Issues**:
-  - Symptom: Charger not appearing in Victron UI, or "Unable to connect to battery SOC D-Bus path".
-  - Fix: Ensure the script is running (check systemctl status or ps aux). Verify device_instance in config doesn't conflict. For SOC, confirm /Dc/Battery/Soc path exists (use dbus -y com.victronenergy.system /Dc/Battery/Soc GetValue).
+- Designed for Alfen NG9xx platform; 1‑phase vs 3‑phase is auto‑detected from register 1215 (2‑phase treated as 3‑phase)
+- Tibber integration is optional and used only when `tibber.enabled: true`
+- Venus OS provides system D‑Bus and `vedbus`; these are not pip dependencies
 
-- **Current Not Setting**:
-  - Symptom: SetCurrent callbacks fail, or effective current doesn't match intended.
-  - Fix: Check logs for "SetCurrent write failed". Verify station max current (register 1100). Increase retries/tolerances in config if network is flaky.
+## License
 
-- **General Debugging**:
-  - Check logs: tail -f /var/log/alfen_driver.log
-  - Test Modbus: Run test_modbus.py on a PC to verify communication.
-  - Restart: kill the running process and restart manually, or reboot the GX.
-  - If issues persist, enable DEBUG logging in alfen_driver_config.yaml and share logs.
+MIT License
