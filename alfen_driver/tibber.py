@@ -1,11 +1,22 @@
 """Tibber API integration for dynamic electricity pricing."""
 
 import asyncio
+import json
 import time
 from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
-import aiohttp
+# Optional dependency: aiohttp
+try:
+    import aiohttp  # type: ignore
+
+    _AIOHTTP_AVAILABLE = True
+except Exception:  # pragma: no cover - environments without aiohttp
+    aiohttp = None  # type: ignore
+    _AIOHTTP_AVAILABLE = False
+
+import urllib.error
+import urllib.request
 
 from .config import TibberConfig
 from .logging_utils import get_logger
@@ -37,6 +48,37 @@ class TibberClient:
         self._cache: Dict[str, Any] = {}
         self._cache_time: float = 0
         self._cache_ttl: int = 300  # Cache for 5 minutes
+
+    def _fetch_graphql_sync(self, query: str) -> Optional[Dict[str, Any]]:
+        """Synchronous GraphQL POST using standard library (fallback if aiohttp is missing)."""
+        headers = {
+            "Authorization": f"Bearer {self.config.access_token}",
+            "Content-Type": "application/json",
+        }
+        data_bytes = json.dumps({"query": query}).encode("utf-8")
+        request = urllib.request.Request(
+            self.GRAPHQL_URL,
+            data=data_bytes,
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                status_code = getattr(response, "status", None) or response.getcode()
+                if int(status_code) != 200:
+                    self.logger.error(f"Tibber API error: {status_code}")
+                    return None
+                body = response.read().decode("utf-8")
+                return json.loads(body)
+        except urllib.error.HTTPError as e:  # pragma: no cover - network dependent
+            self.logger.error(f"Tibber API HTTP error: {e.code} {e.reason}")
+            return None
+        except urllib.error.URLError as e:  # pragma: no cover - network dependent
+            self.logger.error(f"Tibber API URL error: {e.reason}")
+            return None
+        except Exception as e:  # pragma: no cover - safety net
+            self.logger.error(f"Tibber API request failed: {e}")
+            return None
 
     async def get_current_price_level(self) -> Optional[PriceLevel]:
         """Get the current electricity price level.
@@ -75,23 +117,30 @@ class TibberClient:
             }
             """
 
-            headers = {
-                "Authorization": f"Bearer {self.config.access_token}",
-                "Content-Type": "application/json",
-            }
+            data: Optional[Dict[str, Any]] = None
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.GRAPHQL_URL,
-                    json={"query": query},
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as response:
-                    if response.status != 200:
-                        self.logger.error(f"Tibber API error: {response.status}")
-                        return None
+            if _AIOHTTP_AVAILABLE:
+                headers = {
+                    "Authorization": f"Bearer {self.config.access_token}",
+                    "Content-Type": "application/json",
+                }
+                async with aiohttp.ClientSession() as session:  # type: ignore[union-attr]
+                    async with session.post(
+                        self.GRAPHQL_URL,
+                        json={"query": query},
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=10),  # type: ignore[union-attr]
+                    ) as response:
+                        if response.status != 200:
+                            self.logger.error(f"Tibber API error: {response.status}")
+                            return None
+                        data = await response.json()
+            else:
+                # Fallback to standard library in a thread to avoid blocking
+                data = await asyncio.to_thread(self._fetch_graphql_sync, query)
 
-                    data = await response.json()
+            if not data:
+                return None
 
             # Parse response
             homes = data.get("data", {}).get("viewer", {}).get("homes", [])

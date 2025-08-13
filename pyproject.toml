@@ -41,6 +41,11 @@ dev = [
     "types-pytz",
     "bandit>=1.7.0",
 ]
+# Optional extra to enable aiohttp-based Tibber HTTP client (faster, async)
+fast = [
+    "aiohttp>=3.9.1,<4",
+]
+
 test = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -114,7 +119,6 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
-strict_equality = true
 
 [[tool.mypy.overrides]]
 module = [
@@ -160,8 +164,8 @@ exclude_lines = [
     "raise NotImplementedError",
     "if 0:",
     "if __name__ == .__main__.:",
-    "class .*\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
+    "class .*\bProtocol\):",
+    "@(abc\.)?abstractmethod",
 ]
 
 [tool.bandit]

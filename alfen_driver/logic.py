@@ -513,10 +513,20 @@ def apply_mode_specific_status(
     # Cache schedule check result to avoid duplicate calls
     within_schedule = None
     if current_mode == EVC_MODE.SCHEDULED:
-        within_schedule = is_within_any_schedule(schedules, time.time(), timezone)
+        global _config
+        if _config and hasattr(_config, "tibber") and _config.tibber.enabled:
+            # When Tibber is enabled, treat schedule as active to avoid blocking
+            # apply_mode_specific_status should not gate charging on legacy schedules
+            within_schedule = True
+        else:
+            within_schedule = is_within_any_schedule(schedules, time.time(), timezone)
 
     if current_mode == EVC_MODE.SCHEDULED and connected:
         if not within_schedule:
+            new_victron_status = EVC_STATUS.WAIT_START
+        elif new_victron_status == EVC_STATUS.CONNECTED and effective_current < MIN_CURRENT:
+            # In Tibber-based scheduling or when schedule is active but price blocks charging,
+            # reflect that we're waiting for allowed start
             new_victron_status = EVC_STATUS.WAIT_START
 
     # General: If charging disabled but connected, wait for start
