@@ -4,16 +4,19 @@ import asyncio
 import json
 import time
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
+from types import ModuleType
 
 # Optional dependency: aiohttp
+_AIOHTTP_AVAILABLE: bool = False
+aiohttp_mod: Optional[ModuleType] = None
 try:
-    import aiohttp  # type: ignore
+    import aiohttp as _aiohttp
 
     _AIOHTTP_AVAILABLE = True
+    aiohttp_mod = _aiohttp
 except Exception:  # pragma: no cover - environments without aiohttp
-    aiohttp = None  # type: ignore
-    _AIOHTTP_AVAILABLE = False
+    pass
 
 import urllib.error
 import urllib.request
@@ -69,7 +72,7 @@ class TibberClient:
                     self.logger.error(f"Tibber API error: {status_code}")
                     return None
                 body = response.read().decode("utf-8")
-                return json.loads(body)
+                return cast(Dict[str, Any], json.loads(body))
         except urllib.error.HTTPError as e:  # pragma: no cover - network dependent
             self.logger.error(f"Tibber API HTTP error: {e.code} {e.reason}")
             return None
@@ -120,16 +123,17 @@ class TibberClient:
             data: Optional[Dict[str, Any]] = None
 
             if _AIOHTTP_AVAILABLE:
+                assert aiohttp_mod is not None
                 headers = {
                     "Authorization": f"Bearer {self.config.access_token}",
                     "Content-Type": "application/json",
                 }
-                async with aiohttp.ClientSession() as session:  # type: ignore[union-attr]
+                async with aiohttp_mod.ClientSession() as session:
                     async with session.post(
                         self.GRAPHQL_URL,
                         json={"query": query},
                         headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=10),  # type: ignore[union-attr]
+                        timeout=aiohttp_mod.ClientTimeout(total=10),
                     ) as response:
                         if response.status != 200:
                             self.logger.error(f"Tibber API error: {response.status}")
