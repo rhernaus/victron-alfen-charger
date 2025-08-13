@@ -187,15 +187,18 @@ class TibberClient:
                                     errors = parsed.get("errors")
                                     if errors:
                                         detail = errors[0].get("message", "")
-                                except Exception:
-                                    pass
-                            msg = (
-                                f"Tibber API error: {response.status}"
-                                + (f" - {detail}" if detail else "")
+                                except Exception as parse_error:
+                                    self.logger.debug(
+                                        f"Failed to parse Tibber error body as JSON: {parse_error}"
+                                    )
+                            msg = f"Tibber API error: {response.status}" + (
+                                f" - {detail}" if detail else ""
                             )
                             self.logger.error(msg)
                             # Short backoff to avoid hammering on failure
-                            self._cache_next_refresh = max(self._cache_next_refresh, now + 60)
+                            self._cache_next_refresh = max(
+                                self._cache_next_refresh, now + 60
+                            )
                             return None
                         data = await response.json()
             else:

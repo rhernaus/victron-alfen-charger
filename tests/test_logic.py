@@ -488,13 +488,18 @@ def test_tibber_enabled_schedule_status_no_block(sample_config, monkeypatch) -> 
     This ensures that even if Tibber price fetch is backing off, the status logic
     treats schedule as active and only the effective current decision is handled elsewhere.
     """
-    from alfen_driver.logic import apply_mode_specific_status, EVC_MODE, EVC_CHARGE
     from alfen_driver.config import TibberConfig
     from alfen_driver.dbus_utils import EVC_STATUS
+    from alfen_driver.logic import EVC_CHARGE, EVC_MODE, apply_mode_specific_status
 
     # Enable Tibber in config
+    placeholder_token = "example-token"
     sample_config.tibber = TibberConfig(
-        access_token="token", enabled=True, home_id="", charge_on_cheap=True, charge_on_very_cheap=True
+        access_token=placeholder_token,
+        enabled=True,
+        home_id="",
+        charge_on_cheap=True,
+        charge_on_very_cheap=True,
     )
 
     # Even with empty schedules, status should not be WAIT_START due to legacy schedule gating
