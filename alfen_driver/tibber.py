@@ -193,7 +193,9 @@ class TibberClient:
             # Determine next refresh time based on next.startsAt
             next_refresh: float = 0.0
             try:
-                next_starts_at = next_info.get("startsAt") if isinstance(next_info, dict) else None
+                next_starts_at = (
+                    next_info.get("startsAt") if isinstance(next_info, dict) else None
+                )
                 if isinstance(next_starts_at, str) and next_starts_at:
                     dt = datetime.fromisoformat(next_starts_at)
                     if dt.tzinfo is None:
