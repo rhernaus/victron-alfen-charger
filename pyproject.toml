@@ -26,6 +26,7 @@ dependencies = [
     "pymodbus==3.6.4",
     "pyyaml>=6.0.1",
     "pytz",
+    "aiohttp>=3.9.1,<4",
 ]
 
 [project.optional-dependencies]
