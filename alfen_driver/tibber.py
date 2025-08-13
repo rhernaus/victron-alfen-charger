@@ -3,21 +3,11 @@
 import asyncio
 import json
 import time
-from enum import Enum
-from typing import Any, Dict, Optional, Tuple
-from datetime import datetime, timezone
-
-# Optional dependency: aiohttp
-try:
-    import aiohttp  # type: ignore
-
-    _AIOHTTP_AVAILABLE = True
-except Exception:  # pragma: no cover - environments without aiohttp
-    aiohttp = None  # type: ignore
-    _AIOHTTP_AVAILABLE = False
-
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict, Optional, Tuple, cast
 
 from .config import TibberConfig
 from .logging_utils import get_logger
@@ -71,7 +61,7 @@ class TibberClient:
                     self.logger.error(f"Tibber API error: {status_code}")
                     return None
                 body = response.read().decode("utf-8")
-                return json.loads(body)
+                return cast(Dict[str, Any], json.loads(body))
         except urllib.error.HTTPError as e:  # pragma: no cover - network dependent
             self.logger.error(f"Tibber API HTTP error: {e.code} {e.reason}")
             return None
@@ -126,17 +116,28 @@ class TibberClient:
 
             data: Optional[Dict[str, Any]] = None
 
-            if _AIOHTTP_AVAILABLE:
+            # Try optional aiohttp via importlib; fall back to urllib if unavailable
+            aiohttp_available = False
+            aiohttp_mod: Any = None
+            try:
+                import importlib
+
+                aiohttp_mod = importlib.import_module("aiohttp")
+                aiohttp_available = True
+            except Exception as e:  # pragma: no cover - optional dependency
+                self.logger.debug(f"aiohttp not available, using urllib fallback: {e}")
+
+            if aiohttp_available and aiohttp_mod is not None:
                 headers = {
                     "Authorization": f"Bearer {self.config.access_token}",
                     "Content-Type": "application/json",
                 }
-                async with aiohttp.ClientSession() as session:  # type: ignore[union-attr]
+                async with aiohttp_mod.ClientSession() as session:
                     async with session.post(
                         self.GRAPHQL_URL,
                         json={"query": query},
                         headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=10),  # type: ignore[union-attr]
+                        timeout=aiohttp_mod.ClientTimeout(total=10),
                     ) as response:
                         if response.status != 200:
                             self.logger.error(f"Tibber API error: {response.status}")

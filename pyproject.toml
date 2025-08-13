@@ -95,11 +95,13 @@ ignore = [
     "S607",  # Starting a process with a partial executable path
     "B009",  # getattr with constant attribute
     "B010",  # setattr with constant attribute
+    "E501",  # line too long handled by black
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S105", "S108"]  # Allow asserts and test literals
+"tests/*" = ["S101", "S105", "S108", "S310"]  # Allow asserts, literals, and lenient URL checks in tests
 "examples/*" = ["S106", "S108", "S311"]  # Examples may show simplified patterns
+"alfen_driver/tibber.py" = ["S310"]  # Allow urllib usage
 "reference/*" = ["F401", "F403", "F405", "N801"]  # Reference code kept as-is
 
 [tool.ruff]
