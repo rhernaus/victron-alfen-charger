@@ -48,6 +48,15 @@ tibber:
   home_id: "" # Optional: specific home ID if you have multiple homes
   charge_on_cheap: true # Charge when price is CHEAP
   charge_on_very_cheap: true # Charge when price is VERY_CHEAP
+  # Optional advanced strategy (default: level)
+  # - level: use Tibber price levels and booleans above
+  # - threshold: charge when current total price <= max_price_total
+  # - percentile: charge when current total price <= the p-quantile of upcoming prices
+  strategy: level
+  # Absolute price threshold for strategy=threshold (same unit as Tibber 'total'). Example: 0.20 for 0.20 EUR/kWh.
+  max_price_total: 0.00
+  # Percentile for strategy=percentile (0..1). Example: 0.3 means charge during the cheapest ~30% of upcoming hours.
+  cheap_percentile: 0.3
 
 # Legacy time-based schedules (only used if Tibber is disabled)
 schedule:
