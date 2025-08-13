@@ -1,7 +1,7 @@
 """Charging session management for Alfen driver."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from .constants import SessionDefaults
@@ -51,28 +51,68 @@ class ChargingSessionManager:
         self.total_energy_kwh = 0.0
         self._last_power = 0.0
         self._last_energy_kwh = 0.0
+        # Candidate session start tracking
+        self._candidate_start_energy_kwh: Optional[float] = None
+        self._candidate_start_time: Optional[datetime] = None
+        # Graceful end tracking to avoid flapping
+        self._not_charging_since: Optional[datetime] = None
 
     def update(self, power_w: float, total_energy_kwh: float) -> None:
         """Update session state based on power and energy readings."""
         # Consider charging if power > 100W (to avoid noise)
         charging = power_w > 100
 
-        # Don't start a session on the very first update
+        # Initialize baseline energy if first reading but do not return early
         if self._last_energy_kwh == 0.0 and total_energy_kwh > 0:
-            # First reading, just store the baseline
             self._last_energy_kwh = total_energy_kwh
             self._last_power = power_w
-            return
+            # Continue to allow candidate start logic to run on first tick
 
-        if charging and self.current_session is None:
-            # Start new session only if energy has actually increased
-            energy_delta = total_energy_kwh - self._last_energy_kwh
-            if energy_delta > SessionDefaults.ENERGY_THRESHOLD_KWH:
-                self._start_session(total_energy_kwh)
+        now = datetime.now()
 
-        elif not charging and self.current_session is not None:
-            # End current session
-            self._end_session(total_energy_kwh)
+        if charging:
+            # Reset end delay timer
+            self._not_charging_since = None
+
+            if self.current_session is None:
+                # Establish a candidate start point if not already set
+                if self._candidate_start_energy_kwh is None:
+                    self._candidate_start_energy_kwh = total_energy_kwh
+                    self._candidate_start_time = now
+
+                # Confirm start if enough energy has accumulated OR enough time has passed
+                energy_since_candidate = (
+                    total_energy_kwh - (self._candidate_start_energy_kwh or total_energy_kwh)
+                )
+                time_since_candidate = (
+                    (now - self._candidate_start_time).total_seconds()
+                    if self._candidate_start_time is not None
+                    else 0.0
+                )
+                if (
+                    energy_since_candidate >= SessionDefaults.ENERGY_THRESHOLD_KWH
+                    or time_since_candidate >= SessionDefaults.START_CONFIRMATION_SECONDS
+                ):
+                    # Start the session at the candidate energy snapshot
+                    self._start_session(self._candidate_start_energy_kwh or total_energy_kwh)
+                    # Clear candidate once session is active
+                    self._candidate_start_energy_kwh = None
+                    self._candidate_start_time = None
+
+        else:
+            # Not charging: clear any candidate start
+            self._candidate_start_energy_kwh = None
+            self._candidate_start_time = None
+
+            # End session after a grace period to avoid flapping
+            if self.current_session is not None:
+                if self._not_charging_since is None:
+                    self._not_charging_since = now
+                elif (
+                    now - self._not_charging_since
+                ).total_seconds() >= SessionDefaults.SESSION_END_DELAY_SECONDS:
+                    self._end_session(total_energy_kwh)
+                    self._not_charging_since = None
 
         # Update current energy for active session
         if self.current_session is not None:
