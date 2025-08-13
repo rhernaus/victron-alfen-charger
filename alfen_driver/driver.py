@@ -35,7 +35,7 @@ from .logging_utils import (  # noqa: E402
 )
 from .logic import (  # noqa: E402
     compute_effective_current,
-    map_alfen_status,
+    get_complete_status,
     read_active_phases,
 )
 from .logic import (  # noqa: E402
@@ -293,9 +293,19 @@ class AlfenDriver:
 
         # Read initial status
         try:
-            self.last_status = map_alfen_status(self.client, self.config)
+            self.last_status = get_complete_status(
+                self.client,
+                self.config,
+                EVC_MODE(self.current_mode.value),
+                self.active_phases,
+            )
             self.service["/Status"] = self.last_status
-            status_names = {0: "Disconnected", 1: "Connected", 2: "Charging"}
+            status_names = {
+                0: "Disconnected",
+                1: "Connected",
+                2: "Charging",
+                7: "Low SOC",
+            }
             status_name = status_names.get(
                 self.last_status, f"Unknown({self.last_status})"
             )
@@ -322,7 +332,7 @@ class AlfenDriver:
         """Log current configuration settings at startup."""
         mode_str = EVC_MODE(self.current_mode.value).name
         charge_str = EVC_CHARGE(self.start_stop.value).name
-        status_names = {0: "Disconnected", 1: "Connected", 2: "Charging"}
+        status_names = {0: "Disconnected", 1: "Connected", 2: "Charging", 7: "Low SOC"}
         status_str = status_names.get(self.last_status, f"Unknown({self.last_status})")
 
         self.logger.info(
@@ -616,14 +626,24 @@ class AlfenDriver:
 
         # Get and update status
         try:
-            current_status = map_alfen_status(self.client, self.config)
+            current_status = get_complete_status(
+                self.client,
+                self.config,
+                EVC_MODE(self.current_mode.value),
+                self.active_phases,
+            )
 
             # Update D-Bus status
             self.service["/Status"] = current_status
 
             # Log status changes
             if current_status != self.last_status:
-                status_names = {0: "Disconnected", 1: "Connected", 2: "Charging"}
+                status_names = {
+                    0: "Disconnected",
+                    1: "Connected",
+                    2: "Charging",
+                    7: "Low SOC",
+                }
                 old_name = status_names.get(
                     self.last_status, f"Unknown({self.last_status})"
                 )

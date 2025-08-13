@@ -427,6 +427,41 @@ def map_alfen_status(client: Any, config: Config) -> int:
         raise StatusMappingError(f"Failed to read status registers: {e}") from e
 
 
+def get_complete_status(
+    client: Any,
+    config: Config,
+    current_mode: EVC_MODE,
+    active_phases: int = 3,
+) -> int:
+    """Get complete EV charger status including LOW_SOC check.
+
+    Returns the appropriate EVC_STATUS value considering:
+    - Physical connection status from Alfen
+    - Battery SOC for AUTO mode
+    - Other mode-specific statuses
+    """
+    # Get raw status from charger
+    raw_status = map_alfen_status(client, config)
+
+    # If in AUTO mode and connected, check for LOW_SOC
+    if raw_status == 1 and current_mode == EVC_MODE.AUTO:
+        try:
+            # Check battery SOC
+            bus = dbus.SystemBus()
+            system = bus.get_object("com.victronenergy.system", "/")
+            all_values = system.GetValue()
+            battery_soc = all_values.get("Dc/Battery/Soc", 100.0)
+
+            min_battery_soc = getattr(config.controls, "min_battery_soc", 20.0)
+            if battery_soc < min_battery_soc:
+                return EVC_STATUS.LOW_SOC
+        except Exception:  # noqa: S110
+            # If we can't check SOC, use raw status
+            pass
+
+    return raw_status
+
+
 def apply_mode_specific_status(
     current_mode: EVC_MODE,
     connected: bool,

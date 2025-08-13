@@ -94,3 +94,5 @@ Key settings to adjust in `alfen_driver_config.yaml`:
 - Enable DEBUG logging level for detailed operation tracing
 - Monitor `/var/log/alfen_driver.log` for runtime issues
 - Check D-Bus paths with `dbus -y com.victronenergy.system` commands
+
+- Run pre-commit yourself before trying to commit because often it will trim whitespace.
