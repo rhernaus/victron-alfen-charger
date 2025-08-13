@@ -33,6 +33,7 @@ Example:
 """
 
 import math
+import struct
 import time
 from typing import Any, Callable, List, Optional, cast
 
@@ -147,6 +148,20 @@ def decode_64bit_float(registers: List[int]) -> float:
     )
     val: float = decoder.decode_64bit_float()
     return val if not math.isnan(val) else 0.0
+
+
+def decode_32bit_float(registers: List[int]) -> float:
+    if len(registers) != 2:
+        raise ValueError("Exactly 2 registers required for 32-bit float")
+    bytes_data = bytes(
+        [
+            (registers[0] >> 8) & 0xFF,
+            registers[0] & 0xFF,
+            (registers[1] >> 8) & 0xFF,
+            registers[1] & 0xFF,
+        ]
+    )
+    return cast(float, struct.unpack(">f", bytes_data)[0])
 
 
 def read_uint16(client: ModbusTcpClient, address: int, slave: int) -> int:

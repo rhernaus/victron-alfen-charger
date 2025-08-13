@@ -11,10 +11,7 @@ class ModbusRegisters:
     CURRENTS_L1 = 320
     CURRENTS_L2 = 322
     CURRENTS_L3 = 324
-    ACTIVE_POWER_TOTAL = 344
-    ACTIVE_POWER_L1 = 346
-    ACTIVE_POWER_L2 = 348
-    ACTIVE_POWER_L3 = 350
+    ACTIVE_POWER_TOTAL = 338  # Start from Real Power L1
     METER_ACTIVE_ENERGY_TOTAL = 374
 
     # Station registers (slave ID 200)

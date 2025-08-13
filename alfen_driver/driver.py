@@ -42,6 +42,7 @@ from .logic import (  # noqa: E402
     set_config as set_logic_config,
 )
 from .modbus_utils import (  # noqa: E402
+    decode_32bit_float,
     decode_64bit_float,
     read_holding_registers,
     read_modbus_string,
@@ -702,12 +703,12 @@ class AlfenDriver:
 
         # Update power
         power = raw_data.get("power")
-        if power and len(power) >= 10:
-            total_power = decode_64bit_float(power[:4])
+        if power and len(power) >= 8:
+            self.service["/Ac/L1/Power"] = round(decode_32bit_float(power[0:2]), 0)
+            self.service["/Ac/L2/Power"] = round(decode_32bit_float(power[2:4]), 0)
+            self.service["/Ac/L3/Power"] = round(decode_32bit_float(power[4:6]), 0)
+            total_power = decode_32bit_float(power[6:8])
             self.service["/Ac/Power"] = round(total_power, 0)
-            self.service["/Ac/L1/Power"] = round(decode_64bit_float(power[2:6]), 0)
-            self.service["/Ac/L2/Power"] = round(decode_64bit_float(power[4:8]), 0)
-            self.service["/Ac/L3/Power"] = round(decode_64bit_float(power[6:10]), 0)
 
         # Update energy
         energy = raw_data.get("energy")
