@@ -108,11 +108,15 @@ def is_within_any_schedule(
     if should_log:
         logger.debug(
             "Checking charging schedules",
-            local_time=local_dt.strftime("%H:%M %A"),
-            minutes_now=minutes_now,
-            day_index=sun_based_index,
-            timezone=timezone,
-            total_schedules=len(schedules),
+            extra={
+                "structured_data": {
+                    "local_time": local_dt.strftime("%H:%M %A"),
+                    "minutes_now": minutes_now,
+                    "day_index": sun_based_index,
+                    "timezone": timezone,
+                    "total_schedules": len(schedules),
+                }
+            },
         )
         _schedule_cache["last_log_time"] = int(now)
     for idx, item in enumerate(schedules):

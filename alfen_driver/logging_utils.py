@@ -12,6 +12,7 @@ import dataclasses
 import json
 import logging
 import logging.handlers
+import os
 import sys
 import threading
 import time
@@ -33,247 +34,6 @@ class LogContext:
     def to_dict(self) -> Dict[str, Any]:
         """Convert context to dictionary for logging."""
         return {k: v for k, v in dataclasses.asdict(self).items() if v is not None}
-
-
-class StructuredLogger:
-    """Enhanced logger with structured logging capabilities."""
-
-    def __init__(self, name: str, config: Optional[Any] = None):
-        self.name = name
-        self.logger = logging.getLogger(name)
-        self._context_store = threading.local()
-        self.config = config
-
-        # Don't add handlers if root logger is already configured
-        # The setup_root_logging() function handles this globally
-        root_logger = logging.getLogger()
-        if not root_logger.handlers and not self.logger.handlers:
-            self._setup_logging()
-
-    def _setup_logging(self) -> None:
-        """Set up logging configuration."""
-        # Create formatter for structured logging
-        formatter = StructuredFormatter()
-
-        # Console handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
-
-        # File handler if configured
-        if self.config and hasattr(self.config, "logging"):
-            try:
-                # Use rotating file handler to prevent log files from growing too large
-                max_bytes = (
-                    getattr(self.config.logging, "max_file_size_mb", 10) * 1024 * 1024
-                )
-                backup_count = getattr(self.config.logging, "backup_count", 5)
-                file_handler = logging.handlers.RotatingFileHandler(
-                    self.config.logging.file,
-                    maxBytes=max_bytes,
-                    backupCount=backup_count,
-                )
-                file_handler.setFormatter(formatter)
-                self.logger.addHandler(file_handler)
-            except (OSError, AttributeError) as e:
-                # Fallback to console only if file logging fails
-                console_handler.stream.write(
-                    f"WARNING: Failed to set up file logging: {e}\n"
-                )
-
-        # Set level
-        level = "INFO"
-        if self.config and hasattr(self.config, "logging"):
-            level = getattr(self.config.logging, "level", "INFO")
-
-        self.logger.setLevel(getattr(logging, level.upper(), logging.INFO))
-
-    def set_context(self, context: LogContext) -> None:
-        """Set logging context for current thread."""
-        self._context_store.context = context
-
-    def get_context(self) -> LogContext:
-        """Get current logging context."""
-        return getattr(self._context_store, "context", LogContext())
-
-    def _log_with_context(
-        self,
-        level: int,
-        message: str,
-        extra_data: Optional[Dict[str, Any]] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Log message with structured context."""
-        context = self.get_context()
-
-        # Build structured log entry
-        log_data = {
-            "message": message,
-            "timestamp": time.time(),
-            "level": logging.getLevelName(level),
-            "logger": self.name,
-            **context.to_dict(),
-        }
-
-        # Add extra data
-        if extra_data:
-            # Sanitize sensitive data
-            sanitized_data = self._sanitize_data(extra_data)
-            log_data.update(sanitized_data)
-
-        # Log the structured data
-        self.logger._log(
-            level, message, (), extra={"structured_data": log_data}, **kwargs
-        )
-
-    def _sanitize_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Sanitize sensitive information from log data."""
-        sensitive_keys = {"password", "token", "key", "secret", "auth", "credential"}
-
-        sanitized: Dict[str, Any] = {}
-        for key, value in data.items():
-            key_lower = key.lower()
-            if any(sensitive in key_lower for sensitive in sensitive_keys):
-                sanitized[key] = "***REDACTED***"
-            elif isinstance(value, dict):
-                sanitized[key] = self._sanitize_data(cast(Dict[str, Any], value))
-            else:
-                sanitized[key] = value
-
-        return sanitized
-
-    # Convenience methods for different log levels
-    def debug(self, message: str, **kwargs: Any) -> None:
-        """Log debug message."""
-        self._log_with_context(logging.DEBUG, message, kwargs)
-
-    def info(self, message: str, **kwargs: Any) -> None:
-        """Log info message."""
-        self._log_with_context(logging.INFO, message, kwargs)
-
-    def warning(self, message: str, **kwargs: Any) -> None:
-        """Log warning message."""
-        self._log_with_context(logging.WARNING, message, kwargs)
-
-    def error(self, message: str, **kwargs: Any) -> None:
-        """Log error message."""
-        self._log_with_context(logging.ERROR, message, kwargs)
-
-    def critical(self, message: str, **kwargs: Any) -> None:
-        """Log critical message."""
-        self._log_with_context(logging.CRITICAL, message, kwargs)
-
-    def exception(self, message: str, **kwargs: Any) -> None:
-        """Log exception with traceback."""
-        self._log_with_context(logging.ERROR, message, kwargs, exc_info=True)
-
-    # Domain-specific logging methods
-    def log_modbus_operation(
-        self,
-        operation: str,
-        slave_id: int,
-        address: int,
-        success: bool,
-        duration_ms: float,
-        **kwargs: Any,
-    ) -> None:
-        """Log Modbus operation with performance metrics."""
-        level = logging.DEBUG if success else logging.WARNING
-        self._log_with_context(
-            level,
-            f"Modbus {operation}",
-            {
-                "operation_type": "modbus",
-                "operation": operation,
-                "slave_id": slave_id,
-                "address": address,
-                "success": success,
-                "duration_ms": duration_ms,
-                **kwargs,
-            },
-        )
-
-    def log_charging_event(
-        self,
-        event: str,
-        current: Optional[float] = None,
-        power: Optional[float] = None,
-        status: Optional[str] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Log charging-related events."""
-        # Build readable message with current value if provided
-        message_parts = [f"Charging: {event}"]
-        if current is not None:
-            message_parts.append(f"current={current:.2f}A")
-        if power is not None:
-            message_parts.append(f"power={power:.1f}W")
-        message = " ".join(message_parts)
-
-        self._log_with_context(
-            logging.INFO,
-            message,
-            {
-                "operation_type": "charging",
-                "event": event,
-                "current": current,
-                "power": power,
-                "status": status,
-                **kwargs,
-            },
-        )
-
-    def log_config_event(
-        self, event: str, source: Optional[str] = None, **kwargs: Any
-    ) -> None:
-        """Log configuration events."""
-        self._log_with_context(
-            logging.INFO,
-            f"Config: {event}",
-            {
-                "operation_type": "configuration",
-                "event": event,
-                "source": source,
-                **kwargs,
-            },
-        )
-
-    def log_dbus_event(
-        self,
-        event: str,
-        path: Optional[str] = None,
-        value: Optional[Any] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Log D-Bus related events."""
-        self._log_with_context(
-            logging.DEBUG,
-            f"D-Bus: {event}",
-            {
-                "operation_type": "dbus",
-                "event": event,
-                "path": path,
-                "value": value,
-                **kwargs,
-            },
-        )
-
-    def log_performance(
-        self, operation: str, duration_ms: float, success: bool = True, **kwargs: Any
-    ) -> None:
-        """Log performance metrics."""
-        level = logging.DEBUG if success else logging.WARNING
-        self._log_with_context(
-            level,
-            f"Performance: {operation}",
-            {
-                "operation_type": "performance",
-                "operation": operation,
-                "duration_ms": duration_ms,
-                "success": success,
-                **kwargs,
-            },
-        )
 
 
 class StructuredFormatter(logging.Formatter):
@@ -348,31 +108,213 @@ class StructuredFormatter(logging.Formatter):
         return base
 
 
+# Thread-local storage for logging context
+_context_store = threading.local()
+
+
+def set_context(context: LogContext) -> None:
+    """Set logging context for current thread."""
+    _context_store.context = context
+
+
+def get_context() -> LogContext:
+    """Get current logging context."""
+    return getattr(_context_store, "context", LogContext())
+
+
+def _sanitize_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Sanitize sensitive information from log data."""
+    sensitive_keys = {"password", "token", "key", "secret", "auth", "credential"}
+
+    sanitized: Dict[str, Any] = {}
+    for key, value in data.items():
+        key_lower = key.lower()
+        if any(sensitive in key_lower for sensitive in sensitive_keys):
+            sanitized[key] = "***REDACTED***"
+        elif isinstance(value, dict):
+            sanitized[key] = _sanitize_data(cast(Dict[str, Any], value))
+        else:
+            sanitized[key] = value
+
+    return sanitized
+
+
+def _log_with_context(
+    logger: logging.Logger,
+    level: int,
+    message: str,
+    extra_data: Optional[Dict[str, Any]] = None,
+    **kwargs: Any,
+) -> None:
+    """Log message with structured context."""
+    context = get_context()
+
+    # Build structured log entry
+    log_data = {
+        "message": message,
+        "timestamp": time.time(),
+        "level": logging.getLevelName(level),
+        "logger": logger.name,
+        **context.to_dict(),
+    }
+
+    # Add extra data
+    if extra_data:
+        # Sanitize sensitive data
+        sanitized_data = _sanitize_data(extra_data)
+        log_data.update(sanitized_data)
+
+    # Log the structured data
+    logger._log(level, message, (), extra={"structured_data": log_data}, **kwargs)
+
+
+# Domain-specific logging helper functions
+def log_modbus_operation(
+    logger: logging.Logger,
+    operation: str,
+    slave_id: int,
+    address: int,
+    success: bool,
+    duration_ms: float,
+    **kwargs: Any,
+) -> None:
+    """Log Modbus operation with performance metrics."""
+    level = logging.DEBUG if success else logging.WARNING
+    _log_with_context(
+        logger,
+        level,
+        f"Modbus {operation}",
+        {
+            "operation_type": "modbus",
+            "operation": operation,
+            "slave_id": slave_id,
+            "address": address,
+            "success": success,
+            "duration_ms": duration_ms,
+            **kwargs,
+        },
+    )
+
+
+def log_charging_event(
+    logger: logging.Logger,
+    event: str,
+    current: Optional[float] = None,
+    power: Optional[float] = None,
+    status: Optional[str] = None,
+    **kwargs: Any,
+) -> None:
+    """Log charging-related events."""
+    # Build readable message with current value if provided
+    message_parts = [f"Charging: {event}"]
+    if current is not None:
+        message_parts.append(f"current={current:.2f}A")
+    if power is not None:
+        message_parts.append(f"power={power:.1f}W")
+    message = " ".join(message_parts)
+
+    _log_with_context(
+        logger,
+        logging.INFO,
+        message,
+        {
+            "operation_type": "charging",
+            "event": event,
+            "current": current,
+            "power": power,
+            "status": status,
+            **kwargs,
+        },
+    )
+
+
+def log_config_event(
+    logger: logging.Logger, event: str, source: Optional[str] = None, **kwargs: Any
+) -> None:
+    """Log configuration events."""
+    _log_with_context(
+        logger,
+        logging.INFO,
+        f"Config: {event}",
+        {
+            "operation_type": "configuration",
+            "event": event,
+            "source": source,
+            **kwargs,
+        },
+    )
+
+
+def log_dbus_event(
+    logger: logging.Logger,
+    event: str,
+    path: Optional[str] = None,
+    value: Optional[Any] = None,
+    **kwargs: Any,
+) -> None:
+    """Log D-Bus related events."""
+    _log_with_context(
+        logger,
+        logging.DEBUG,
+        f"D-Bus: {event}",
+        {
+            "operation_type": "dbus",
+            "event": event,
+            "path": path,
+            "value": value,
+            **kwargs,
+        },
+    )
+
+
+def log_performance(
+    logger: logging.Logger,
+    operation: str,
+    duration_ms: float,
+    success: bool = True,
+    **kwargs: Any,
+) -> None:
+    """Log performance metrics."""
+    level = logging.DEBUG if success else logging.WARNING
+    _log_with_context(
+        logger,
+        level,
+        f"Performance: {operation}",
+        {
+            "operation_type": "performance",
+            "operation": operation,
+            "duration_ms": duration_ms,
+            "success": success,
+            **kwargs,
+        },
+    )
+
+
 @contextmanager
 def log_context(**context_kwargs: Any) -> Iterator[LogContext]:
     """Context manager for setting logging context."""
-    # Get current logger (this is a simplified approach)
-    # In practice, you'd want to manage this more carefully
-    context = LogContext(**context_kwargs)
-
     # Store context in thread-local storage for the duration
-    current_thread = threading.current_thread()
-    old_context = getattr(current_thread, "_log_context", None)
-    setattr(current_thread, "_log_context", context)
+    context = LogContext(**context_kwargs)
+    old_context = get_context()
+    set_context(context)
 
     try:
         yield context
     finally:
-        setattr(current_thread, "_log_context", old_context)
+        set_context(old_context)
 
 
-def get_logger(name: str, config: Optional[Any] = None) -> StructuredLogger:
-    """Get or create a structured logger."""
-    return StructuredLogger(name, config)
+def get_logger(name: str, config: Optional[Any] = None) -> logging.Logger:
+    """Get a standard logger instance.
+
+    The config parameter is kept for backward compatibility but is not used.
+    All configuration is done through setup_root_logging().
+    """
+    return logging.getLogger(name)
 
 
 def setup_root_logging(config: Optional[Any] = None) -> None:
-    """Set up root logging configuration."""
+    """Set up root logging configuration with both console and file output."""
     # Configure root logger to use structured formatting
     root_logger = logging.getLogger()
 
@@ -388,9 +330,49 @@ def setup_root_logging(config: Optional[Any] = None) -> None:
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
+    # File handler if configured
+    if config and hasattr(config, "logging"):
+        try:
+            log_file = getattr(config.logging, "file", "/var/log/alfen_driver.log")
+
+            # Create directory if it doesn't exist
+            log_dir = os.path.dirname(log_file)
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+
+            # Use rotating file handler to prevent log files from growing too large
+            max_bytes = getattr(config.logging, "max_file_size_mb", 10) * 1024 * 1024
+            backup_count = getattr(config.logging, "backup_count", 5)
+
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+            )
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
+
+            # Log successful file handler setup
+            root_logger.info(f"Log file configured: {log_file}")
+
+        except (OSError, AttributeError) as e:
+            # Fallback to console only if file logging fails
+            root_logger.warning(f"Failed to set up file logging: {e}")
+
     # Set level
     level = "INFO"
     if config and hasattr(config, "logging"):
         level = getattr(config.logging, "level", "INFO")
 
     root_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+
+    # Log initialization
+    root_logger.info(
+        "Logging initialized",
+        extra={
+            "structured_data": {
+                "log_level": level,
+                "handlers": [type(h).__name__ for h in root_logger.handlers],
+            }
+        },
+    )

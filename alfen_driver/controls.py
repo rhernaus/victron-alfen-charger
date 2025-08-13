@@ -12,7 +12,7 @@ from .dbus_utils import EVC_MODE
 from .exceptions import (
     ValidationError,
 )
-from .logging_utils import get_logger
+from .logging_utils import get_logger, log_charging_event
 from .logic import compute_effective_current
 from .modbus_utils import decode_floats, read_holding_registers, retry_modbus_operation
 
@@ -147,8 +147,9 @@ def set_effective_current(
             last_current_set_time = current_time
             last_sent_current = effective_current
             # Use structured logging for charging events
-            structured_logger = get_logger("alfen_driver.controls")
-            structured_logger.log_charging_event(
+            logger = get_logger("alfen_driver.controls")
+            log_charging_event(
+                logger,
                 "effective_current_updated",
                 current=effective_current,
                 mode=EVC_MODE(current_mode).name,
@@ -157,14 +158,18 @@ def set_effective_current(
             )
     else:
         # Use structured logging for debug info
-        structured_logger = get_logger("alfen_driver.controls")
-        structured_logger.debug(
+        logger = get_logger("alfen_driver.controls")
+        logger.debug(
             "No effective current update needed",
-            current_current=last_sent_current,
-            proposed_current=effective_current,
-            explanation=explanation,
-            time_since_last_update=current_time - last_current_set_time,
-            watchdog_threshold=config.controls.watchdog_interval_seconds,
+            extra={
+                "structured_data": {
+                    "current_current": last_sent_current,
+                    "proposed_current": effective_current,
+                    "explanation": explanation,
+                    "time_since_last_update": current_time - last_current_set_time,
+                    "watchdog_threshold": config.controls.watchdog_interval_seconds,
+                }
+            },
         )
     return last_sent_current, last_current_set_time
 

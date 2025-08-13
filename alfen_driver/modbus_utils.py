@@ -191,20 +191,28 @@ def read_modbus_string(
         logger = get_logger("alfen_driver.modbus_utils")
         logger.debug(
             "Modbus string read failed",
-            error=str(e),
-            address=address,
-            count=count,
-            slave=slave,
+            extra={
+                "structured_data": {
+                    "error": str(e),
+                    "address": address,
+                    "count": count,
+                    "slave": slave,
+                }
+            },
         )
         return "N/A"
     except Exception as e:
         logger = get_logger("alfen_driver.modbus_utils")
         logger.warning(
             "Unexpected error reading Modbus string",
-            error=str(e),
-            address=address,
-            count=count,
-            slave=slave,
+            extra={
+                "structured_data": {
+                    "error": str(e),
+                    "address": address,
+                    "count": count,
+                    "slave": slave,
+                }
+            },
         )
         return "N/A"
 

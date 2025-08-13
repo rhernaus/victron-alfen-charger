@@ -27,7 +27,12 @@ from .controls import (  # noqa: E402
 )
 from .dbus_utils import EVC_CHARGE, EVC_MODE, register_dbus_service  # noqa: E402
 from .exceptions import ModbusError  # noqa: E402
-from .logging_utils import LogContext, get_logger, setup_root_logging  # noqa: E402
+from .logging_utils import (  # noqa: E402
+    LogContext,
+    get_logger,
+    set_context,
+    setup_root_logging,
+)
 from .logic import (  # noqa: E402
     compute_effective_current,
 )
@@ -63,10 +68,10 @@ class AlfenDriver:
 
         # Setup logging
         setup_root_logging(self.config)
-        self.logger = get_logger("alfen_driver", self.config)
+        self.logger = get_logger("alfen_driver")
         self.session_id = str(uuid.uuid4())[:8]
 
-        self.logger.set_context(
+        set_context(
             LogContext(
                 component="driver",
                 session_id=self.session_id,
