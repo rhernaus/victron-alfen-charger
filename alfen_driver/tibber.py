@@ -44,10 +44,13 @@ class TibberClient:
     def _fetch_graphql_sync(self, query: str) -> Optional[Dict[str, Any]]:
         """Synchronous GraphQL POST using standard library (fallback if aiohttp is missing)."""
         headers = {
-            "Authorization": f"Bearer {self.config.access_token}",
+            "Authorization": f"Bearer {self.config.access_token.strip()}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "victron-alfen-charger/1.0 (+https://github.com/)",
         }
-        data_bytes = json.dumps({"query": query}).encode("utf-8")
+        payload = {"query": query, "variables": {}}
+        data_bytes = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
             self.GRAPHQL_URL,
             data=data_bytes,
@@ -63,7 +66,33 @@ class TibberClient:
                 body = response.read().decode("utf-8")
                 return cast(Dict[str, Any], json.loads(body))
         except urllib.error.HTTPError as e:  # pragma: no cover - network dependent
-            self.logger.error(f"Tibber API HTTP error: {e.code} {e.reason}")
+            # Try to extract error body for diagnostics
+            err_body = ""
+            try:
+                err_body = e.read().decode("utf-8")
+            except Exception:
+                err_body = ""
+            if err_body:
+                # Try to parse and surface GraphQL errors if present
+                try:
+                    parsed = json.loads(err_body)
+                    errors = parsed.get("errors")
+                    if errors:
+                        first = errors[0]
+                        message = first.get("message", "")
+                        self.logger.error(
+                            f"Tibber API HTTP error: {e.code} {e.reason} - {message}"
+                        )
+                    else:
+                        self.logger.error(
+                            f"Tibber API HTTP error: {e.code} {e.reason} - Body: {err_body[:200]}"
+                        )
+                except Exception:
+                    self.logger.error(
+                        f"Tibber API HTTP error: {e.code} {e.reason} - Body: {err_body[:200]}"
+                    )
+            else:
+                self.logger.error(f"Tibber API HTTP error: {e.code} {e.reason}")
             return None
         except urllib.error.URLError as e:  # pragma: no cover - network dependent
             self.logger.error(f"Tibber API URL error: {e.reason}")
@@ -83,15 +112,18 @@ class TibberClient:
 
         # Check cache using dynamic next refresh time if available
         now = time.time()
-        if self._cache and self._cache_next_refresh and now < self._cache_next_refresh:
-            price_info = self._cache.get("current_price")
+        # If we have a next refresh set and we're before it, prefer cached data or skip request
+        if self._cache_next_refresh and now < self._cache_next_refresh:
+            price_info = self._cache.get("current_price") if self._cache else None
             if price_info:
                 return PriceLevel(price_info.get("level", "NORMAL"))
+            # No cached data yet, respect backoff and avoid hammering the API
+            return None
 
         try:
             # Query Tibber API including next slot to know when to refresh
             query = """
-            {
+            query PriceInfoQuery {
                 viewer {
                     homes {
                         id
@@ -102,7 +134,12 @@ class TibberClient:
                                     level
                                     startsAt
                                 }
-                                next {
+                                today {
+                                    total
+                                    level
+                                    startsAt
+                                }
+                                tomorrow {
                                     total
                                     level
                                     startsAt
@@ -129,18 +166,44 @@ class TibberClient:
 
             if aiohttp_available and aiohttp_mod is not None:
                 headers = {
-                    "Authorization": f"Bearer {self.config.access_token}",
+                    "Authorization": f"Bearer {self.config.access_token.strip()}",
                     "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "victron-alfen-charger/1.0 (+https://github.com/)",
                 }
                 async with aiohttp_mod.ClientSession() as session:
                     async with session.post(
                         self.GRAPHQL_URL,
-                        json={"query": query},
+                        json={"query": query, "variables": {}},
                         headers=headers,
                         timeout=aiohttp_mod.ClientTimeout(total=10),
                     ) as response:
                         if response.status != 200:
-                            self.logger.error(f"Tibber API error: {response.status}")
+                            # Try to extract JSON error detail
+                            body_text = ""
+                            try:
+                                body_text = await response.text()
+                            except Exception:
+                                body_text = ""
+                            detail = ""
+                            if body_text:
+                                try:
+                                    parsed = json.loads(body_text)
+                                    errors = parsed.get("errors")
+                                    if errors:
+                                        detail = errors[0].get("message", "")
+                                except Exception as parse_error:
+                                    self.logger.debug(
+                                        f"Failed to parse Tibber error body as JSON: {parse_error}"
+                                    )
+                            msg = f"Tibber API error: {response.status}" + (
+                                f" - {detail}" if detail else ""
+                            )
+                            self.logger.error(msg)
+                            # Short backoff to avoid hammering on failure
+                            self._cache_next_refresh = max(
+                                self._cache_next_refresh, now + 60
+                            )
                             return None
                         data = await response.json()
             else:
@@ -148,9 +211,19 @@ class TibberClient:
                 data = await asyncio.to_thread(self._fetch_graphql_sync, query)
 
             if not data:
+                # Short backoff to avoid hammering on failure
+                self._cache_next_refresh = max(self._cache_next_refresh, now + 60)
                 return None
 
             # Parse response
+            # If GraphQL-level errors are present, log and back off
+            if isinstance(data, dict) and data.get("errors"):
+                first_error = data["errors"][0]
+                message = first_error.get("message", "GraphQL error")
+                self.logger.error(f"Tibber API GraphQL error: {message}")
+                self._cache_next_refresh = max(self._cache_next_refresh, now + 60)
+                return None
+
             homes = data.get("data", {}).get("viewer", {}).get("homes", [])
             if not homes:
                 self.logger.warning("No homes found in Tibber account")
@@ -170,37 +243,67 @@ class TibberClient:
                 self.logger.warning(f"Home {self.config.home_id} not found")
                 return None
 
-            # Get current and next price info
+            # Get current and upcoming price info
             price_info = (
                 target_home.get("currentSubscription", {})
                 .get("priceInfo", {})
                 .get("current", {})
             )
-            next_info = (
-                target_home.get("currentSubscription", {})
-                .get("priceInfo", {})
-                .get("next", {})
+            price_info_container = target_home.get("currentSubscription", {}).get(
+                "priceInfo", {}
             )
+            prices_today = price_info_container.get("today", []) or []
+            prices_tomorrow = price_info_container.get("tomorrow", []) or []
 
             if not price_info:
                 self.logger.warning("No price info available")
                 return None
 
-            # Update cache
-            self._cache = {"current_price": price_info, "next_price": next_info}
+            # Update cache (store current and a computed next if available)
+            self._cache = {"current_price": price_info}
             self._cache_time = now
 
-            # Determine next refresh time based on next.startsAt
+            # Determine next refresh time by finding the next slot in today/tomorrow lists
             next_refresh: float = 0.0
             try:
-                next_starts_at = (
-                    next_info.get("startsAt") if isinstance(next_info, dict) else None
-                )
-                if isinstance(next_starts_at, str) and next_starts_at:
-                    dt = datetime.fromisoformat(next_starts_at)
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    next_refresh = dt.timestamp()
+                # Build a combined chronological list of all upcoming starts
+                upcoming_starts: list[float] = []
+                for entry in [*prices_today, *prices_tomorrow]:
+                    starts_at = entry.get("startsAt")
+                    if isinstance(starts_at, str) and starts_at:
+                        starts_str = starts_at.replace("Z", "+00:00")
+                        try:
+                            dt = datetime.fromisoformat(starts_str)
+                            if dt.tzinfo is None:
+                                dt = dt.replace(tzinfo=timezone.utc)
+                            ts = dt.timestamp()
+                            upcoming_starts.append(ts)
+                        except Exception as parse_err:
+                            self.logger.debug(
+                                f"Failed to parse startsAt '{starts_at}': {parse_err}"
+                            )
+                            continue
+                upcoming_starts.sort()
+
+                # Prefer the next period strictly after current.startsAt (or now if missing)
+                cur_start_ts = None
+                try:
+                    cur_starts = price_info.get("startsAt")
+                    if isinstance(cur_starts, str) and cur_starts:
+                        cur_str = cur_starts.replace("Z", "+00:00")
+                        cur_dt = datetime.fromisoformat(cur_str)
+                        if cur_dt.tzinfo is None:
+                            cur_dt = cur_dt.replace(tzinfo=timezone.utc)
+                        cur_start_ts = cur_dt.timestamp()
+                except Exception:
+                    cur_start_ts = None
+
+                # Find the first upcoming start that is greater than current start (or now)
+                baseline = cur_start_ts or now
+                for ts in upcoming_starts:
+                    if ts > baseline + 1e-6:
+                        next_refresh = ts
+                        break
             except Exception:
                 next_refresh = 0.0
 
@@ -210,7 +313,8 @@ class TibberClient:
                 try:
                     current_starts_at = price_info.get("startsAt")
                     if isinstance(current_starts_at, str) and current_starts_at:
-                        dtc = datetime.fromisoformat(current_starts_at)
+                        starts_str = current_starts_at.replace("Z", "+00:00")
+                        dtc = datetime.fromisoformat(starts_str)
                         if dtc.tzinfo is None:
                             dtc = dtc.replace(tzinfo=timezone.utc)
                         next_refresh = dtc.timestamp() + 3600.0
@@ -233,9 +337,13 @@ class TibberClient:
 
         except asyncio.TimeoutError:
             self.logger.error("Tibber API timeout")
+            # Short backoff to avoid hammering on failure
+            self._cache_next_refresh = max(self._cache_next_refresh, now + 60)
             return None
         except Exception as e:
             self.logger.error(f"Error fetching Tibber price: {e}")
+            # Short backoff to avoid hammering on failure
+            self._cache_next_refresh = max(self._cache_next_refresh, now + 60)
             return None
 
     def should_charge(self, price_level: Optional[PriceLevel]) -> bool:
