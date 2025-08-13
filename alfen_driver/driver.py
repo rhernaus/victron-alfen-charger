@@ -318,6 +318,8 @@ class AlfenDriver:
                 0: "Disconnected",
                 1: "Connected",
                 2: "Charging",
+                4: "Wait Sun",
+                6: "Wait Start",
                 7: "Low SOC",
             }
             status_name = status_names.get(
@@ -643,50 +645,6 @@ class AlfenDriver:
         curr_session_active = self.session_manager.current_session is not None
         if prev_session_active != curr_session_active:
             self._persist_state()
-
-        # Get and update status
-        try:
-            current_status = get_complete_status(
-                self.client,
-                self.config,
-                EVC_MODE(self.current_mode.value),
-                self.active_phases,
-            )
-
-            # Update D-Bus status
-            self.service["/Status"] = current_status
-
-            # Log status changes
-            if current_status != self.last_status:
-                status_names = {
-                    0: "Disconnected",
-                    1: "Connected",
-                    2: "Charging",
-                    7: "Low SOC",
-                }
-                old_name = status_names.get(
-                    self.last_status, f"Unknown({self.last_status})"
-                )
-                new_name = status_names.get(
-                    current_status, f"Unknown({current_status})"
-                )
-
-                self.logger.info(f"EV Status changed: {old_name} -> {new_name}")
-
-                # Log additional context for connection
-                if current_status == 1 and self.last_status == 0:
-                    self.logger.info("Car connected, waiting for charging to start")
-                    # Note: Battery SOC check is handled in Auto mode calculation
-                elif current_status == 0 and self.last_status > 0:
-                    self.logger.info("Car disconnected")
-                elif current_status == 2 and self.last_status < 2:
-                    self.logger.info("Charging started")
-                elif current_status < 2 and self.last_status == 2:
-                    self.logger.info("Charging stopped")
-
-                self.last_status = current_status
-        except Exception as e:
-            self.logger.debug(f"Failed to read charger status: {e}")
 
     def update_dbus_paths(self, raw_data: Dict[str, Optional[List[int]]]) -> None:
         """Update D-Bus paths with fetched data."""
