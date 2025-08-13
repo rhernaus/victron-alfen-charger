@@ -142,9 +142,6 @@ def set_effective_current(
         insufficient_solar_start,
         config.controls.min_charge_duration_seconds,
         active_phases,
-        config.controls.min_battery_soc
-        if hasattr(config.controls, "min_battery_soc")
-        else 0.0,
     )
 
     current_time = time.time()

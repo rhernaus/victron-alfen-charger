@@ -345,7 +345,7 @@ class AlfenDriver:
             f"  Active Phases (from charger): {self.active_phases}\n"
             f"  Modbus IP: {self.config.modbus.ip}:{self.config.modbus.port}\n"
             f"  Device Instance: {self.config.device_instance}\n"
-            f"  Min Battery SOC: {self.config.controls.min_battery_soc:.1f}%\n"
+            f"  Min Battery SOC: From Victron settings\n"
             f"  Min Charge Duration: "
             f"{self.config.controls.min_charge_duration_seconds}s\n"
             f"  Schedules Configured: {len(self.schedules)} active"
@@ -417,9 +417,6 @@ class AlfenDriver:
             self.insufficient_solar_start,
             self.config.controls.min_charge_duration_seconds,
             self.active_phases,
-            self.config.controls.min_battery_soc
-            if hasattr(self.config.controls, "min_battery_soc")
-            else 0.0,
         )
 
         # Apply the current setting
@@ -760,9 +757,6 @@ class AlfenDriver:
             self.insufficient_solar_start,
             self.config.controls.min_charge_duration_seconds,
             self.active_phases,
-            self.config.controls.min_battery_soc
-            if hasattr(self.config.controls, "min_battery_soc")
-            else 0.0,
         )
 
         # Update if different from last sent OR if watchdog interval elapsed

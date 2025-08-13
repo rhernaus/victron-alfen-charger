@@ -171,7 +171,6 @@ def get_excess_solar_current(
     insufficient_solar_start: float = 0.0,
     min_charge_duration_seconds: int = 300,
     active_phases: int = 3,
-    min_battery_soc: float = 0.0,
 ) -> Tuple[float, str, float, bool]:
     global _config
     try:
@@ -193,6 +192,9 @@ def get_excess_solar_current(
             "Dc/Battery/Power", 0.0
         )  # Positive: charging, negative: discharging
         battery_soc = all_values.get("Dc/Battery/Soc", 100.0)
+
+        # Get minimum SOC from Victron settings
+        min_battery_soc = get_victron_min_soc()
 
         # Check if battery SOC is too low
         low_soc = battery_soc < min_battery_soc
@@ -276,7 +278,6 @@ def compute_effective_current(
     insufficient_solar_start: float = 0.0,
     min_charge_duration_seconds: int = 300,
     active_phases: int = 3,
-    min_battery_soc: float = 0.0,
 ) -> Tuple[float, str, float, bool]:
     effective = 0.0
     explanation = ""
@@ -310,7 +311,6 @@ def compute_effective_current(
                 insufficient_solar_start,
                 min_charge_duration_seconds,
                 active_phases,
-                min_battery_soc,
             )
             explanation = f"Auto mode excess solar: {excess_exp}"
     elif current_mode == EVC_MODE.SCHEDULED:
@@ -427,6 +427,25 @@ def map_alfen_status(client: Any, config: Config) -> int:
         raise StatusMappingError(f"Failed to read status registers: {e}") from e
 
 
+def get_victron_min_soc() -> float:
+    """Get the minimum SOC limit from Victron settings.
+
+    Returns:
+        The minimum SOC percentage from Victron settings, or 10.0 as default.
+    """
+    try:
+        bus = dbus.SystemBus()
+        settings = bus.get_object("com.victronenergy.settings", "/")
+        settings_values = settings.GetValue()
+        min_soc = settings_values.get(
+            "Settings/CGwacs/BatteryLife/MinimumSocLimit", 10.0
+        )
+        return float(min_soc)
+    except Exception:
+        # Default to 10% if we can't read the setting
+        return 10.0
+
+
 def get_complete_status(
     client: Any,
     config: Config,
@@ -452,7 +471,8 @@ def get_complete_status(
             all_values = system.GetValue()
             battery_soc = all_values.get("Dc/Battery/Soc", 100.0)
 
-            min_battery_soc = getattr(config.controls, "min_battery_soc", 20.0)
+            # Get minimum SOC from Victron settings
+            min_battery_soc = get_victron_min_soc()
             if battery_soc < min_battery_soc:
                 return EVC_STATUS.LOW_SOC
         except Exception:  # noqa: S110
@@ -615,7 +635,6 @@ def process_status_and_energy(
     timezone: str,
     insufficient_solar_start: float = 0.0,
     active_phases: int = 3,
-    min_battery_soc: float = 0.0,
 ) -> Tuple[float, float, float, float, bool, float]:
     raw_status = map_alfen_status(client, config)
 
@@ -645,7 +664,6 @@ def process_status_and_energy(
         insufficient_solar_start,
         config.controls.min_charge_duration_seconds,
         active_phases,
-        min_battery_soc,
     )
 
     new_victron_status = raw_status

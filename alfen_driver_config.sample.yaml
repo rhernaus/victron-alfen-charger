@@ -68,7 +68,7 @@ controls:
   watchdog_interval_seconds: 30 # Interval to refresh current (watchdog)
   max_set_current: 64.0 # Absolute max settable current (safety limit)
   min_charge_duration_seconds: 300 # Minimum charging duration in seconds once started in AUTO mode
-  min_battery_soc: 20.0 # Minimum battery SOC (%) below which car won't charge in AUTO mode
+  # Note: Minimum battery SOC is read from Victron settings (Settings/CGwacs/BatteryLife/MinimumSocLimit)
   current_update_interval: 30000 # Interval for refreshing current settings (ms)
   verify_delay: 100 # Verification delay in milliseconds
 

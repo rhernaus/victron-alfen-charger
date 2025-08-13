@@ -266,7 +266,6 @@ class ControlsConfig:
         max_set_current: Maximum settable current in amperes.
         min_charge_duration_seconds: Minimum charging session duration.
         current_update_interval: Interval for refreshing current settings.
-        min_battery_soc: Min battery SOC (%) below which car won't charge in AUTO.
         verify_delay: Verification delay in milliseconds.
     """
 
@@ -280,7 +279,6 @@ class ControlsConfig:
     min_charge_duration_seconds: int = 300
     current_update_interval: int = 30000
     verify_delay: int = 100
-    min_battery_soc: float = 20.0  # Default 20% minimum battery SOC
 
     def __post_init__(self) -> None:
         """Validate control configuration."""
