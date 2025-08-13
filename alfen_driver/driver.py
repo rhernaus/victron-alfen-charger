@@ -163,7 +163,7 @@ class AlfenDriver:
         self.service["/ProductName"] = "Alfen EV Charger"
 
     def _load_static_info(self) -> None:
-        """Load static information from the charger."""
+        """Load static information and configuration from the charger."""
         if not self.client.connect():
             self.logger.warning("Failed to connect for static info")
             return
@@ -212,6 +212,39 @@ class AlfenDriver:
         except Exception as e:
             self.logger.debug(f"Could not read manufacturer: {e}")
 
+        # Read operational parameters from charger
+        self._read_charger_parameters()
+
+    def _read_charger_parameters(self) -> None:
+        """Read operational parameters from the charger."""
+        # Read station max current
+        try:
+            self.station_max_current = update_station_max_current(
+                self.client,
+                self.config,
+                self.service,
+                self.config.defaults,
+                self.logger,
+            )
+            self.logger.info(
+                f"Station max current from charger: {self.station_max_current:.1f}A"
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to read station max current: {e}, "
+                f"using default: {self.station_max_current:.1f}A"
+            )
+
+        # Read active phases
+        try:
+            self.active_phases = read_active_phases(self.client, self.config)
+            self.logger.info(f"Active phases from charger: {self.active_phases}")
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to read active phases: {e}, "
+                f"using default: {self.active_phases}"
+            )
+
     def _restore_state(self) -> None:
         """Restore persisted state and session data."""
         # Restore session manager state
@@ -237,8 +270,8 @@ class AlfenDriver:
             f"  Mode: {mode_str}\n"
             f"  Charging: {charge_str}\n"
             f"  Intended Current: {self.intended_set_current.value:.2f}A\n"
-            f"  Station Max Current: {self.station_max_current:.2f}A\n"
-            f"  Active Phases: {self.active_phases}\n"
+            f"  Station Max Current (from charger): {self.station_max_current:.2f}A\n"
+            f"  Active Phases (from charger): {self.active_phases}\n"
             f"  Modbus IP: {self.config.modbus.ip}:{self.config.modbus.port}\n"
             f"  Device Instance: {self.config.device_instance}\n"
             f"  Min Battery SOC: {self.config.controls.min_battery_soc:.1f}%\n"
