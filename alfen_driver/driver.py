@@ -215,6 +215,50 @@ class AlfenDriver:
         # Read operational parameters from charger
         self._read_charger_parameters()
 
+    def _set_current_with_logging(
+        self,
+        effective_current: float,
+        explanation: str,
+        force_verify: bool = False,
+        source: str = "Update",
+    ) -> bool:
+        """Set current with appropriate logging based on mode.
+
+        Args:
+            effective_current: The current to set
+            explanation: Explanation of how current was calculated
+            force_verify: Whether to verify the set operation
+            source: Source of the update for logging
+
+        Returns:
+            True if current was set successfully
+        """
+        # Always show calculation details for Auto mode
+        if self.current_mode.value == EVC_MODE.AUTO:
+            self.logger.info(
+                f"AUTO MODE: Setting current to {effective_current:.2f}A\n"
+                f"  Calculation: {explanation}"
+            )
+
+        # Set the current
+        success = set_current(
+            self.client,
+            self.config,
+            effective_current,
+            self.station_max_current,
+            force_verify=force_verify,
+        )
+
+        if success:
+            mode_name = EVC_MODE(self.current_mode.value).name
+            if self.current_mode.value != EVC_MODE.AUTO:
+                # Log for non-AUTO modes (AUTO already logged above)
+                self.logger.info(
+                    f"{source}: Set current to {effective_current:.2f}A ({mode_name})"
+                )
+
+        return success
+
     def _read_charger_parameters(self) -> None:
         """Read operational parameters from the charger."""
         # Read station max current
@@ -352,12 +396,11 @@ class AlfenDriver:
         )
 
         # Apply the current setting
-        if set_current(
-            self.client,
-            self.config,
+        if self._set_current_with_logging(
             effective_current,
-            self.station_max_current,
+            explanation,
             force_verify=force_verify,
+            source=change_source,
         ):
             self.last_current_set_time = now
             self.last_sent_current = effective_current
@@ -656,12 +699,9 @@ class AlfenDriver:
 
         # Update if different from last sent OR if watchdog interval elapsed
         if abs(effective_current - self.last_sent_current) > 0.1 or force_update:
-            if set_current(
-                self.client,
-                self.config,
-                effective_current,
-                self.station_max_current,
-                force_verify=False,
+            source = "Watchdog update" if force_update else "Polling update"
+            if self._set_current_with_logging(
+                effective_current, explanation, force_verify=False, source=source
             ):
                 self.last_current_set_time = now
                 self.last_sent_current = effective_current
