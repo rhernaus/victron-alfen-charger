@@ -87,8 +87,13 @@ def set_current(
             retries=config.controls.max_retries,
             retry_delay=config.controls.retry_delay,
         )
+        if result:
+            logger = get_logger("alfen_driver.controls")
+            logger.info(f"Set charging current to {target_amps:.2f}A via Modbus")
         return bool(result)
-    except ModbusException:
+    except ModbusException as e:
+        logger = get_logger("alfen_driver.controls")
+        logger.warning(f"Failed to set current to {target_amps:.2f}A: {e}")
         return False
 
 
