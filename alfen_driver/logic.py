@@ -524,7 +524,10 @@ def apply_mode_specific_status(
     if current_mode == EVC_MODE.SCHEDULED and connected:
         if not within_schedule:
             new_victron_status = EVC_STATUS.WAIT_START
-        elif new_victron_status == EVC_STATUS.CONNECTED and effective_current < MIN_CURRENT:
+        elif (
+            new_victron_status == EVC_STATUS.CONNECTED
+            and effective_current < MIN_CURRENT
+        ):
             # In Tibber-based scheduling or when schedule is active but price blocks charging,
             # reflect that we're waiting for allowed start
             new_victron_status = EVC_STATUS.WAIT_START

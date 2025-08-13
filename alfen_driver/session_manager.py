@@ -1,7 +1,7 @@
 """Charging session management for Alfen driver."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from .constants import SessionDefaults
@@ -81,8 +81,8 @@ class ChargingSessionManager:
                     self._candidate_start_time = now
 
                 # Confirm start if enough energy has accumulated OR enough time has passed
-                energy_since_candidate = (
-                    total_energy_kwh - (self._candidate_start_energy_kwh or total_energy_kwh)
+                energy_since_candidate = total_energy_kwh - (
+                    self._candidate_start_energy_kwh or total_energy_kwh
                 )
                 time_since_candidate = (
                     (now - self._candidate_start_time).total_seconds()
@@ -91,10 +91,13 @@ class ChargingSessionManager:
                 )
                 if (
                     energy_since_candidate >= SessionDefaults.ENERGY_THRESHOLD_KWH
-                    or time_since_candidate >= SessionDefaults.START_CONFIRMATION_SECONDS
+                    or time_since_candidate
+                    >= SessionDefaults.START_CONFIRMATION_SECONDS
                 ):
                     # Start the session at the candidate energy snapshot
-                    self._start_session(self._candidate_start_energy_kwh or total_energy_kwh)
+                    self._start_session(
+                        self._candidate_start_energy_kwh or total_energy_kwh
+                    )
                     # Clear candidate once session is active
                     self._candidate_start_energy_kwh = None
                     self._candidate_start_time = None
