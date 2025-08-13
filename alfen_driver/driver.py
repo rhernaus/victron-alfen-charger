@@ -605,9 +605,10 @@ class AlfenDriver:
         energy_kwh = 0.0
 
         power_data = raw_data.get("power")
-        if power_data and len(power_data) >= 4:
+        if power_data and len(power_data) >= 8:
             try:
-                power_w = decode_64bit_float(power_data[:4])
+                # Total power is in the last two registers of the 8-register block
+                power_w = decode_32bit_float(power_data[6:8])
             except Exception as e:
                 self.logger.debug(f"Could not decode power: {e}")
                 power_w = 0.0
