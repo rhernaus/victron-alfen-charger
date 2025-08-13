@@ -3,7 +3,7 @@
 import json
 import os
 import tempfile
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -222,13 +222,13 @@ class TestLoadConfig:
 
     def test_load_config_file_not_found(self) -> None:
         """Test loading when config file doesn't exist should raise error."""
-        logger = Mock()
-        with pytest.raises(Exception):
+        from alfen_driver.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError):
             load_config("/nonexistent/file.yaml")
 
     def test_load_valid_yaml_config(self, temp_config_file: str) -> None:
         """Test loading valid YAML configuration using provided path."""
-        logger = Mock()
         config = load_config(temp_config_file)
 
         assert isinstance(config, Config)
@@ -237,18 +237,22 @@ class TestLoadConfig:
 
     def test_load_invalid_yaml_structure(self) -> None:
         """Test loading YAML with invalid structure raises ConfigurationError."""
+        from alfen_driver.exceptions import ConfigurationError
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("not_a_dict_but_a_string")
             temp_file = f.name
 
         try:
-            with pytest.raises(Exception):
+            with pytest.raises(ConfigurationError):
                 load_config(temp_file)
         finally:
             os.unlink(temp_file)
 
     def test_load_yaml_with_validation_error(self) -> None:
         """Test loading YAML that fails validation raises ConfigurationError."""
+        from alfen_driver.exceptions import ConfigurationError
+
         invalid_config = """
 modbus:
   ip: "192.168.1.100"
@@ -297,7 +301,7 @@ poll_interval_ms: 1000
             temp_file = f.name
 
         try:
-            with pytest.raises(Exception):
+            with pytest.raises(ConfigurationError):
                 load_config(temp_file)
         finally:
             os.unlink(temp_file)

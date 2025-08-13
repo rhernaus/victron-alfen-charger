@@ -74,13 +74,17 @@ class TestModbusErrors:
 
     def test_connection_error(self) -> None:
         """Test Modbus connection error."""
-        error = ModbusConnectionError("connection", "Failed to connect to 192.168.1.100:502")
+        error = ModbusConnectionError(
+            "connection", "Failed to connect to 192.168.1.100:502"
+        )
         assert "Modbus connection failed" in str(error)
         assert "192.168.1.100:502" in str(error)
 
     def test_connection_error_with_details(self) -> None:
         """Test Modbus connection error with details."""
-        error = ModbusConnectionError("connection", "Timeout occurred at 192.168.1.100:502")
+        error = ModbusConnectionError(
+            "connection", "Timeout occurred at 192.168.1.100:502"
+        )
         assert "Modbus connection failed" in str(error)
         assert "192.168.1.100:502" in str(error)
 
@@ -100,7 +104,9 @@ class TestModbusErrors:
 
     def test_verification_error(self) -> None:
         """Test Modbus verification error."""
-        error = ModbusVerificationError("verification", "mismatch", address=None, slave_id=None)
+        error = ModbusVerificationError(
+            "verification", "mismatch", address=None, slave_id=None
+        )
         assert "Modbus verification failed" in str(error)
 
 
@@ -138,7 +144,9 @@ class TestChargingControlError:
 
     def test_charging_control_error(self) -> None:
         """Test charging control error."""
-        error = ChargingControlError("Charging control 'set_current' failed for current 15.5A")
+        error = ChargingControlError(
+            "Charging control 'set_current' failed for current 15.5A"
+        )
         assert "Charging control" in str(error)
 
 
@@ -177,7 +185,9 @@ class TestRetryExhaustedError:
 
     def test_basic_retry_exhausted(self) -> None:
         """Test basic retry exhausted error."""
-        error = RetryExhaustedError("Operation 'test_operation' failed after 3 attempts")
+        error = RetryExhaustedError(
+            "Operation 'test_operation' failed after 3 attempts"
+        )
         assert "failed after 3 attempts" in str(error)
 
     def test_retry_exhausted_with_last_error(self) -> None:

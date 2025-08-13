@@ -138,7 +138,9 @@ class TestSetCurrent:
 
             with patch("alfen_driver.controls.retry_modbus_operation") as mock_retry:
                 # Execute the actual write_op so verification logic runs
-                mock_retry.side_effect = lambda operation, retries, retry_delay: operation()
+                mock_retry.side_effect = (
+                    lambda operation, retries, retry_delay: operation()
+                )
 
                 with patch("time.sleep"):
                     result = set_current(

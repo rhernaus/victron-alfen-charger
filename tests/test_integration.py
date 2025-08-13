@@ -112,7 +112,9 @@ class TestDocumentationExamples:
         from alfen_driver.exceptions import ModbusError, ValidationError
 
         # Test ModbusError representing a read failure
-        modbus_error = ModbusError("read", "Connection timeout", address=123, slave_id=1)
+        modbus_error = ModbusError(
+            "read", "Connection timeout", address=123, slave_id=1
+        )
         assert "Modbus read failed" in str(modbus_error)
         assert "address 123" in str(modbus_error)
 

@@ -228,7 +228,9 @@ class TestReconnect:
         with pytest.raises(ModbusError) as exc_info:
             reconnect(mock_modbus_client, mock_logger, retry_delay=0.01, max_attempts=2)
 
-        assert "Failed to connect to test_host:502 after 2 attempts" in str(exc_info.value)
+        assert "Failed to connect to test_host:502 after 2 attempts" in str(
+            exc_info.value
+        )
 
         # Should have attempted connection twice
         assert mock_modbus_client.connect.call_count == 2
