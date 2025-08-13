@@ -3,23 +3,10 @@
 import asyncio
 import json
 import time
-from enum import Enum
-from typing import Any, Dict, Optional, Tuple, cast
-from types import ModuleType
-
-# Optional dependency: aiohttp
-_AIOHTTP_AVAILABLE: bool = False
-aiohttp_mod: Optional[ModuleType] = None
-try:
-    import aiohttp as _aiohttp
-
-    _AIOHTTP_AVAILABLE = True
-    aiohttp_mod = _aiohttp
-except Exception:  # pragma: no cover - environments without aiohttp
-    pass
-
 import urllib.error
 import urllib.request
+from enum import Enum
+from typing import Any, Dict, Optional, Tuple, cast
 
 from .config import TibberConfig
 from .logging_utils import get_logger
@@ -122,8 +109,18 @@ class TibberClient:
 
             data: Optional[Dict[str, Any]] = None
 
-            if _AIOHTTP_AVAILABLE:
-                assert aiohttp_mod is not None
+            # Try optional aiohttp via importlib; fall back to urllib if unavailable
+            aiohttp_available = False
+            aiohttp_mod: Any = None
+            try:
+                import importlib
+
+                aiohttp_mod = importlib.import_module("aiohttp")
+                aiohttp_available = True
+            except Exception as e:  # pragma: no cover - optional dependency
+                self.logger.debug(f"aiohttp not available, using urllib fallback: {e}")
+
+            if aiohttp_available and aiohttp_mod is not None:
                 headers = {
                     "Authorization": f"Bearer {self.config.access_token}",
                     "Content-Type": "application/json",
