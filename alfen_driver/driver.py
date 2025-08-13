@@ -50,6 +50,8 @@ from .modbus_utils import (  # noqa: E402
 )
 from .persistence import PersistenceManager  # noqa: E402
 from .session_manager import ChargingSessionManager  # noqa: E402
+from .logic import apply_mode_specific_status  # noqa: E402
+from .dbus_utils import EVC_STATUS  # noqa: E402
 
 try:
     import dbus
@@ -799,6 +801,48 @@ class AlfenDriver:
                     f"Applied control current: {effective_current:.2f} A. "
                     f"{explanation}{watchdog_note}"
                 )
+
+        # Update Victron status with mode-specific adjustments (e.g. WAIT_SUN, LOW_SOC)
+        try:
+            base_status = get_complete_status(
+                self.client,
+                self.config,
+                EVC_MODE(self.current_mode.value),
+                self.active_phases,
+            )
+            connected_flag = base_status != EVC_STATUS.DISCONNECTED
+            final_status = apply_mode_specific_status(
+                EVC_MODE(self.current_mode.value),
+                connected_flag,
+                EVC_CHARGE(self.start_stop.value),
+                self.intended_set_current.value,
+                self.schedules,
+                base_status,
+                self.config.timezone,
+                effective_current=effective_current,
+            )
+
+            if final_status != self.last_status:
+                status_names = {
+                    0: "Disconnected",
+                    1: "Connected",
+                    2: "Charging",
+                    4: "Wait Sun",
+                    6: "Wait Start",
+                    7: "Low SOC",
+                }
+                old_name = status_names.get(
+                    self.last_status, f"Unknown({self.last_status})"
+                )
+                new_name = status_names.get(
+                    final_status, f"Unknown({final_status})"
+                )
+                self.logger.info(f"EV Status changed: {old_name} -> {new_name}")
+
+            self.service["/Status"] = final_status
+            self.last_status = final_status
+        except Exception as e:
+            self.logger.debug(f"Failed to update status: {e}")
 
     def poll(self) -> bool:
         """Main polling loop iteration."""

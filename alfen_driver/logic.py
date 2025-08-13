@@ -443,8 +443,10 @@ def get_victron_min_soc() -> float:
         bus = dbus.SystemBus()
         settings = bus.get_object("com.victronenergy.settings", "/")
         settings_values = settings.GetValue()
+        # Prefer SocLimit if available, fallback to MinimumSocLimit for compatibility
         min_soc = settings_values.get(
-            "Settings/CGwacs/BatteryLife/MinimumSocLimit", 10.0
+            "Settings/CGwacs/BatteryLife/SocLimit",
+            settings_values.get("Settings/CGwacs/BatteryLife/MinimumSocLimit", 10.0),
         )
         return float(min_soc)
     except Exception:
