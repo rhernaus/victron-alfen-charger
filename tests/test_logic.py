@@ -158,7 +158,7 @@ class TestComputeEffectiveCurrent:
         """Test manual mode with charging enabled."""
         schedules = []
 
-        current, explanation = compute_effective_current(
+        current, explanation, _, _ = compute_effective_current(
             EVC_MODE.MANUAL,
             EVC_CHARGE.ENABLED,
             10.0,  # intended_set_current
@@ -167,18 +167,18 @@ class TestComputeEffectiveCurrent:
             schedules,
             0.0,  # ev_power
             "UTC",
-            charging_start_time=0.0,
+            insufficient_solar_start=0.0,
             min_charge_duration_seconds=300,
         )
 
         assert current == 10.0
-        assert "MANUAL" in explanation
+        assert "Manual mode" in explanation
 
     def test_manual_mode_disabled(self, sample_config) -> None:
         """Test manual mode with charging disabled."""
         schedules = []
 
-        current, explanation = compute_effective_current(
+        current, explanation, _, _ = compute_effective_current(
             EVC_MODE.MANUAL,
             EVC_CHARGE.DISABLED,
             10.0,
@@ -187,19 +187,19 @@ class TestComputeEffectiveCurrent:
             schedules,
             0.0,
             "UTC",
-            charging_start_time=0.0,
+            insufficient_solar_start=0.0,
             min_charge_duration_seconds=300,
         )
 
         assert current == 0.0
-        assert "MANUAL" in explanation
+        assert "Manual mode" in explanation
         assert "disabled" in explanation.lower()
 
     def test_manual_mode_clamping(self, sample_config) -> None:
         """Test manual mode with current clamping."""
         schedules = []
 
-        current, explanation = compute_effective_current(
+        current, explanation, _, _ = compute_effective_current(
             EVC_MODE.MANUAL,
             EVC_CHARGE.ENABLED,
             50.0,  # Higher than station max
@@ -208,7 +208,7 @@ class TestComputeEffectiveCurrent:
             schedules,
             0.0,
             "UTC",
-            charging_start_time=0.0,
+            insufficient_solar_start=0.0,
             min_charge_duration_seconds=300,
         )
 
@@ -219,10 +219,10 @@ class TestComputeEffectiveCurrent:
         """Test auto mode with sufficient excess power."""
         schedules = []
 
-        with patch("alfen_driver.logic.try_solar_current_calculation") as mock_solar:
-            mock_solar.return_value = (12.0, 3, "Solar calculation: 12.0A")
+        with patch("alfen_driver.logic.get_excess_solar_current") as mock_solar:
+            mock_solar.return_value = (12.0, "Solar calculation: 12.0A", 0.0, False)
 
-            current, explanation = compute_effective_current(
+            current, explanation, _, _ = compute_effective_current(
                 EVC_MODE.AUTO,
                 EVC_CHARGE.ENABLED,
                 10.0,
@@ -231,12 +231,12 @@ class TestComputeEffectiveCurrent:
                 schedules,
                 0.0,
                 "UTC",
-                charging_start_time=0.0,
+                insufficient_solar_start=0.0,
                 min_charge_duration_seconds=300,
             )
 
             assert current == 12.0
-            assert "Solar" in explanation
+            assert "Auto mode" in explanation
 
     def test_scheduled_mode_within_schedule(self, sample_config) -> None:
         """Test scheduled mode when within active schedule."""
@@ -245,7 +245,7 @@ class TestComputeEffectiveCurrent:
         ]
 
         with patch("alfen_driver.logic.is_within_any_schedule", return_value=True):
-            current, explanation = compute_effective_current(
+            current, explanation, _, _ = compute_effective_current(
                 EVC_MODE.SCHEDULED,
                 EVC_CHARGE.ENABLED,
                 15.0,
@@ -254,12 +254,12 @@ class TestComputeEffectiveCurrent:
                 schedules,
                 0.0,
                 "UTC",
-                charging_start_time=0.0,
+                insufficient_solar_start=0.0,
                 min_charge_duration_seconds=300,
             )
 
-            assert current == 15.0
-            assert "Scheduled" in explanation
+            assert current == 32.0
+            assert "Scheduled mode" in explanation
             assert "within schedule" in explanation.lower()
 
     def test_scheduled_mode_outside_schedule(self, sample_config) -> None:
@@ -269,7 +269,7 @@ class TestComputeEffectiveCurrent:
         ]
 
         with patch("alfen_driver.logic.is_within_any_schedule", return_value=False):
-            current, explanation = compute_effective_current(
+            current, explanation, _, _ = compute_effective_current(
                 EVC_MODE.SCHEDULED,
                 EVC_CHARGE.ENABLED,
                 15.0,
@@ -278,13 +278,13 @@ class TestComputeEffectiveCurrent:
                 schedules,
                 0.0,
                 "UTC",
-                charging_start_time=0.0,
+                insufficient_solar_start=0.0,
                 min_charge_duration_seconds=300,
             )
 
             assert current == 0.0
-            assert "Scheduled" in explanation
-            assert "outside schedule" in explanation.lower()
+            assert "Scheduled mode" in explanation
+            assert "not within schedule" in explanation.lower()
 
 
 class TestMapAlfenStatus:
@@ -402,6 +402,7 @@ class TestApplyModeSpecificStatus:
             schedules,
             EVC_STATUS.CONNECTED.value,  # raw_status
             "UTC",
+            effective_current=10.0,
         )
 
         # Manual mode with enabled charging should allow natural status
@@ -419,6 +420,7 @@ class TestApplyModeSpecificStatus:
             schedules,
             EVC_STATUS.CHARGING.value,  # Would be charging but disabled
             "UTC",
+            effective_current=10.0,
         )
 
         # Should override to wait_start when disabled
@@ -428,8 +430,8 @@ class TestApplyModeSpecificStatus:
         """Test auto mode with no excess power."""
         schedules = []
 
-        with patch("alfen_driver.logic.try_solar_current_calculation") as mock_solar:
-            mock_solar.return_value = (0.0, 3, "No excess power")
+        with patch("alfen_driver.logic.get_excess_solar_current") as mock_solar:
+            mock_solar.return_value = (0.0, "No excess power", 0.0, False)
 
             result = apply_mode_specific_status(
                 EVC_MODE.AUTO,
@@ -439,6 +441,7 @@ class TestApplyModeSpecificStatus:
                 schedules,
                 EVC_STATUS.CONNECTED.value,
                 "UTC",
+                effective_current=0.0,
             )
 
             # Should show wait_sun when no solar power
@@ -459,6 +462,7 @@ class TestApplyModeSpecificStatus:
                 schedules,
                 EVC_STATUS.CONNECTED.value,
                 "UTC",
+                effective_current=0.0,
             )
 
             # Should show wait_start when outside schedule
@@ -476,6 +480,7 @@ class TestApplyModeSpecificStatus:
             schedules,
             EVC_STATUS.DISCONNECTED.value,
             "UTC",
+            effective_current=0.0,
         )
 
         # Should remain disconnected regardless of mode

@@ -418,6 +418,7 @@ class TestSetupRootLogging:
         config.logging.file = "/var/log/subdir/test.log"
         config.logging.max_file_size_mb = 10
         config.logging.backup_count = 5
+        config.logging.level = "INFO"
 
         mock_exists.return_value = False
 
