@@ -5,6 +5,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Optional, Tuple, cast
 
@@ -38,6 +39,7 @@ class TibberClient:
         self._cache: Dict[str, Any] = {}
         self._cache_time: float = 0
         self._cache_ttl: int = 300  # Cache for 5 minutes
+        self._cache_next_refresh: float = 0.0  # Absolute epoch when we should refresh
 
     def _fetch_graphql_sync(self, query: str) -> Optional[Dict[str, Any]]:
         """Synchronous GraphQL POST using standard library (fallback if aiohttp is missing)."""
@@ -79,15 +81,15 @@ class TibberClient:
         if not self.config.enabled or not self.config.access_token:
             return None
 
-        # Check cache
+        # Check cache using dynamic next refresh time if available
         now = time.time()
-        if self._cache and (now - self._cache_time) < self._cache_ttl:
+        if self._cache and self._cache_next_refresh and now < self._cache_next_refresh:
             price_info = self._cache.get("current_price")
             if price_info:
                 return PriceLevel(price_info.get("level", "NORMAL"))
 
         try:
-            # Query Tibber API
+            # Query Tibber API including next slot to know when to refresh
             query = """
             {
                 viewer {
@@ -96,6 +98,11 @@ class TibberClient:
                         currentSubscription {
                             priceInfo {
                                 current {
+                                    total
+                                    level
+                                    startsAt
+                                }
+                                next {
                                     total
                                     level
                                     startsAt
@@ -163,11 +170,16 @@ class TibberClient:
                 self.logger.warning(f"Home {self.config.home_id} not found")
                 return None
 
-            # Get current price info
+            # Get current and next price info
             price_info = (
                 target_home.get("currentSubscription", {})
                 .get("priceInfo", {})
                 .get("current", {})
+            )
+            next_info = (
+                target_home.get("currentSubscription", {})
+                .get("priceInfo", {})
+                .get("next", {})
             )
 
             if not price_info:
@@ -175,8 +187,41 @@ class TibberClient:
                 return None
 
             # Update cache
-            self._cache = {"current_price": price_info}
+            self._cache = {"current_price": price_info, "next_price": next_info}
             self._cache_time = now
+
+            # Determine next refresh time based on next.startsAt
+            next_refresh: float = 0.0
+            try:
+                next_starts_at = (
+                    next_info.get("startsAt") if isinstance(next_info, dict) else None
+                )
+                if isinstance(next_starts_at, str) and next_starts_at:
+                    dt = datetime.fromisoformat(next_starts_at)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    next_refresh = dt.timestamp()
+            except Exception:
+                next_refresh = 0.0
+
+            # Fallbacks if next refresh is not available
+            if not next_refresh:
+                # If we have current startsAt, assume hourly price and refresh at +3600
+                try:
+                    current_starts_at = price_info.get("startsAt")
+                    if isinstance(current_starts_at, str) and current_starts_at:
+                        dtc = datetime.fromisoformat(current_starts_at)
+                        if dtc.tzinfo is None:
+                            dtc = dtc.replace(tzinfo=timezone.utc)
+                        next_refresh = dtc.timestamp() + 3600.0
+                except Exception:
+                    next_refresh = 0.0
+            if not next_refresh:
+                # As a last resort, refresh in 15 minutes
+                next_refresh = now + 900.0
+
+            # Add a small safety margin to avoid racing the boundary
+            self._cache_next_refresh = max(next_refresh + 1.0, now + 5.0)
 
             level_str = price_info.get("level", "NORMAL")
             self.logger.info(
@@ -213,6 +258,20 @@ class TibberClient:
         return False
 
 
+# Shared client to persist cache across schedule checks
+_SHARED_CLIENT: Optional[TibberClient] = None
+_SHARED_CLIENT_KEY: Optional[Tuple[str, str]] = None
+
+
+def _get_shared_client(config: TibberConfig) -> TibberClient:
+    global _SHARED_CLIENT, _SHARED_CLIENT_KEY
+    key = (config.access_token, config.home_id)
+    if _SHARED_CLIENT is None or _SHARED_CLIENT_KEY != key:
+        _SHARED_CLIENT = TibberClient(config)
+        _SHARED_CLIENT_KEY = key
+    return _SHARED_CLIENT
+
+
 def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
     """Check if charging should be enabled based on Tibber pricing.
 
@@ -237,8 +296,8 @@ def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-    # Create client and check price
-    client = TibberClient(config)
+    # Reuse shared client to leverage cross-call caching
+    client = _get_shared_client(config)
 
     # Run async function
     try:
