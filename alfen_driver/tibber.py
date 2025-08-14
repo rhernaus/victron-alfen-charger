@@ -41,6 +41,7 @@ class TibberClient:
         self._cache_ttl: int = 300  # Cache for 5 minutes
         self._cache_next_refresh: float = 0.0  # Absolute epoch when we should refresh
         self._cached_upcoming: list[dict[str, Any]] = []
+        # No native priceRating in this query; we'll derive LOW/NORMAL/HIGH locally
 
     def _fetch_graphql_sync(self, query: str) -> Optional[Dict[str, Any]]:
         """Synchronous GraphQL POST using standard library (fallback if aiohttp is missing)."""
@@ -130,21 +131,9 @@ class TibberClient:
                         id
                         currentSubscription {
                             priceInfo {
-                                current {
-                                    total
-                                    level
-                                    startsAt
-                                }
-                                today {
-                                    total
-                                    level
-                                    startsAt
-                                }
-                                tomorrow {
-                                    total
-                                    level
-                                    startsAt
-                                }
+                                current { total level startsAt }
+                                today { total level startsAt }
+                                tomorrow { total level startsAt }
                             }
                         }
                     }
@@ -387,14 +376,14 @@ class TibberClient:
         if self.config.strategy != "percentile":
             return None
         upcoming = [
-            e
-            for e in self._get_upcoming_prices_window()
-            if isinstance(e.get("total"), (int, float))
+            entry
+            for entry in self._get_upcoming_prices_window()
+            if isinstance(entry.get("total"), (int, float))
         ]
         if not upcoming:
             return None
         # pick percentile of price values
-        prices = sorted([float(e["total"]) for e in upcoming])
+        prices = sorted([float(entry["total"]) for entry in upcoming])
         p = self.config.cheap_percentile
         if p <= 0:
             return prices[0]
@@ -543,3 +532,150 @@ def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
         return True, ", ".join(explanation_parts) + " - charging enabled"
     else:
         return False, ", ".join(explanation_parts) + " - waiting for cheaper price"
+
+
+# --- New helper: hourly overview -------------------------------------------------
+
+
+def get_hourly_overview_text(config: TibberConfig) -> str:
+    """Build a human-readable hourly overview for upcoming Tibber prices.
+
+    Includes for each known hour: startsAt, total, level, percentile rank among the
+    upcoming window, and whether we'd charge that hour based on current strategy.
+    """
+    logger = get_logger("alfen_driver.tibber")
+
+    if not config.enabled or not config.access_token:
+        return "Tibber overview: integration not enabled or token missing"
+
+    # Ensure cache is populated/refreshed
+    try:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        client = _get_shared_client(config)
+        loop.run_until_complete(client.get_current_price_level())
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug(f"Failed to refresh Tibber cache for overview: {exc}")
+
+    client = _get_shared_client(config)
+    upcoming = client._get_upcoming_prices_window()
+    if not upcoming:
+        return "Tibber overview: no upcoming price data available"
+
+    # Collect numeric totals
+    numeric_entries = [
+        entry for entry in upcoming if isinstance(entry.get("total"), (int, float))
+    ]
+    if not numeric_entries:
+        return "Tibber overview: upcoming data lacks numeric totals"
+
+    totals_sorted = sorted(float(entry["total"]) for entry in numeric_entries)
+    n = len(totals_sorted)
+    if n == 0:
+        return "Tibber overview: no numeric price entries"
+
+    # Determine threshold context
+    strategy = getattr(config, "strategy", "level") or "level"
+    threshold_val: Optional[float] = None
+    threshold_desc = ""
+    if strategy == "threshold" and getattr(config, "max_price_total", 0) > 0:
+        threshold_val = float(config.max_price_total)
+        threshold_desc = f"thr={threshold_val:.4f}"
+    elif strategy == "percentile":
+        try:
+            thr = client._determine_threshold()
+        except Exception:
+            thr = None
+        if thr is not None:
+            threshold_val = float(thr)
+            threshold_desc = f"p={getattr(config, 'cheap_percentile', 0.0):.2f} thr={threshold_val:.4f}"
+        else:
+            threshold_desc = f"p={getattr(config, 'cheap_percentile', 0.0):.2f} thr=n/a"
+
+    # Map for percentile computation (value -> percentile rank based on sorted list)
+    # For duplicates, use the average rank among occurrences
+    from collections import defaultdict
+
+    positions: defaultdict[float, list[int]] = defaultdict(list)
+    for idx, val in enumerate(totals_sorted):
+        positions[val].append(idx)
+
+    def percentile_for(value: float) -> float:
+        idxs = positions.get(value)
+        if not idxs:
+            # Fallback: binary search approximate position
+            try:
+                import bisect
+
+                pos = bisect.bisect_left(totals_sorted, value)
+            except Exception:
+                pos = 0
+            return max(0.0, min(1.0, pos / max(1, n - 1))) if n > 1 else 1.0
+        avg_idx = sum(idxs) / len(idxs)
+        return max(0.0, min(1.0, avg_idx / max(1, n - 1))) if n > 1 else 1.0
+
+    # Helper to decide would-charge per entry
+    def would_charge_for(total: float, level_str: str) -> bool:
+        nonlocal threshold_val
+        try:
+            pl = PriceLevel(level_str)
+        except Exception:
+            pl = None
+        if strategy == "level":
+            if pl is None:
+                return False
+            if pl == PriceLevel.VERY_CHEAP and getattr(
+                config, "charge_on_very_cheap", False
+            ):
+                return True
+            if pl == PriceLevel.CHEAP and getattr(config, "charge_on_cheap", False):
+                return True
+            return False
+        if threshold_val is not None:
+            return float(total) <= float(threshold_val)
+        return False
+
+    # Build lines
+    header_parts = ["Tibber hourly overview", f"strategy={strategy}"]
+    if threshold_desc:
+        header_parts.append(threshold_desc)
+    header = " | ".join(header_parts)
+
+    lines: list[str] = [header]
+
+    # Precompute simple LOW/NORMAL/HIGH rating thresholds from upcoming prices
+    # LOW: <= 33rd percentile, HIGH: >= 66th percentile, else NORMAL
+    def percentile_value(sorted_values: list[float], p: float) -> float:
+        if not sorted_values:
+            return 0.0
+        if p <= 0:
+            return sorted_values[0]
+        if p >= 1:
+            return sorted_values[-1]
+        import math as _math
+
+        idx = max(
+            0, min(len(sorted_values) - 1, _math.floor(p * len(sorted_values)) - 1)
+        )
+        return sorted_values[idx]
+
+    low_thr = percentile_value(totals_sorted, 0.33)
+    high_thr = percentile_value(totals_sorted, 0.66)
+
+    for entry in numeric_entries:
+        starts_at = entry.get("startsAt", "?")
+        total = float(entry.get("total", 0.0))
+        level_str = str(entry.get("level", "UNKNOWN"))
+        pct = percentile_for(total)
+        charge = would_charge_for(total, level_str)
+        rating_level = (
+            "LOW" if total <= low_thr else ("HIGH" if total >= high_thr else "NORMAL")
+        )
+        lines.append(
+            f"  {starts_at}  total={total:.4f}  level={level_str}  priceRating={rating_level}  pctl={pct:.2f}  charge={'Y' if charge else 'N'}"
+        )
+
+    return "\n".join(lines)
