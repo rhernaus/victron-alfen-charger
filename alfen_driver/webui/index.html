@@ -25,7 +25,7 @@
 					<button id="charge_btn" class="stop-btn">Stop</button>
 				</div>
 			</div>
-			
+
 			<div class="charging-visual">
 				<div class="power-display">
 					<span id="hero_power_kw" class="power-value">0</span>
@@ -53,7 +53,7 @@
 					<span id="status_text" class="status-text">Charging 3P</span>
 				</div>
 			</div>
-			
+
 			<div class="current-slider-section">
 				<input type="range" id="current_slider" min="6" max="25" step="1" value="11" class="current-slider">
 			</div>
@@ -69,7 +69,7 @@
 				<span class="info-label">Session time</span>
 				<span class="info-value" id="session_time">04:59:37</span>
 			</div>
-			
+
 			<div class="info-card">
 				<svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 					<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="#4A9FD8" stroke-width="2" fill="none"/>
@@ -77,7 +77,7 @@
 				<span class="info-label">Session energy</span>
 				<span class="info-value"><span id="session_energy">33.80</span> kWh</span>
 			</div>
-			
+
 			<div class="info-card">
 				<svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 					<path d="M12 2v20M17 5l-5 5-5-5M7 19l5-5 5 5" stroke="#4A9FD8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -85,7 +85,7 @@
 				<span class="info-label">Session cost</span>
 				<span class="info-value" id="session_cost">2.93</span>
 			</div>
-			
+
 			<div class="info-card">
 				<svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 					<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5Z" stroke="#4A9FD8" stroke-width="2" fill="none"/>
@@ -93,7 +93,7 @@
 				<span class="info-label">Session saved cost</span>
 				<span class="info-value" id="session_saved">1.46</span>
 			</div>
-			
+
 			<div class="info-card full-width">
 				<svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 					<rect x="3" y="3" width="18" height="18" rx="2" stroke="#4A9FD8" stroke-width="2"/>
@@ -103,7 +103,7 @@
 				<span class="info-value"><span id="total_energy">3121.34</span> kWh</span>
 			</div>
 		</div>
-		
+
 		<!-- Detailed status section -->
 		<div class="card status-card dark-theme">
 			<div class="status-header">
@@ -114,7 +114,7 @@
 					<button class="pause-btn" id="pause_btn">||</button>
 				</div>
 			</div>
-			
+
 			<div class="metrics-grid">
 				<div class="metric-item">
 					<span class="metric-label">Status</span>
@@ -133,7 +133,7 @@
 					<span class="metric-value" id="energy">0.000 kWh</span>
 				</div>
 			</div>
-			
+
 			<div class="phase-grid">
 				<div class="phase-item">
 					<span class="phase-label">L1</span>
@@ -148,7 +148,7 @@
 					<span class="phase-value" id="l3">0.0 V / 0.00 A / 0 W</span>
 				</div>
 			</div>
-			
+
 			<div class="chart-section">
 				<div class="chart-header">
 					<h3>Recent history</h3>
@@ -169,14 +169,14 @@
 				</div>
 			</div>
 		</div>
-		
+
 		<!-- Configuration section -->
 		<div class="card config-card dark-theme">
 			<div class="config-header">
 				<h2>Configuration</h2>
 				<button id="toggle_config" class="edit-btn">Edit configuration</button>
 			</div>
-			
+
 			<div class="config-toolbar" style="display: none;">
 				<label class="checkbox">
 					<input type="checkbox" id="show_advanced">
@@ -185,9 +185,9 @@
 				<button id="expand_all" class="text-btn">Expand all</button>
 				<button id="collapse_all" class="text-btn">Collapse all</button>
 			</div>
-			
+
 			<div class="config-tabs" id="config_nav" style="display: none;"></div>
-			
+
 			<div id="config_body" class="config-body" style="display: none;">
 				<div id="config_form"></div>
 				<div class="config-actions">
@@ -196,7 +196,7 @@
 				</div>
 			</div>
 		</div>
-		
+
 		<div class="footer">
 			<span>Device instance: <span id="di"></span></span>
 			<div class="device-info">
@@ -206,7 +206,7 @@
 			</div>
 		</div>
 	</div>
-	
+
 	<script src="/ui/app.js"></script>
 </body>
 </html>

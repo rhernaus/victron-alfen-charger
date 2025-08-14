@@ -553,13 +553,13 @@ function toggleConfigOpen(open) {
 	const tabs = document.querySelector('.config-tabs');
 	const body = document.querySelector('.config-body');
 	if (!toolbar || !tabs || !body) return;
-	
+
 	if (open === undefined) {
 		isConfigOpen = !isConfigOpen;
 	} else {
 		isConfigOpen = open;
 	}
-	
+
 	toolbar.style.display = isConfigOpen ? 'flex' : 'none';
 	tabs.style.display = isConfigOpen ? 'flex' : 'none';
 	body.style.display = isConfigOpen ? 'block' : 'none';

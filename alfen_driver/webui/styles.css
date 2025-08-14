@@ -543,29 +543,29 @@ canvas {
   .container {
     padding: 12px;
   }
-  
+
   .charging-header {
     flex-direction: column;
     align-items: flex-start;
   }
-  
+
   .info-grid {
     grid-template-columns: 1fr 1fr;
   }
-  
+
   .info-card.full-width {
     grid-column: span 2;
   }
-  
+
   .power-value {
     font-size: 56px;
   }
-  
+
   .metrics-grid,
   .phase-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .footer {
     flex-direction: column;
     gap: 12px;
