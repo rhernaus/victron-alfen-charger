@@ -41,8 +41,7 @@ class TibberClient:
         self._cache_ttl: int = 300  # Cache for 5 minutes
         self._cache_next_refresh: float = 0.0  # Absolute epoch when we should refresh
         self._cached_upcoming: list[dict[str, Any]] = []
-        # Map startsAt -> LOW/MEDIUM/HIGH rating from priceRating entries
-        self._cached_ratings: Dict[str, str] = {}
+        # No native priceRating in this query; we'll derive LOW/NORMAL/HIGH locally
 
     def _fetch_graphql_sync(self, query: str) -> Optional[Dict[str, Any]]:
         """Synchronous GraphQL POST using standard library (fallback if aiohttp is missing)."""
@@ -135,16 +134,6 @@ class TibberClient:
                                 current { total level startsAt }
                                 today { total level startsAt }
                                 tomorrow { total level startsAt }
-                            }
-                        }
-                        priceRating {
-                            today {
-                                entries { time level }
-                                thresholdPercentages { low high }
-                            }
-                            tomorrow {
-                                entries { time level }
-                                thresholdPercentages { low high }
                             }
                         }
                     }
@@ -255,11 +244,6 @@ class TibberClient:
             )
             prices_today = price_info_container.get("today", []) or []
             prices_tomorrow = price_info_container.get("tomorrow", []) or []
-            rating_container = target_home.get("priceRating", {}) or {}
-            today_ratings = (rating_container.get("today", {}) or {}).get("entries", [])
-            tomorrow_ratings = (rating_container.get("tomorrow", {}) or {}).get(
-                "entries", []
-            )
 
             if not price_info:
                 self.logger.warning("No price info available")
@@ -280,17 +264,6 @@ class TibberClient:
 
             combined.sort(key=lambda e: parse_ts(e.get("startsAt", "")))
             self._cached_upcoming = combined
-
-            # Build startsAt -> rating map (LOW/MEDIUM/HIGH or LOW/NORMAL/HIGH)
-            ratings_by_time: Dict[str, str] = {}
-            for entry in [*(today_ratings or []), *(tomorrow_ratings or [])]:
-                time_str = entry.get("time") if isinstance(entry, dict) else None
-                level_str = entry.get("level") if isinstance(entry, dict) else None
-                if isinstance(time_str, str) and isinstance(level_str, str):
-                    ratings_by_time[time_str] = level_str
-                else:
-                    self.logger.debug(f"Skipping invalid rating entry: {entry!r}")
-            self._cached_ratings = ratings_by_time
 
             # Determine next refresh time by finding the next slot in today/tomorrow lists
             next_refresh: float = 0.0
@@ -672,13 +645,35 @@ def get_hourly_overview_text(config: TibberConfig) -> str:
     header = " | ".join(header_parts)
 
     lines: list[str] = [header]
+
+    # Precompute simple LOW/NORMAL/HIGH rating thresholds from upcoming prices
+    # LOW: <= 33rd percentile, HIGH: >= 66th percentile, else NORMAL
+    def percentile_value(sorted_values: list[float], p: float) -> float:
+        if not sorted_values:
+            return 0.0
+        if p <= 0:
+            return sorted_values[0]
+        if p >= 1:
+            return sorted_values[-1]
+        import math as _math
+
+        idx = max(
+            0, min(len(sorted_values) - 1, _math.floor(p * len(sorted_values)) - 1)
+        )
+        return sorted_values[idx]
+
+    low_thr = percentile_value(totals_sorted, 0.33)
+    high_thr = percentile_value(totals_sorted, 0.66)
+
     for entry in numeric_entries:
         starts_at = entry.get("startsAt", "?")
         total = float(entry.get("total", 0.0))
         level_str = str(entry.get("level", "UNKNOWN"))
         pct = percentile_for(total)
         charge = would_charge_for(total, level_str)
-        rating_level = client._cached_ratings.get(starts_at, "n/a")
+        rating_level = (
+            "LOW" if total <= low_thr else ("HIGH" if total >= high_thr else "NORMAL")
+        )
         lines.append(
             f"  {starts_at}  total={total:.4f}  level={level_str}  priceRating={rating_level}  pctl={pct:.2f}  charge={'Y' if charge else 'N'}"
         )
