@@ -56,6 +56,7 @@ from .modbus_utils import (  # noqa: E402
 )
 from .persistence import PersistenceManager  # noqa: E402
 from .session_manager import ChargingSessionManager  # noqa: E402
+from .tibber import get_hourly_overview_text  # noqa: E402
 
 try:
     import dbus
@@ -135,6 +136,9 @@ class AlfenDriver:
         self.last_poll_time: float = 0
         self.active_phases: int = 3  # Default to 3-phase
         self.last_status: int = 0  # Track last status for change detection
+
+        # Track hourly overview emission to avoid spam; store last hour key
+        self._last_overview_hour_key: Optional[str] = None
 
         # Mutable values for D-Bus callbacks
         self.current_mode = MutableValue(self.persistence.mode)
@@ -479,6 +483,15 @@ class AlfenDriver:
             self.logger.info(
                 f"Mode changed to {EVC_MODE(self.current_mode.value).name}"
             )
+
+            # When switching to SCHEDULED, print an overview immediately
+            if self.current_mode.value == EVC_MODE.SCHEDULED.value and getattr(self.config, "tibber", None) and self.config.tibber.enabled:
+                try:
+                    overview = get_hourly_overview_text(self.config.tibber)
+                    if overview:
+                        self.logger.info(overview)
+                except Exception as e:
+                    self.logger.debug(f"Failed to log Tibber overview on mode change: {e}")
             return True
         except (ValueError, TypeError):
             return False
@@ -747,6 +760,36 @@ class AlfenDriver:
             self.active_phases,
             self.last_positive_set_time,
         )
+
+        # If in SCHEDULED (with Tibber enabled), emit an hourly overview at top of the hour
+        try:
+            if (
+                self.current_mode.value == EVC_MODE.SCHEDULED.value
+                and getattr(self.config, "tibber", None)
+                and self.config.tibber.enabled
+            ):
+                # Build an hour key in local timezone to avoid multiple logs within same hour
+                try:
+                    import datetime as _dt
+                    import pytz as _pytz
+
+                    tz = _pytz.timezone(self.config.timezone)
+                    local_dt = _dt.datetime.fromtimestamp(now, tz)
+                    hour_key = local_dt.strftime("%Y-%m-%d %H")
+                    is_top_of_hour = local_dt.minute == 0 and local_dt.second < 2
+                except Exception:
+                    # Fallback using UTC
+                    hour_key = time.strftime("%Y-%m-%d %H", time.gmtime(now))
+                    tm = time.gmtime(now)
+                    is_top_of_hour = tm.tm_min == 0 and tm.tm_sec < 2
+
+                if is_top_of_hour and hour_key != self._last_overview_hour_key:
+                    overview = get_hourly_overview_text(self.config.tibber)
+                    if overview:
+                        self.logger.info(overview)
+                    self._last_overview_hour_key = hour_key
+        except Exception as e:
+            self.logger.debug(f"Failed to emit hourly Tibber overview: {e}")
 
         # Update if different from last sent OR if watchdog interval elapsed
         if abs(effective_current - self.last_sent_current) > 0.1 or force_update:

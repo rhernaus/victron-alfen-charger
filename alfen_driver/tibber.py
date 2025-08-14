@@ -543,3 +543,140 @@ def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
         return True, ", ".join(explanation_parts) + " - charging enabled"
     else:
         return False, ", ".join(explanation_parts) + " - waiting for cheaper price"
+
+
+# --- New helper: hourly overview -------------------------------------------------
+
+def get_hourly_overview_text(config: TibberConfig) -> str:
+    """Build a human-readable hourly overview for upcoming Tibber prices.
+
+    Includes for each known hour: startsAt, total, level, percentile rank among the
+    upcoming window, and whether we'd charge that hour based on current strategy.
+    """
+    logger = get_logger("alfen_driver.tibber")
+
+    if not config.enabled or not config.access_token:
+        return "Tibber overview: integration not enabled or token missing"
+
+    # Ensure cache is populated/refreshed
+    try:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        client = _get_shared_client(config)
+        loop.run_until_complete(client.get_current_price_level())
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"Failed to refresh Tibber cache for overview: {e}")
+
+    client = _get_shared_client(config)
+    upcoming = client._get_upcoming_prices_window()
+    if not upcoming:
+        return "Tibber overview: no upcoming price data available"
+
+    # Collect numeric totals
+    numeric_entries = [
+        e for e in upcoming if isinstance(e.get("total"), (int, float))
+    ]
+    if not numeric_entries:
+        return "Tibber overview: upcoming data lacks numeric totals"
+
+    totals_sorted = sorted(float(e["total"]) for e in numeric_entries)
+    n = len(totals_sorted)
+    if n == 0:
+        return "Tibber overview: no numeric price entries"
+
+    # Determine threshold context
+    strategy = getattr(config, "strategy", "level") or "level"
+    threshold_val: Optional[float] = None
+    threshold_desc = ""
+    if strategy == "threshold" and getattr(config, "max_price_total", 0) > 0:
+        threshold_val = float(config.max_price_total)
+        threshold_desc = f"thr={threshold_val:.4f}"
+    elif strategy == "percentile":
+        try:
+            thr = client._determine_threshold()
+        except Exception:
+            thr = None
+        if thr is not None:
+            threshold_val = float(thr)
+            threshold_desc = f"p={getattr(config, 'cheap_percentile', 0.0):.2f} thr={threshold_val:.4f}"
+        else:
+            threshold_desc = f"p={getattr(config, 'cheap_percentile', 0.0):.2f} thr=n/a"
+
+    # Map for percentile computation (value -> percentile rank based on sorted list)
+    # For duplicates, use the average rank among occurrences
+    from collections import defaultdict
+
+    positions: defaultdict[float, list[int]] = defaultdict(list)
+    for idx, val in enumerate(totals_sorted):
+        positions[val].append(idx)
+
+    def percentile_for(value: float) -> float:
+        idxs = positions.get(value)
+        if not idxs:
+            # Fallback: binary search approximate position
+            try:
+                import bisect
+
+                pos = bisect.bisect_left(totals_sorted, value)
+            except Exception:
+                pos = 0
+            return max(0.0, min(1.0, pos / max(1, n - 1))) if n > 1 else 1.0
+        avg_idx = sum(idxs) / len(idxs)
+        return max(0.0, min(1.0, avg_idx / max(1, n - 1))) if n > 1 else 1.0
+
+    # Helper to decide would-charge per entry
+    def would_charge_for(total: float, level_str: str) -> bool:
+        nonlocal threshold_val
+        try:
+            pl = PriceLevel(level_str)
+        except Exception:
+            pl = None  # type: ignore
+        if strategy == "level":
+            if pl is None:
+                return False
+            if pl == PriceLevel.VERY_CHEAP and getattr(config, "charge_on_very_cheap", False):
+                return True
+            if pl == PriceLevel.CHEAP and getattr(config, "charge_on_cheap", False):
+                return True
+            return False
+        if threshold_val is not None:
+            return float(total) <= float(threshold_val)
+        return False
+
+    # Optional price level rating (lower price -> higher rating) for display only
+    def level_rating(level_str: str) -> int:
+        try:
+            pl = PriceLevel(level_str)
+        except Exception:
+            return 0
+        mapping = {
+            PriceLevel.VERY_CHEAP: 5,
+            PriceLevel.CHEAP: 4,
+            PriceLevel.NORMAL: 3,
+            PriceLevel.EXPENSIVE: 2,
+            PriceLevel.VERY_EXPENSIVE: 1,
+        }
+        return mapping.get(pl, 0)
+
+    # Build lines
+    header_parts = ["Tibber hourly overview", f"strategy={strategy}"]
+    if threshold_desc:
+        header_parts.append(threshold_desc)
+    header = " | ".join(header_parts)
+
+    lines: list[str] = [header]
+    for e in numeric_entries:
+        starts_at = e.get("startsAt", "?")
+        total = float(e.get("total", 0.0))
+        level_str = str(e.get("level", "UNKNOWN"))
+        pct = percentile_for(total)
+        charge = would_charge_for(total, level_str)
+        rating = level_rating(level_str)
+        lines.append(
+            f"  {starts_at}  total={total:.4f}  level={level_str}  rating={rating}  pctl={pct:.2f}  charge={'Y' if charge else 'N'}"
+        )
+
+    return "\n".join(lines)
