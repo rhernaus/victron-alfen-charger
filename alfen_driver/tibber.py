@@ -41,6 +41,8 @@ class TibberClient:
         self._cache_ttl: int = 300  # Cache for 5 minutes
         self._cache_next_refresh: float = 0.0  # Absolute epoch when we should refresh
         self._cached_upcoming: list[dict[str, Any]] = []
+        # Map startsAt -> LOW/MEDIUM/HIGH rating from priceRating entries
+        self._cached_ratings: Dict[str, str] = {}
 
     def _fetch_graphql_sync(self, query: str) -> Optional[Dict[str, Any]]:
         """Synchronous GraphQL POST using standard library (fallback if aiohttp is missing)."""
@@ -130,21 +132,19 @@ class TibberClient:
                         id
                         currentSubscription {
                             priceInfo {
-                                current {
-                                    total
-                                    level
-                                    startsAt
-                                }
-                                today {
-                                    total
-                                    level
-                                    startsAt
-                                }
-                                tomorrow {
-                                    total
-                                    level
-                                    startsAt
-                                }
+                                current { total level startsAt }
+                                today { total level startsAt }
+                                tomorrow { total level startsAt }
+                            }
+                        }
+                        priceRating {
+                            today {
+                                entries { time level }
+                                thresholdPercentages { low high }
+                            }
+                            tomorrow {
+                                entries { time level }
+                                thresholdPercentages { low high }
                             }
                         }
                     }
@@ -255,6 +255,11 @@ class TibberClient:
             )
             prices_today = price_info_container.get("today", []) or []
             prices_tomorrow = price_info_container.get("tomorrow", []) or []
+            rating_container = target_home.get("priceRating", {}) or {}
+            today_ratings = (rating_container.get("today", {}) or {}).get("entries", [])
+            tomorrow_ratings = (rating_container.get("tomorrow", {}) or {}).get(
+                "entries", []
+            )
 
             if not price_info:
                 self.logger.warning("No price info available")
@@ -275,6 +280,17 @@ class TibberClient:
 
             combined.sort(key=lambda e: parse_ts(e.get("startsAt", "")))
             self._cached_upcoming = combined
+
+            # Build startsAt -> rating map (LOW/MEDIUM/HIGH or LOW/NORMAL/HIGH)
+            ratings_by_time: Dict[str, str] = {}
+            for entry in [*(today_ratings or []), *(tomorrow_ratings or [])]:
+                time_str = entry.get("time") if isinstance(entry, dict) else None
+                level_str = entry.get("level") if isinstance(entry, dict) else None
+                if isinstance(time_str, str) and isinstance(level_str, str):
+                    ratings_by_time[time_str] = level_str
+                else:
+                    self.logger.debug(f"Skipping invalid rating entry: {entry!r}")
+            self._cached_ratings = ratings_by_time
 
             # Determine next refresh time by finding the next slot in today/tomorrow lists
             next_refresh: float = 0.0
@@ -387,14 +403,14 @@ class TibberClient:
         if self.config.strategy != "percentile":
             return None
         upcoming = [
-            e
-            for e in self._get_upcoming_prices_window()
-            if isinstance(e.get("total"), (int, float))
+            entry
+            for entry in self._get_upcoming_prices_window()
+            if isinstance(entry.get("total"), (int, float))
         ]
         if not upcoming:
             return None
         # pick percentile of price values
-        prices = sorted([float(e["total"]) for e in upcoming])
+        prices = sorted([float(entry["total"]) for entry in upcoming])
         p = self.config.cheap_percentile
         if p <= 0:
             return prices[0]
@@ -568,8 +584,8 @@ def get_hourly_overview_text(config: TibberConfig) -> str:
             asyncio.set_event_loop(loop)
         client = _get_shared_client(config)
         loop.run_until_complete(client.get_current_price_level())
-    except Exception as e:  # pragma: no cover - defensive
-        logger.debug(f"Failed to refresh Tibber cache for overview: {e}")
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug(f"Failed to refresh Tibber cache for overview: {exc}")
 
     client = _get_shared_client(config)
     upcoming = client._get_upcoming_prices_window()
@@ -577,11 +593,13 @@ def get_hourly_overview_text(config: TibberConfig) -> str:
         return "Tibber overview: no upcoming price data available"
 
     # Collect numeric totals
-    numeric_entries = [e for e in upcoming if isinstance(e.get("total"), (int, float))]
+    numeric_entries = [
+        entry for entry in upcoming if isinstance(entry.get("total"), (int, float))
+    ]
     if not numeric_entries:
         return "Tibber overview: upcoming data lacks numeric totals"
 
-    totals_sorted = sorted(float(e["total"]) for e in numeric_entries)
+    totals_sorted = sorted(float(entry["total"]) for entry in numeric_entries)
     n = len(totals_sorted)
     if n == 0:
         return "Tibber overview: no numeric price entries"
@@ -632,7 +650,7 @@ def get_hourly_overview_text(config: TibberConfig) -> str:
         try:
             pl = PriceLevel(level_str)
         except Exception:
-            pl = None  # type: ignore
+            pl = None
         if strategy == "level":
             if pl is None:
                 return False
@@ -647,21 +665,6 @@ def get_hourly_overview_text(config: TibberConfig) -> str:
             return float(total) <= float(threshold_val)
         return False
 
-    # Optional price level rating (lower price -> higher rating) for display only
-    def level_rating(level_str: str) -> int:
-        try:
-            pl = PriceLevel(level_str)
-        except Exception:
-            return 0
-        mapping = {
-            PriceLevel.VERY_CHEAP: 5,
-            PriceLevel.CHEAP: 4,
-            PriceLevel.NORMAL: 3,
-            PriceLevel.EXPENSIVE: 2,
-            PriceLevel.VERY_EXPENSIVE: 1,
-        }
-        return mapping.get(pl, 0)
-
     # Build lines
     header_parts = ["Tibber hourly overview", f"strategy={strategy}"]
     if threshold_desc:
@@ -669,15 +672,15 @@ def get_hourly_overview_text(config: TibberConfig) -> str:
     header = " | ".join(header_parts)
 
     lines: list[str] = [header]
-    for e in numeric_entries:
-        starts_at = e.get("startsAt", "?")
-        total = float(e.get("total", 0.0))
-        level_str = str(e.get("level", "UNKNOWN"))
+    for entry in numeric_entries:
+        starts_at = entry.get("startsAt", "?")
+        total = float(entry.get("total", 0.0))
+        level_str = str(entry.get("level", "UNKNOWN"))
         pct = percentile_for(total)
         charge = would_charge_for(total, level_str)
-        rating = level_rating(level_str)
+        rating_level = client._cached_ratings.get(starts_at, "n/a")
         lines.append(
-            f"  {starts_at}  total={total:.4f}  level={level_str}  rating={rating}  pctl={pct:.2f}  charge={'Y' if charge else 'N'}"
+            f"  {starts_at}  total={total:.4f}  level={level_str}  priceRating={rating_level}  pctl={pct:.2f}  charge={'Y' if charge else 'N'}"
         )
 
     return "\n".join(lines)
