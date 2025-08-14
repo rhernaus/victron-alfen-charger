@@ -485,13 +485,19 @@ class AlfenDriver:
             )
 
             # When switching to SCHEDULED, print an overview immediately
-            if self.current_mode.value == EVC_MODE.SCHEDULED.value and getattr(self.config, "tibber", None) and self.config.tibber.enabled:
+            if (
+                self.current_mode.value == EVC_MODE.SCHEDULED.value
+                and getattr(self.config, "tibber", None)
+                and self.config.tibber.enabled
+            ):
                 try:
                     overview = get_hourly_overview_text(self.config.tibber)
                     if overview:
                         self.logger.info(overview)
                 except Exception as e:
-                    self.logger.debug(f"Failed to log Tibber overview on mode change: {e}")
+                    self.logger.debug(
+                        f"Failed to log Tibber overview on mode change: {e}"
+                    )
             return True
         except (ValueError, TypeError):
             return False
@@ -771,6 +777,7 @@ class AlfenDriver:
                 # Build an hour key in local timezone to avoid multiple logs within same hour
                 try:
                     import datetime as _dt
+
                     import pytz as _pytz
 
                     tz = _pytz.timezone(self.config.timezone)

@@ -547,6 +547,7 @@ def check_tibber_schedule(config: TibberConfig) -> Tuple[bool, str]:
 
 # --- New helper: hourly overview -------------------------------------------------
 
+
 def get_hourly_overview_text(config: TibberConfig) -> str:
     """Build a human-readable hourly overview for upcoming Tibber prices.
 
@@ -576,9 +577,7 @@ def get_hourly_overview_text(config: TibberConfig) -> str:
         return "Tibber overview: no upcoming price data available"
 
     # Collect numeric totals
-    numeric_entries = [
-        e for e in upcoming if isinstance(e.get("total"), (int, float))
-    ]
+    numeric_entries = [e for e in upcoming if isinstance(e.get("total"), (int, float))]
     if not numeric_entries:
         return "Tibber overview: upcoming data lacks numeric totals"
 
@@ -637,7 +636,9 @@ def get_hourly_overview_text(config: TibberConfig) -> str:
         if strategy == "level":
             if pl is None:
                 return False
-            if pl == PriceLevel.VERY_CHEAP and getattr(config, "charge_on_very_cheap", False):
+            if pl == PriceLevel.VERY_CHEAP and getattr(
+                config, "charge_on_very_cheap", False
+            ):
                 return True
             if pl == PriceLevel.CHEAP and getattr(config, "charge_on_cheap", False):
                 return True
