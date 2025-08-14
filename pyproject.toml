@@ -43,7 +43,7 @@ dev = [
 ]
 # Optional extra to enable aiohttp-based Tibber HTTP client (faster, async)
 fast = [
-    "aiohttp>=3.9.1,<4",
+    "aiohttp<4",
 ]
 
 test = [

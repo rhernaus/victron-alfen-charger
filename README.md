@@ -22,7 +22,7 @@ Integrate an Alfen Eve (Pro Line and similar NG9xx platform) EV charger with a V
   - `pymodbus==3.6.4`
   - `pyyaml>=6.0.1`
   - `pytz`
-  - Optional: `aiohttp>=3.9.1,<4` for faster Tibber API
+  - Optional: `aiohttp<4` for faster Tibber API
 
 See `requirements.txt` and `requirements-dev.txt`.
 
