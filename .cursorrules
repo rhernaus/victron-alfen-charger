@@ -119,6 +119,18 @@ echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local && chmod +x /data
 - New feature touching Modbus/D‑Bus:
   - Add logic behind feature flag/config field; preserve defaults; extend tests; document in README/docs.
 
+### Tests and commit policy
+- Add tests for any new or changed code:
+  - Place tests under `tests/` following naming patterns in `pyproject.toml`.
+  - Cover success and failure paths; avoid flakiness; prefer deterministic fixtures.
+  - Maintain or increase coverage; update existing tests when refactoring.
+- Before committing locally:
+  - Run `make test` and ensure all tests pass.
+  - Run `make pre-commit` and fix all reported issues (format, lint, types, etc.).
+  - Do not commit if either tests or hooks fail.
+- Before pushing:
+  - Run `make all` to exercise format, lint, type-check, security, and tests.
+
 ### Cross‑verification notes (from CLAUDE.md)
 - Commands and architecture in `CLAUDE.md` match the codebase and `README.md`.
 - Additional modules present beyond CLAUDE.md summary: `config_validator.py`, `logging_utils.py`, `persistence.py`, `session_manager.py`, `tibber.py`, `constants.py`, `exceptions.py`.
