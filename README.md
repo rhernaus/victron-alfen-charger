@@ -68,11 +68,11 @@ python3 test_modbus.py
 
 1) Enable SSH (Venus OS Settings → Services → SSH) and log in as `root`
 
-2) Install minimal tooling
+2) Install system prerequisites (Python + D‑Bus bindings)
 
 ```bash
 opkg update
-opkg install git python3 python3-pip
+opkg install git python3 python3-pip python3-dbus python3-pygobject
 ```
 
 3) Fetch code and configure
@@ -83,31 +83,50 @@ git clone https://github.com/yourusername/victron-alfen-charger.git
 cd victron-alfen-charger
 cp alfen_driver_config.sample.yaml alfen_driver_config.yaml
 vi alfen_driver_config.yaml   # set modbus.ip and other fields as needed
-pip3 install -r requirements.txt
 chmod +x main.py
 ```
 
-4) Test run
+4) Create a virtualenv that inherits system site‑packages (for dbus/gi), then install Python deps (pymodbus 3, etc.)
 
 ```bash
-./main.py
+/usr/bin/python3 -m venv --system-site-packages /data/alfen-venv
+. /data/alfen-venv/bin/activate
+pip install -U pip setuptools wheel
+pip install -r /data/victron-alfen-charger/requirements.txt
 ```
 
-5) Auto‑start on boot (rc.local)
+5) Test run (ensure Venus velib is on PYTHONPATH)
 
 ```bash
-echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local
+export PYTHONPATH=/opt/victronenergy/velib_python:$PYTHONPATH
+/data/alfen-venv/bin/python3 /data/victron-alfen-charger/main.py
+```
+
+6) Auto‑start on boot (rc.local)
+
+```bash
+cat >/data/rc.local <<'EOF'
+export PYTHONPATH=/opt/victronenergy/velib_python:$PYTHONPATH
+/data/alfen-venv/bin/python3 /data/victron-alfen-charger/main.py &
+EOF
 chmod +x /data/rc.local
 ```
+
+Notes:
+- Using `--system-site-packages` makes the venv see system `dbus` and `gi` provided by opkg, while pip installs (e.g., `pymodbus 3`) live in the venv and override older system packages.
+- If you need to bind the web UI beyond localhost, set environment variables:
+  - `ALFEN_WEB_HOST=0.0.0.0` and optional `ALFEN_WEB_PORT=8088`
 
 Logs: `/var/log/alfen_driver.log`
 
 ### Optional: Built‑in Web UI
 
-- The driver starts a lightweight HTTP server on port 8088.
+- The driver starts a lightweight HTTP server on port 8088 (defaults to 127.0.0.1; override with `ALFEN_WEB_HOST`).
 - Local access: `http://<venus-ip>:8088/ui/`
 - API endpoints:
   - `GET /api/status` → JSON snapshot
+  - `GET /api/config/schema` → UI schema
+  - `GET /api/config` / `PUT /api/config` → full configuration
   - `POST /api/mode {"mode": 0|1|2}`
   - `POST /api/startstop {"enabled": true|false}`
   - `POST /api/set_current {"amps": number}`
