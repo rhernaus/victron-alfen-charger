@@ -59,8 +59,12 @@ class TibberClient:
             headers=headers,
             method="POST",
         )
+        # Safety: allow only HTTPS for Tibber API calls
+        if not self.GRAPHQL_URL.startswith("https://"):
+            self.logger.error("Refusing to call non-HTTPS Tibber endpoint")
+            return None
         try:
-            with urllib.request.urlopen(request, timeout=10) as response:
+            with urllib.request.urlopen(request, timeout=10) as response:  # nosec B310
                 status_code = getattr(response, "status", None) or response.getcode()
                 if int(status_code) != 200:
                     self.logger.error(f"Tibber API error: {status_code}")

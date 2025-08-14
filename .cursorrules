@@ -1,0 +1,132 @@
+## Cursor rules for victron-alfen-charger
+
+- Purpose: Python driver integrating Alfen EV charger with Victron GX (Venus OS) via Modbus TCP and D‑Bus.
+- Python: 3.8+ (project tested with 3.8–3.11).
+- Always prefer absolute paths when invoking tools/commands.
+
+### Project layout
+- Entrypoint: `main.py` (sets up GLib D‑Bus loop and runs `alfen_driver.driver.AlfenDriver`).
+- Package: `alfen_driver/` with core modules:
+  - `driver.py`: main driver loop, polling and publishing
+  - `config.py` and `config_validator.py`: YAML dataclasses + validation
+  - `controls.py`, `logic.py`: charging logic and set‑current control
+  - `dbus_utils.py`: D‑Bus service/paths and enums
+  - `modbus_utils.py`: Modbus TCP helpers
+  - `logging_utils.py`: structured logging helpers
+  - `persistence.py`, `session_manager.py`: state/session handling
+  - `tibber.py`: optional dynamic pricing integration
+  - `constants.py`, `exceptions.py`: constants and error types
+- Config: `alfen_driver_config.sample.yaml` → copy to `alfen_driver_config.yaml`.
+- Tests: `tests/` with pytest + coverage configured in `pyproject.toml`.
+- Docs: `README.md`, `docs/configuration_guide.md`, `docs/docstring_standards.md`.
+
+### Install and setup (local)
+- Virtualenv (recommended):
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+```
+- Install deps:
+```bash
+make install-dev    # or: pip install -r requirements-dev.txt
+```
+- Initial configuration:
+```bash
+cp alfen_driver_config.sample.yaml alfen_driver_config.yaml
+```
+
+### Running
+- Driver (requires a D‑Bus environment; on non‑GX systems this may not be available):
+```bash
+python3 main.py
+```
+- Modbus smoke test (no D‑Bus):
+```bash
+# edit ALFEN_IP in test_modbus.py first
+python3 test_modbus.py
+```
+
+### Tests and quality gates
+- Run tests:
+```bash
+make test           # pytest (configured via pyproject)
+make test-cov       # pytest with coverage
+```
+- Lint/format/type/security:
+```bash
+make format         # black + ruff --fix
+make lint           # ruff check .
+make type-check     # mypy alfen_driver/
+make security       # bandit -r alfen_driver/
+make all            # format, lint, type-check, security, test
+```
+- Pre-commit:
+```bash
+make pre-commit     # or: pre-commit run --all-files
+```
+
+### Deployment (Victron GX / Venus OS)
+- System deps are installed via opkg (dbus, gi/GLib, vedbus):
+```bash
+opkg update && opkg install git python3 python3-pip
+pip3 install -r requirements.txt
+chmod +x main.py
+./main.py
+# optional: autostart on boot
+echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local && chmod +x /data/rc.local
+```
+- Logs default to `/var/log/alfen_driver.log` (configurable in YAML).
+
+### D‑Bus and service
+- Service name base: `com.victronenergy.evcharger.alfen_<device_instance>`.
+- Exposed paths include `/Mode`, `/StartStop`, `/SetCurrent`, `/MaxCurrent`, `/Ac/Current`, `/Ac/Power`, `/Ac/Energy/Forward`, `/Status`, and per‑phase metrics.
+
+### Modbus registers (Alfen)
+- Socket slave id 1: voltages, currents, power, energy.
+- Station slave id 200: status, current config, phases, max current.
+- Status strings (e.g., A1/B1/C1/C2/D2) mapped to enums in logic and `dbus_utils`.
+
+### Coding conventions
+- Type hints throughout; keep public function signatures explicit.
+- Follow `docs/docstring_standards.md` for docstrings; add rationale comments for complex logic only.
+- Prefer early returns and clear guard clauses; avoid deep nesting.
+- Use `logging_utils` helpers for structured logs rather than ad‑hoc prints.
+- Keep charging modes MANUAL/AUTO/SCHEDULED semantics intact.
+- Respect configuration validation ranges and defaults; update validators and tests when changing config schema.
+- Maintain separation of concerns across modules (Modbus, D‑Bus, config, business logic).
+
+### Dependency and tooling rules
+- Runtime deps: `pymodbus==3.6.4`, `pyyaml>=6.0.1`, `pytz` (+ optional `aiohttp>=3.9.1,<4`).
+- If you add a dependency:
+  - Update BOTH `pyproject.toml [project.dependencies]` and `requirements.txt`.
+  - For dev tools, also update `requirements-dev.txt` and optionally `[project.optional-dependencies]`.
+- Keep linters/formatters config in `pyproject.toml` authoritative (black line‑length 88, ruff, mypy settings).
+
+### Known discrepancy (to avoid relying on)
+- `pyproject.toml` declares a console script `victron-alfen-charger = alfen_driver.cli:main`, but `alfen_driver/cli.py` is not present. Use `python3 main.py` for now. If adding the CLI, create `alfen_driver/cli.py` with `main()` and update tests/docs accordingly.
+
+### Safety and guardrails
+- Do not hardcode IPs, credentials, or file paths beyond the sample config; use YAML config.
+- Do not change the default log file path unless updating docs, sample config, and validators in sync.
+- Avoid blocking network calls in hot paths; keep polling and control loops responsive.
+- When modifying register maps or D‑Bus paths, update README and tests.
+- Prefer absolute paths in scripts and tool invocations.
+
+### Typical workflows for the assistant
+- Small code edit:
+  - Make the change → run `make format lint type-check test` → adjust as needed.
+- Config/schema change:
+  - Update dataclasses + validator + sample YAML → add/adjust tests → run full quality gates.
+- New feature touching Modbus/D‑Bus:
+  - Add logic behind feature flag/config field; preserve defaults; extend tests; document in README/docs.
+
+### Tests and commit policy
+- Add tests for any new or changed code:
+  - Place tests under `tests/` following naming patterns in `pyproject.toml`.
+  - Cover success and failure paths; avoid flakiness; prefer deterministic fixtures.
+  - Maintain or increase coverage; update existing tests when refactoring.
+- Before committing locally:
+  - Run `make test` and ensure all tests pass.
+  - Run `make pre-commit` and fix all reported issues (format, lint, types, etc.).
+  - Do not commit if either tests or hooks fail.
+- Before pushing:
+  - Run `make all` to exercise format, lint, type-check, security, and tests.

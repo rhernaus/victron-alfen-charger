@@ -31,3 +31,9 @@ repos:
       - id: mypy
         additional_dependencies: [types-pyyaml, types-pytz]
         exclude: ^(tests/|reference/)
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        args: ['-x', 'tests,reference', '-s', 'B101']
