@@ -16,30 +16,26 @@
 		</div>
 	</header>
 	<main>
-		<section class="panel">
+		<section class="panel evcs">
 			<div class="hero">
 				<div class="hero-left">
 					<div class="status-line">
 						<div class="status-dot" id="status_dot"></div>
 						<div class="status-text" id="status_text">-</div>
 					</div>
-					<div class="hero-metrics">
-						<div class="hero-metric"><span>Power</span><strong id="hero_power">0 W</strong></div>
-						<div class="hero-metric"><span>Energy</span><strong id="hero_energy">0.000 kWh</strong></div>
-						<div class="hero-metric"><span>Current</span><strong id="hero_current">0.00 A</strong></div>
+					<div class="power-big"><span id="hero_power_kw">0.0</span><small>kW</small></div>
+					<div class="segmented" role="group" aria-label="Mode">
+						<button id="mode_manual" data-mode="0" class="seg">Manual</button>
+						<button id="mode_auto" data-mode="1" class="seg">Auto</button>
+						<button id="mode_sched" data-mode="2" class="seg">Scheduled</button>
 					</div>
 				</div>
 				<div class="hero-right">
-					<button id="charge_btn" class="charge on">Start</button>
+					<button id="charge_btn" class="charge on" aria-label="Start/Stop"></button>
 				</div>
 			</div>
 
 			<div class="controls-row">
-				<div class="segmented" role="group" aria-label="Mode">
-					<button id="mode_manual" data-mode="0" class="seg">Manual</button>
-					<button id="mode_auto" data-mode="1" class="seg">Auto</button>
-					<button id="mode_sched" data-mode="2" class="seg">Scheduled</button>
-				</div>
 				<div class="slider-wrap">
 					<label for="current_slider">Set current</label>
 					<input type="range" id="current_slider" min="0" max="64" step="0.1">
@@ -47,6 +43,11 @@
 						<span id="current_value">0.0 A</span>
 						<span class="hint">Station max <span id="station_max">0.0 A</span></span>
 					</div>
+				</div>
+				<div class="mini-metrics">
+					<div class="mini"><span>Power</span><strong id="hero_power">0 W</strong></div>
+					<div class="mini"><span>Energy</span><strong id="hero_energy">0.000 kWh</strong></div>
+					<div class="mini"><span>Current</span><strong id="hero_current">0.00 A</strong></div>
 				</div>
 			</div>
 		</section>

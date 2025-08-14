@@ -90,7 +90,8 @@ function setModeUI(mode) {
 
 function setChargeUI(enabled) {
 	const btn = $('charge_btn');
-	if (enabled) { btn.textContent = 'Stop'; btn.classList.remove('off'); btn.classList.add('on'); } else { btn.textContent = 'Start'; btn.classList.add('off'); }
+	if (enabled) { btn.title = 'Stop'; btn.classList.remove('off'); btn.classList.add('on'); btn.style.background = '#ef4444'; }
+	else { btn.title = 'Start'; btn.classList.add('off'); btn.style.background = '#22c55e'; }
 }
 
 function setCurrentUI(amps, stationMax) {
@@ -148,17 +149,18 @@ async function fetchStatus() {
 		const stName = statusNames[s.status] || '-';
 		$('status').textContent = stName;
 		$('status_text').textContent = stName;
-		$('hero_power').textContent = `${Math.round(s.ac_power ?? 0)} W`;
+		const p = Number(s.ac_power || 0);
+		$('hero_power').textContent = `${Math.round(p)} W`;
+		$('hero_power_kw').textContent = (p/1000).toFixed(1);
 		$('hero_energy').textContent = `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`;
 		$('hero_current').textContent = `${(s.ac_current ?? 0).toFixed(2)} A`;
-		// status dot color
 		const dot = $('status_dot');
 		dot.classList.remove('ok','warn','err');
 		if (s.status === 2) dot.classList.add('ok');
 		else if (s.status === 4 || s.status === 6) dot.classList.add('warn');
 		else if (s.status === 7) dot.classList.add('err');
 		$('ac_current').textContent = `${(s.ac_current ?? 0).toFixed(2)} A`;
-		$('ac_power').textContent = `${Math.round(s.ac_power ?? 0)} W`;
+		$('ac_power').textContent = `${Math.round(p)} W`;
 		$('energy').textContent = `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`;
 		$('l1').textContent = `${(s.l1_voltage ?? 0).toFixed(1)} V / ${(s.l1_current ?? 0).toFixed(2)} A / ${Math.round(s.l1_power ?? 0)} W`;
 		$('l2').textContent = `${(s.l2_voltage ?? 0).toFixed(1)} V / ${(s.l2_current ?? 0).toFixed(2)} A / ${Math.round(s.l2_power ?? 0)} W`;
