@@ -11,6 +11,7 @@ Integrate an Alfen Eve (Pro Line and similar NG9xx platform) EV charger with a V
 - Exposes key paths: `/Mode`, `/StartStop`, `/SetCurrent`, `/MaxCurrent`, `/Ac/Current`, `/Ac/Power`, `/Ac/Energy/Forward`, `/Status`, phase voltages/currents/power
 - Session tracking and energy accounting per charging session
 - Structured logging to console and `/var/log/alfen_driver.log`
+- Optional built‑in web UI with live metrics and controls (responsive)
 
 ## Requirements
 
@@ -101,6 +102,20 @@ chmod +x /data/rc.local
 
 Logs: `/var/log/alfen_driver.log`
 
+### Optional: Built‑in Web UI
+
+- The driver starts a lightweight HTTP server on port 8088.
+- Local access: `http://<venus-ip>:8088/ui/`
+- API endpoints:
+  - `GET /api/status` → JSON snapshot
+  - `POST /api/mode {"mode": 0|1|2}`
+  - `POST /api/startstop {"enabled": true|false}`
+  - `POST /api/set_current {"amps": number}`
+
+VRM proxying:
+- On Venus OS Large you can alternatively use Node‑RED dashboards which are auto‑proxied by VRM.
+- For custom services on stock Venus OS, you can run a reverse proxy (e.g. Caddy/nginx) on the device and register it as a local service; consult Victron docs/community for `localservices.d`/GUI integration details.
+
 ## Configuration
 
 - Primary file: `alfen_driver_config.yaml` (copy from the provided sample)
@@ -144,11 +159,13 @@ graph TD
     E -- Victron UI/System --> F[GX Device]
     G[Config YAML] -- Loads --> B
     H[Persistence JSON] -- Saves/Loads State --> B
+    I[Web UI] -- HTTP JSON --> B
 ```
 
 - Modbus polling: voltages, currents, power, energy, status
 - Logic: mode handling (MANUAL/AUTO/SCHEDULED), low SOC checks, excess‑solar calculation, dynamic scheduling (Tibber or legacy windows)
 - D‑Bus: exposes EV‑charger paths for the Victron UI and ecosystem
+- Web UI: live snapshot and control endpoints (port 8088)
 
 ## D‑Bus interface (selected paths)
 

@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import uuid
+import threading
 from typing import Any, Dict, List, Optional
 
 sys.path.insert(
@@ -119,6 +120,10 @@ class AlfenDriver:
 
         # Log current configuration settings at startup
         self._log_startup_settings()
+
+        # HTTP status snapshot state for web server readers
+        self.status_snapshot: Dict[str, Any] = {}
+        self.status_lock = threading.Lock()
 
         self.logger.info("Driver initialization complete")
 
@@ -248,13 +253,17 @@ class AlfenDriver:
             True if current was set successfully
         """
         # Always show calculation details for Auto mode
-        if self.current_mode.value == EVC_MODE.AUTO:
-            self.logger.info(
-                f"AUTO MODE: Setting current to {effective_current:.2f}A\n"
-                f"  Calculation: {explanation}"
-            )
+        if self.current_mode.value == EVC_MODE.AUTO.value:
+            msg_mode = "Auto"
+        elif self.current_mode.value == EVC_MODE.SCHEDULED.value:
+            msg_mode = "Scheduled"
+        else:
+            msg_mode = "Manual"
 
-        # Set the current
+        requested_current = None
+        if source == "SetCurrent change":
+            requested_current = self.intended_set_current.value
+
         success = set_current(
             self.client,
             self.config,
@@ -264,199 +273,9 @@ class AlfenDriver:
         )
 
         if success:
-            mode_name = EVC_MODE(self.current_mode.value).name
-            if self.current_mode.value != EVC_MODE.AUTO:
-                # Log for non-AUTO modes (AUTO already logged above)
-                if self.current_mode.value == EVC_MODE.SCHEDULED and explanation:
-                    self.logger.info(
-                        f"{source}: Set current to {effective_current:.2f}A ({mode_name})\n"
-                        f"  Details: {explanation}"
-                    )
-                else:
-                    self.logger.info(
-                        f"{source}: Set current to {effective_current:.2f}A ({mode_name})"
-                    )
-
-        return success
-
-    def _read_charger_parameters(self) -> None:
-        """Read operational parameters from the charger."""
-        # Read station max current
-        try:
-            self.station_max_current = update_station_max_current(
-                self.client,
-                self.config,
-                self.service,
-                self.config.defaults,
-                self.logger,
-            )
-            self.logger.info(
-                f"Station max current from charger: {self.station_max_current:.1f}A"
-            )
-        except Exception as e:
-            self.logger.warning(
-                f"Failed to read station max current: {e}, "
-                f"using default: {self.station_max_current:.1f}A"
-            )
-
-        # Read active phases
-        try:
-            self.active_phases = read_active_phases(self.client, self.config)
-            self.logger.info(f"Active phases from charger: {self.active_phases}")
-        except Exception as e:
-            self.logger.warning(
-                f"Failed to read active phases: {e}, "
-                f"using default: {self.active_phases}"
-            )
-
-        # Read initial status
-        try:
-            self.last_status = get_complete_status(
-                self.client,
-                self.config,
-                EVC_MODE(self.current_mode.value),
-                self.active_phases,
-            )
-            self.service["/Status"] = self.last_status
-            status_names = {
-                0: "Disconnected",
-                1: "Connected",
-                2: "Charging",
-                4: "Wait Sun",
-                6: "Wait Start",
-                7: "Low SOC",
-            }
-            status_name = status_names.get(
-                self.last_status, f"Unknown({self.last_status})"
-            )
-            self.logger.info(f"Initial charger status: {status_name}")
-        except Exception as e:
-            self.logger.warning(f"Failed to read initial status: {e}")
-
-    def _restore_state(self) -> None:
-        """Restore persisted state and session data."""
-        # Restore session manager state
-        session_state = self.persistence.get_section("session")
-        if session_state:
-            self.session_manager.restore_state(session_state)
-
-        # Restore other state
-        self.insufficient_solar_start = self.persistence.get(
-            "insufficient_solar_start", 0
-        )
-
-        self.logger.info("Restored persisted state")
-
-    def _log_startup_settings(self) -> None:
-        """Log current configuration settings at startup."""
-        mode_str = EVC_MODE(self.current_mode.value).name
-        charge_str = EVC_CHARGE(self.start_stop.value).name
-        status_names = {0: "Disconnected", 1: "Connected", 2: "Charging", 7: "Low SOC"}
-        status_str = status_names.get(self.last_status, f"Unknown({self.last_status})")
-
-        self.logger.info(
-            f"=== Current Settings at Startup ===\n"
-            f"  EV Status: {status_str}\n"
-            f"  Mode: {mode_str}\n"
-            f"  Charging: {charge_str}\n"
-            f"  Intended Current: {self.intended_set_current.value:.2f}A\n"
-            f"  Station Max Current (from charger): {self.station_max_current:.2f}A\n"
-            f"  Active Phases (from charger): {self.active_phases}\n"
-            f"  Modbus IP: {self.config.modbus.ip}:{self.config.modbus.port}\n"
-            f"  Device Instance: {self.config.device_instance}\n"
-            f"  Min Battery SOC: From Victron settings\n"
-            f"  Min Charge Duration: "
-            f"{self.config.controls.min_charge_duration_seconds}s\n"
-            f"  Schedules Configured: {len(self.schedules)} active"
-        )
-
-        # Log schedule details if any are configured
-        if self.schedules:
-            for idx, schedule in enumerate(self.schedules):
-                if schedule.enabled:
-                    self.logger.info(
-                        f"  Schedule {idx+1}: {schedule.start} - {schedule.end}, "
-                        f"Days: {bin(schedule.days_mask)[2:].zfill(7)}"
-                    )
-
-    def _persist_state(self) -> None:
-        """Persist current state to disk."""
-        self.persistence.update(
-            {
-                "mode": self.current_mode.value,
-                "start_stop": self.start_stop.value,
-                "set_current": self.intended_set_current.value,
-                "insufficient_solar_start": self.insufficient_solar_start,
-            }
-        )
-
-        # Save session state
-        self.persistence.set_section("session", self.session_manager.get_state())
-
-        self.persistence.save_state()
-
-    def _apply_current_change(
-        self,
-        change_source: str,
-        requested_current: Optional[float] = None,
-        force_verify: bool = True,
-    ) -> bool:
-        """
-        Apply current change from callbacks - consolidated logic.
-
-        Args:
-            change_source: Source of the change (mode, startstop, setcurrent)
-            requested_current: Requested current value (for setcurrent callback)
-            force_verify: Whether to force verification of the change
-
-        Returns:
-            True if change was applied successfully
-        """
-        now = time.time()
-
-        # Read active phases from charger
-        self.active_phases = read_active_phases(self.client, self.config)
-
-        # Compute effective current based on mode and state
-        (
-            effective_current,
-            explanation,
-            self.insufficient_solar_start,
-            low_soc,
-        ) = compute_effective_current(
-            EVC_MODE(self.current_mode.value),
-            EVC_CHARGE(self.start_stop.value),
-            self.intended_set_current.value,
-            self.station_max_current,
-            now,
-            self.schedules,
-            0.0,  # ev_power - will be set in AUTO mode
-            self.config.timezone,
-            self.insufficient_solar_start,
-            self.config.controls.min_charge_duration_seconds,
-            self.active_phases,
-        )
-
-        # Apply the current setting
-        if self._set_current_with_logging(
-            effective_current,
-            explanation,
-            force_verify=force_verify,
-            source=change_source,
-        ):
-            self.last_current_set_time = now
-            self.last_sent_current = effective_current
-            if effective_current >= ChargingLimits.MIN_CURRENT:
-                self.last_positive_set_time = now
-
-            # Build log message
-            mode_name = EVC_MODE(self.current_mode.value).name
             log_msg = (
-                f"{change_source} applied current: "
-                f"{effective_current:.2f} A ({mode_name})"
+                f"{source}: Applied {effective_current:.2f} A in {msg_mode} mode"
             )
-
-            # Add clamping info if applicable
             if (
                 requested_current is not None
                 and abs(effective_current - requested_current) > 0.01
@@ -467,7 +286,7 @@ class AlfenDriver:
             self.logger.info(log_msg)
             return True
         else:
-            self.logger.warning(f"Failed to apply current on {change_source}")
+            self.logger.warning(f"Failed to apply current on {source}")
             return False
 
     def mode_callback(self, path: str, value: Any) -> bool:
@@ -566,7 +385,7 @@ class AlfenDriver:
 
         # Try to read socket data (slave ID 1) - usually more reliable
         try:
-            # Read voltages
+            # Read voltages for L1..L3 (6 registers -> 3 floats)
             raw_data["voltages"] = read_holding_registers(
                 self.client,
                 ModbusRegisters.VOLTAGES_L1,
@@ -578,7 +397,7 @@ class AlfenDriver:
             raw_data["voltages"] = None
 
         try:
-            # Read currents
+            # Read currents for L1..L3 (6 registers -> 3 floats)
             raw_data["currents"] = read_holding_registers(
                 self.client,
                 ModbusRegisters.CURRENTS_L1,
@@ -590,7 +409,7 @@ class AlfenDriver:
             raw_data["currents"] = None
 
         try:
-            # Read power
+            # Read power block (we read 8 registers: 3 phases + total)
             raw_data["power"] = read_holding_registers(
                 self.client,
                 ModbusRegisters.ACTIVE_POWER_TOTAL,
@@ -602,7 +421,7 @@ class AlfenDriver:
             raw_data["power"] = None
 
         try:
-            # Read energy
+            # Read energy (64-bit float => 4 registers)
             raw_data["energy"] = read_holding_registers(
                 self.client,
                 ModbusRegisters.METER_ACTIVE_ENERGY_TOTAL,
@@ -614,11 +433,11 @@ class AlfenDriver:
             raw_data["energy"] = None
 
         try:
-            # Read socket status (slave ID 1) - Mode 3 state
+            # Read socket status (Mode 3 state string, 5 registers)
             raw_data["socket_status"] = read_holding_registers(
                 self.client,
                 ModbusRegisters.SOCKET_MODE3_STATE,
-                5,  # 5 registers for the state string
+                5,
                 self.config.modbus.socket_slave_id,
             )
         except Exception as e:
@@ -630,6 +449,105 @@ class AlfenDriver:
             raise ModbusError("read", "Failed to read any Modbus data")
 
         return raw_data
+
+    def _read_charger_parameters(self) -> None:
+        """Read operational parameters from the charger."""
+        # Read station max current
+        try:
+            self.station_max_current = update_station_max_current(
+                self.client,
+                self.config,
+                self.service,
+                self.config.defaults,
+                self.logger,
+            )
+            self.logger.info(
+                f"Station max current from charger: {self.station_max_current:.1f}A"
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to read station max current: {e}, "
+                f"using default: {self.station_max_current:.1f}A"
+            )
+
+        # Read active phases
+        try:
+            self.active_phases = read_active_phases(self.client, self.config)
+            self.logger.info(f"Active phases from charger: {self.active_phases}")
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to read active phases: {e}, "
+                f"using default: {self.active_phases}"
+            )
+
+        # Read initial status
+        try:
+            self.last_status = get_complete_status(
+                self.client,
+                self.config,
+                EVC_MODE(self.current_mode.value),
+                self.active_phases,
+            )
+            self.service["/Status"] = self.last_status
+            status_names = {
+                0: "Disconnected",
+                1: "Connected",
+                2: "Charging",
+                4: "Wait Sun",
+                6: "Wait Start",
+                7: "Low SOC",
+            }
+            status_name = status_names.get(
+                self.last_status, f"Unknown({self.last_status})"
+            )
+            self.logger.info(f"Initial charger status: {status_name}")
+        except Exception as e:
+            self.logger.warning(f"Failed to read initial status: {e}")
+
+    def _restore_state(self) -> None:
+        """Restore persisted state and session data."""
+        # Restore session manager state
+        session_state = self.persistence.get_section("session")
+        if session_state:
+            self.session_manager.restore_state(session_state)
+
+        # Restore other state
+        self.insufficient_solar_start = self.persistence.get(
+            "insufficient_solar_start", 0
+        )
+
+        self.logger.info("Restored persisted state")
+
+    def _log_startup_settings(self) -> None:
+        """Log current configuration settings at startup."""
+        mode_str = EVC_MODE(self.current_mode.value).name
+        charge_str = EVC_CHARGE(self.start_stop.value).name
+        status_names = {0: "Disconnected", 1: "Connected", 2: "Charging", 7: "Low SOC"}
+        status_str = status_names.get(self.last_status, f"Unknown({self.last_status})")
+
+        self.logger.info(
+            f"=== Current Settings at Startup ===\n"
+            f"  EV Status: {status_str}\n"
+            f"  Mode: {mode_str}\n"
+            f"  Charging: {charge_str}\n"
+            f"  Intended Current: {self.intended_set_current.value:.2f}A\n"
+            f"  Station Max Current (from charger): {self.station_max_current:.2f}A\n"
+            f"  Active Phases (from charger): {self.active_phases}\n"
+            f"  Modbus IP: {self.config.modbus.ip}:{self.config.modbus.port}\n"
+            f"  Device Instance: {self.config.device_instance}\n"
+            f"  Min Charge Duration: "
+            f"{self.config.controls.min_charge_duration_seconds}s\n"
+            f"  Schedules Configured: {len(self.schedules)} active"
+        )
+
+        # Log schedule details if any are configured
+        if self.schedules:
+            for idx, schedule in enumerate(self.schedules):
+                if schedule.enabled:
+                    self.logger.info(
+                        f"  Schedule {idx+1}: {schedule.start} - {schedule.end}, "
+                        f"Days: {bin(schedule.days_mask)[2:].zfill(7)}"
+                    )
 
     def process_logic(self, raw_data: Dict[str, Optional[List[int]]]) -> None:
         """Process business logic based on raw data."""
@@ -726,6 +644,130 @@ class AlfenDriver:
             self.service["/ChargingTime"] = int(duration_min * 60)
         else:
             self.service["/ChargingTime"] = 0
+
+        # Build HTTP status snapshot for web UI
+        try:
+            snapshot: Dict[str, Any] = {}
+            snapshot["mode"] = int(self.current_mode.value)
+            snapshot["start_stop"] = int(self.start_stop.value)
+            snapshot["set_current"] = float(self.intended_set_current.value)
+            snapshot["station_max_current"] = float(self.station_max_current)
+            snapshot["status"] = int(self.service.get("/Status", 0)) if hasattr(self, "service") else 0
+            snapshot["ac_current"] = float(self.service.get("/Ac/Current", 0.0))
+            snapshot["ac_power"] = float(self.service.get("/Ac/Power", 0.0))
+            snapshot["energy_forward_kwh"] = float(self.service.get("/Ac/Energy/Forward", 0.0))
+            snapshot["l1_voltage"] = float(self.service.get("/Ac/L1/Voltage", 0.0))
+            snapshot["l2_voltage"] = float(self.service.get("/Ac/L2/Voltage", 0.0))
+            snapshot["l3_voltage"] = float(self.service.get("/Ac/L3/Voltage", 0.0))
+            snapshot["l1_current"] = float(self.service.get("/Ac/L1/Current", 0.0))
+            snapshot["l2_current"] = float(self.service.get("/Ac/L2/Current", 0.0))
+            snapshot["l3_current"] = float(self.service.get("/Ac/L3/Current", 0.0))
+            snapshot["l1_power"] = float(self.service.get("/Ac/L1/Power", 0.0))
+            snapshot["l2_power"] = float(self.service.get("/Ac/L2/Power", 0.0))
+            snapshot["l3_power"] = float(self.service.get("/Ac/L3/Power", 0.0))
+            snapshot["active_phases"] = int(getattr(self, "active_phases", 0) or 0)
+            snapshot["charging_time_sec"] = int(self.service.get("/ChargingTime", 0))
+            snapshot["firmware"] = str(self.service.get("/FirmwareVersion", ""))
+            snapshot["serial"] = str(self.service.get("/Serial", ""))
+            snapshot["product_name"] = str(self.service.get("/ProductName", ""))
+            snapshot["device_instance"] = int(self.config.device_instance)
+
+            if hasattr(self.session_manager, "current_session") and self.session_manager.current_session is not None:
+                cs = self.session_manager.current_session
+                snapshot["session"] = {
+                    "start_ts": cs.start_time,
+                    "start_energy_kwh": cs.start_energy_kwh,
+                }
+            elif self.session_manager.last_session is not None:
+                ls = self.session_manager.last_session
+                snapshot["session"] = {
+                    "start_ts": ls.start_time,
+                    "end_ts": ls.end_time,
+                    "energy_delivered_kwh": ls.energy_delivered_kwh,
+                }
+            else:
+                snapshot["session"] = {}
+
+            with self.status_lock:
+                self.status_snapshot = snapshot
+        except Exception as e:
+            self.logger.debug(f"Failed to update HTTP snapshot: {e}")
+
+    def _apply_current_change(
+        self,
+        change_source: str,
+        requested_current: Optional[float] = None,
+        force_verify: bool = True,
+    ) -> bool:
+        """
+        Apply current change from callbacks - consolidated logic.
+
+        Args:
+            change_source: Source of the change (mode, startstop, setcurrent)
+            requested_current: Requested current value (for setcurrent callback)
+            force_verify: Whether to force verification of the change
+
+        Returns:
+            True if change was applied successfully
+        """
+        now = time.time()
+
+        # Read active phases from charger
+        self.active_phases = read_active_phases(self.client, self.config)
+
+        # Compute effective current based on mode and state
+        (
+            effective_current,
+            explanation,
+            self.insufficient_solar_start,
+            low_soc,
+        ) = compute_effective_current(
+            EVC_MODE(self.current_mode.value),
+            EVC_CHARGE(self.start_stop.value),
+            self.intended_set_current.value,
+            self.station_max_current,
+            now,
+            self.schedules,
+            0.0,  # ev_power - will be set in AUTO mode
+            self.config.timezone,
+            self.insufficient_solar_start,
+            self.config.controls.min_charge_duration_seconds,
+            self.active_phases,
+            self.last_positive_set_time,
+        )
+
+        # Apply the current setting
+        if self._set_current_with_logging(
+            effective_current,
+            explanation,
+            force_verify=force_verify,
+            source=change_source,
+        ):
+            self.last_current_set_time = now
+            self.last_sent_current = effective_current
+            if effective_current >= ChargingLimits.MIN_CURRENT:
+                self.last_positive_set_time = now
+
+            # Build log message
+            mode_name = EVC_MODE(self.current_mode.value).name
+            log_msg = (
+                f"{change_source} applied current: "
+                f"{effective_current:.2f} A ({mode_name})"
+            )
+
+            # Add clamping info if applicable
+            if (
+                requested_current is not None
+                and abs(effective_current - requested_current) > 0.01
+            ):
+                log_msg += f" (adjusted from {requested_current:.2f} A)"
+
+            log_msg += f". Reason: {explanation}"
+            self.logger.info(log_msg)
+            return True
+        else:
+            self.logger.warning(f"Failed to apply current on {change_source}")
+            return False
 
     def apply_controls(self) -> None:
         """Apply control logic based on current mode."""

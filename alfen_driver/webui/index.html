@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Alfen EV Charger</title>
+	<link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+	<header>
+		<h1>Alfen EV Charger</h1>
+		<div class="meta">
+			<span id="product"></span>
+			<span id="serial"></span>
+			<span id="firmware"></span>
+		</div>
+	</header>
+	<main>
+		<section class="controls">
+			<div class="control">
+				<label for="mode">Mode</label>
+				<select id="mode">
+					<option value="0">Manual</option>
+					<option value="1">Auto</option>
+					<option value="2">Scheduled</option>
+				</select>
+			</div>
+			<div class="control">
+				<label for="startstop">Charging</label>
+				<label class="switch">
+					<input type="checkbox" id="startstop">
+					<span class="slider"></span>
+				</label>
+			</div>
+			<div class="control">
+				<label for="setcurrent">Set Current (A)</label>
+				<input type="number" id="setcurrent" min="0" max="32" step="0.1">
+			</div>
+			<div class="control">
+				<button id="apply">Apply</button>
+			</div>
+		</section>
+
+		<section class="metrics">
+			<div class="metric">
+				<span class="label">Status</span>
+				<span class="value" id="status">-</span>
+			</div>
+			<div class="metric">
+				<span class="label">AC Current</span>
+				<span class="value" id="ac_current">0.0 A</span>
+			</div>
+			<div class="metric">
+				<span class="label">AC Power</span>
+				<span class="value" id="ac_power">0 W</span>
+			</div>
+			<div class="metric">
+				<span class="label">Energy (session)</span>
+				<span class="value" id="energy">0.000 kWh</span>
+			</div>
+			<div class="metric">
+				<span class="label">L1</span>
+				<span class="value" id="l1">0.0 V / 0.00 A / 0 W</span>
+			</div>
+			<div class="metric">
+				<span class="label">L2</span>
+				<span class="value" id="l2">0.0 V / 0.00 A / 0 W</span>
+			</div>
+			<div class="metric">
+				<span class="label">L3</span>
+				<span class="value" id="l3">0.0 V / 0.00 A / 0 W</span>
+			</div>
+		</section>
+	</main>
+	<footer>
+		<div>Device instance: <span id="di"></span></div>
+	</footer>
+	<script src="/ui/app.js"></script>
+</body>
+</html>

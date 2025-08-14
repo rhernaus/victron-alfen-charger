@@ -1,0 +1,144 @@
+import asyncio
+import json
+import os
+import threading
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from aiohttp import web
+from gi.repository import GLib
+
+
+class WebServer:
+    """Lightweight HTTP server for status and control of the charger.
+
+    The server runs in its own asyncio event loop on a background thread.
+    State-changing operations are scheduled on the GLib main loop to remain
+    thread-safe with the driver's GLib-based lifecycle.
+    """
+
+    def __init__(self, driver: Any, host: str = "0.0.0.0", port: int = 8088) -> None:
+        self.driver = driver
+        self.host = host
+        self.port = port
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self.runner: Optional[web.AppRunner] = None
+        self.thread: Optional[threading.Thread] = None
+
+    def _get_static_dir(self) -> Path:
+        base_dir = Path(os.path.dirname(__file__)) / "webui"
+        return base_dir
+
+    async def _run_on_glib(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        """Execute a callable on the GLib main loop and await the result in asyncio."""
+        if self.loop is None:
+            raise RuntimeError("Event loop not initialized")
+
+        future: asyncio.Future[Any] = self.loop.create_future()
+
+        def _invoke() -> bool:
+            try:
+                result = func(*args, **kwargs)
+                self.loop.call_soon_threadsafe(future.set_result, result)
+            except Exception as exc:  # pragma: no cover
+                self.loop.call_soon_threadsafe(future.set_exception, exc)
+            return False
+
+        GLib.idle_add(_invoke, priority=GLib.PRIORITY_DEFAULT)
+        return await future
+
+    async def handle_status(self, request: web.Request) -> web.Response:
+        snapshot: Dict[str, Any]
+        try:
+            # Use a lock if available on the driver for snapshot consistency
+            lock = getattr(self.driver, "status_lock", None)
+            if lock is not None:
+                with lock:
+                    snapshot = dict(getattr(self.driver, "status_snapshot", {}) or {})
+            else:
+                snapshot = dict(getattr(self.driver, "status_snapshot", {}) or {})
+        except Exception:
+            snapshot = {}
+        return web.json_response(snapshot)
+
+    async def handle_set_mode(self, request: web.Request) -> web.Response:
+        data = await request.json()
+        mode = int(data.get("mode", 0))
+        result = await self._run_on_glib(self.driver.mode_callback, "/Mode", mode)
+        return web.json_response({"ok": bool(result)})
+
+    async def handle_startstop(self, request: web.Request) -> web.Response:
+        data = await request.json()
+        enabled = bool(data.get("enabled", True))
+        value = 1 if enabled else 0
+        result = await self._run_on_glib(self.driver.startstop_callback, "/StartStop", value)
+        return web.json_response({"ok": bool(result)})
+
+    async def handle_set_current(self, request: web.Request) -> web.Response:
+        data = await request.json()
+        amps = float(data.get("amps", 6.0))
+        result = await self._run_on_glib(self.driver.set_current_callback, "/SetCurrent", amps)
+        return web.json_response({"ok": bool(result)})
+
+    async def index(self, request: web.Request) -> web.Response:
+        return web.Response(text="Alfen Charger Web UI. Visit /ui/", content_type="text/plain")
+
+    async def _create_app(self) -> web.Application:
+        app = web.Application()
+        app.add_routes([
+            web.get("/", self.index),
+            web.get("/api/status", self.handle_status),
+            web.post("/api/mode", self.handle_set_mode),
+            web.post("/api/startstop", self.handle_startstop),
+            web.post("/api/set_current", self.handle_set_current),
+        ])
+
+        static_dir = self._get_static_dir()
+        if static_dir.exists():
+            app.router.add_static("/ui/", str(static_dir), show_index=False)
+            async def _redirect_ui(request: web.Request) -> web.Response:  # type: ignore[no-redef]
+                raise web.HTTPFound("/ui/")
+            app.router.add_get("/ui", _redirect_ui)
+        return app
+
+    async def _start_async(self) -> None:
+        assert self.loop is not None
+        app = await self._create_app()
+        self.runner = web.AppRunner(app)
+        await self.runner.setup()
+        site = web.TCPSite(self.runner, host=self.host, port=self.port)
+        await site.start()
+
+    async def _stop_async(self) -> None:
+        if self.runner is not None:
+            await self.runner.cleanup()
+
+    def start(self) -> None:
+        if self.thread is not None:
+            return
+
+        def _thread_target() -> None:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+            self.loop.run_until_complete(self._start_async())
+            try:
+                self.loop.run_forever()
+            finally:  # pragma: no cover
+                self.loop.run_until_complete(self._stop_async())
+                self.loop.close()
+
+        self.thread = threading.Thread(target=_thread_target, name="WebServer", daemon=True)
+        self.thread.start()
+
+    def stop(self) -> None:
+        if self.loop is not None:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+        if self.thread is not None:
+            self.thread.join(timeout=2.0)
+            self.thread = None
+
+
+def start_web_server(driver: Any, host: str = "0.0.0.0", port: int = 8088) -> WebServer:
+    server = WebServer(driver, host=host, port=port)
+    server.start()
+    return server
