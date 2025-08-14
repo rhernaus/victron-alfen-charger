@@ -90,8 +90,18 @@ function setModeUI(mode) {
 
 function setChargeUI(enabled) {
 	const btn = $('charge_btn');
-	if (enabled) { btn.title = 'Stop'; btn.classList.remove('off'); btn.classList.add('on'); btn.style.background = '#ef4444'; }
-	else { btn.title = 'Start'; btn.classList.add('off'); btn.style.background = '#22c55e'; }
+	if (enabled) {
+		btn.title = 'Stop';
+		btn.classList.remove('off');
+		btn.classList.add('on');
+		btn.style.background = '#ef4444';
+		btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="5" width="4" height="14" fill="#0b1020"/><rect x="14" y="5" width="4" height="14" fill="#0b1020"/></svg>`;
+	} else {
+		btn.title = 'Start';
+		btn.classList.add('off');
+		btn.style.background = '#22c55e';
+		btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polygon points="8,5 20,12 8,19" fill="#0b1020"/></svg>`;
+	}
 }
 
 function setCurrentUI(amps, stationMax) {
@@ -133,6 +143,14 @@ $('current_slider').addEventListener('input', () => {
 		const amps = parseFloat($('current_slider').value);
 		await postJSON('/api/set_current', { amps });
 	}, 400);
+});
+
+// Extend dirty window while the user is dragging the slider
+$('current_slider').addEventListener('pointerdown', () => {
+	currentDirtyUntil = Date.now() + 5000;
+});
+$('current_slider').addEventListener('pointerup', () => {
+	currentDirtyUntil = Date.now() + 1500;
 });
 
 async function fetchStatus() {
