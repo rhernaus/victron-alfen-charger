@@ -121,7 +121,16 @@ Logs: `/var/log/alfen_driver.log`
 
 ### Optional: Built‑in Web UI
 
-- The driver starts a lightweight HTTP server on port 8088 (defaults to 127.0.0.1; override with `ALFEN_WEB_HOST`).
+- The driver starts a lightweight HTTP server on port 8088 (defaults to 127.0.0.1; override in config or via env).
+- Configure binding in `alfen_driver_config.yaml`:
+
+```yaml
+web:
+  host: "0.0.0.0"  # 127.0.0.1 for localhost only
+  port: 8088
+```
+
+- Or via environment variables (override config): `ALFEN_WEB_HOST`, `ALFEN_WEB_PORT`
 - Local access: `http://<venus-ip>:8088/ui/`
 - API endpoints:
   - `GET /api/status` → JSON snapshot

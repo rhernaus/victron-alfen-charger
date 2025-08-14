@@ -200,6 +200,19 @@ def get_config_schema() -> Dict[str, Any]:
                     },
                 },
             },
+            "web": {
+                "title": "Web UI",
+                "type": "object",
+                "fields": {
+                    "host": {"type": "string", "title": "Bind address"},
+                    "port": {
+                        "type": "integer",
+                        "min": 1,
+                        "max": 65535,
+                        "title": "Port",
+                    },
+                },
+            },
             "device_instance": {
                 "title": "Device instance",
                 "type": "integer",

@@ -23,8 +23,14 @@ class WebServer:
         self, driver: Any, host: Optional[str] = None, port: int = 8088
     ) -> None:
         self.driver = driver
-        self.host = host or os.getenv("ALFEN_WEB_HOST", "127.0.0.1")
-        self.port = int(os.getenv("ALFEN_WEB_PORT", str(port)))
+        # Priority: explicit args -> config.web -> env -> default
+        cfg_host = getattr(getattr(driver, "config", None), "web", None)
+        cfg_host_val = getattr(cfg_host, "host", None)
+        cfg_port_val = getattr(cfg_host, "port", None)
+        env_host = os.getenv("ALFEN_WEB_HOST")
+        env_port = os.getenv("ALFEN_WEB_PORT")
+        self.host = host or cfg_host_val or env_host or "127.0.0.1"
+        self.port = int(env_port or cfg_port_val or port)
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.runner: Optional[web.AppRunner] = None
         self.thread: Optional[threading.Thread] = None
