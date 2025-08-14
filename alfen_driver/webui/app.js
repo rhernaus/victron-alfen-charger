@@ -35,13 +35,44 @@ async function fetchStatus() {
 	}
 }
 
-async function postJSON(url, payload) {
+async function fetchConfig() {
+	try {
+		const res = await fetch('/api/config');
+		const cfg = await res.json();
+		$('config_editor').value = JSON.stringify(cfg, null, 2);
+		$('config_status').textContent = '';
+	} catch (e) {
+		$('config_status').textContent = 'Failed to load configuration';
+		console.error('config error', e);
+	}
+}
+
+async function postJSON(url, payload, method = 'POST') {
 	const res = await fetch(url, {
-		method: 'POST',
+		method,
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(payload),
 	});
 	return await res.json();
+}
+
+async function saveConfig() {
+	try {
+		$('config_status').textContent = 'Saving...';
+		const text = $('config_editor').value;
+		const payload = JSON.parse(text);
+		const resp = await postJSON('/api/config', payload, 'PUT');
+		if (resp.ok) {
+			$('config_status').textContent = 'Saved';
+			setTimeout(() => $('config_status').textContent = '', 1200);
+			// refresh status to reflect any changes
+			fetchStatus();
+		} else {
+			$('config_status').textContent = `Error: ${resp.error || 'Validation failed'}`;
+		}
+	} catch (e) {
+		$('config_status').textContent = 'Invalid JSON';
+	}
 }
 
 async function applyControls() {
@@ -61,6 +92,8 @@ $('apply').addEventListener('click', applyControls);
 $('mode').addEventListener('change', () => postJSON('/api/mode', { mode: parseInt($('mode').value, 10) }));
 $('startstop').addEventListener('change', () => postJSON('/api/startstop', { enabled: $('startstop').checked }));
 $('setcurrent').addEventListener('change', () => postJSON('/api/set_current', { amps: parseFloat($('setcurrent').value) }));
+$('save_config').addEventListener('click', saveConfig);
 
 fetchStatus();
+fetchConfig();
 setInterval(fetchStatus, 2000);

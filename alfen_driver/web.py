@@ -61,6 +61,21 @@ class WebServer:
             snapshot = {}
         return web.json_response(snapshot)
 
+    async def handle_get_config(self, request: web.Request) -> web.Response:
+        # Get current config dict from driver
+        cfg = await self._run_on_glib(self.driver.get_config_dict)
+        return web.json_response(cfg)
+
+    async def handle_put_config(self, request: web.Request) -> web.Response:
+        # Accept full config document as JSON; validate and apply
+        try:
+            payload = await request.json()
+            result = await self._run_on_glib(self.driver.apply_config_from_dict, payload)
+            status = 200 if result.get("ok") else 400
+            return web.json_response(result, status=status)
+        except json.JSONDecodeError:
+            return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
     async def handle_set_mode(self, request: web.Request) -> web.Response:
         data = await request.json()
         mode = int(data.get("mode", 0))
@@ -85,9 +100,24 @@ class WebServer:
 
     async def _create_app(self) -> web.Application:
         app = web.Application()
+
+        # Simple CORS for JSON endpoints (local device UI usage)
+        @web.middleware
+        async def cors_mw(request: web.Request, handler: Any) -> web.StreamResponse:
+            response: web.StreamResponse = await handler(request)
+            if request.path.startswith("/api/"):
+                response.headers["Access-Control-Allow-Origin"] = "*"
+                response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+                response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,OPTIONS"
+            return response
+
+        app.middlewares.append(cors_mw)
+
         app.add_routes([
             web.get("/", self.index),
             web.get("/api/status", self.handle_status),
+            web.get("/api/config", self.handle_get_config),
+            web.put("/api/config", self.handle_put_config),
             web.post("/api/mode", self.handle_set_mode),
             web.post("/api/startstop", self.handle_startstop),
             web.post("/api/set_current", self.handle_set_current),

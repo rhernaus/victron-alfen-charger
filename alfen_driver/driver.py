@@ -6,6 +6,7 @@ import sys
 import time
 import uuid
 import threading
+import dataclasses
 from typing import Any, Dict, List, Optional
 
 sys.path.insert(
@@ -15,8 +16,9 @@ sys.path.insert(
 from gi.repository import GLib  # noqa: E402
 from pymodbus.client import ModbusTcpClient  # noqa: E402
 from pymodbus.exceptions import ModbusException  # noqa: E402
+import yaml  # noqa: E402
 
-from .config import Config, load_config  # noqa: E402
+from .config import Config, load_config, CONFIG_PATH  # noqa: E402
 from .constants import (  # noqa: E402
     ChargingLimits,
     ModbusRegisters,
@@ -58,6 +60,7 @@ from .modbus_utils import (  # noqa: E402
 from .persistence import PersistenceManager  # noqa: E402
 from .session_manager import ChargingSessionManager  # noqa: E402
 from .tibber import get_hourly_overview_text  # noqa: E402
+from .config_validator import ConfigValidator  # noqa: E402
 
 try:
     import dbus
@@ -73,12 +76,15 @@ class MutableValue:
 
 
 class AlfenDriver:
-    """Simplified Alfen EV charger driver."""
+    """Simplified Alfen EV Charger driver."""
 
     def __init__(self) -> None:
         """Initialize the driver with configuration and components."""
         # Load configuration
         self.config: Config = load_config()
+
+        # Track config file path for persistence
+        self.config_file_path = self._determine_config_file_path()
 
         # Setup logging
         setup_root_logging(self.config)
@@ -126,6 +132,71 @@ class AlfenDriver:
         self.status_lock = threading.Lock()
 
         self.logger.info("Driver initialization complete")
+
+    def _determine_config_file_path(self) -> str:
+        """Determine the active configuration file path used by the driver."""
+        local_path = os.path.join(os.getcwd(), "alfen_driver_config.yaml")
+        if os.path.exists(local_path):
+            return local_path
+        if os.path.exists(CONFIG_PATH):
+            return os.path.abspath(CONFIG_PATH)
+        # Fallback to local path
+        return local_path
+
+    def get_config_dict(self) -> Dict[str, Any]:
+        """Return the current configuration as a dictionary."""
+        return dataclasses.asdict(self.config)
+
+    def apply_config_from_dict(self, new_config_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate, persist, and apply a new configuration at runtime.
+
+        Returns a result dict: { ok: bool, error: Optional[str] }
+        """
+        try:
+            # Validate
+            validator = ConfigValidator()
+            validator.validate_or_raise(new_config_dict)
+
+            # Persist to YAML (atomically)
+            temp_path = f"{self.config_file_path}.tmp"
+            with open(temp_path, "w", encoding="utf-8") as f:
+                yaml.safe_dump(new_config_dict, f, sort_keys=False)
+            os.replace(temp_path, self.config_file_path)
+
+            # Recreate Config instance
+            new_config = Config.from_dict(new_config_dict)
+
+            # If Modbus connection parameters changed, recreate client
+            old_host = self.config.modbus.ip
+            old_port = self.config.modbus.port
+            new_host = new_config.modbus.ip
+            new_port = new_config.modbus.port
+            if old_host != new_host or old_port != new_port:
+                try:
+                    self.client.close()
+                except Exception:
+                    pass
+                self.client = ModbusTcpClient(host=new_host, port=new_port)
+
+            # Swap config and propagate
+            self.config = new_config
+            set_logic_config(self.config)
+            self.schedules = (
+                self.config.schedule.items if hasattr(self.config, "schedule") else []
+            )
+
+            # Refresh charger parameters (max current, phases, status)
+            self._read_charger_parameters()
+
+            # Update snapshot with new device instance, etc.
+            with self.status_lock:
+                current = dict(self.status_snapshot)
+                current["device_instance"] = int(self.config.device_instance)
+                self.status_snapshot = current
+
+            return {"ok": True}
+        except Exception as exc:  # pragma: no cover - runtime safe-guard
+            return {"ok": False, "error": str(exc)}
 
     def _init_state(self) -> None:
         """Initialize driver state variables."""
