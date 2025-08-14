@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional
 from aiohttp import web
 from gi.repository import GLib
 
+from .config_schema import get_config_schema
+
 
 class WebServer:
     """Lightweight HTTP server for status and control of the charger.
@@ -60,6 +62,9 @@ class WebServer:
         except Exception:
             snapshot = {}
         return web.json_response(snapshot)
+
+    async def handle_get_schema(self, request: web.Request) -> web.Response:
+        return web.json_response(get_config_schema())
 
     async def handle_get_config(self, request: web.Request) -> web.Response:
         # Get current config dict from driver
@@ -116,6 +121,7 @@ class WebServer:
         app.add_routes([
             web.get("/", self.index),
             web.get("/api/status", self.handle_status),
+            web.get("/api/config/schema", self.handle_get_schema),
             web.get("/api/config", self.handle_get_config),
             web.put("/api/config", self.handle_put_config),
             web.post("/api/mode", self.handle_set_mode),

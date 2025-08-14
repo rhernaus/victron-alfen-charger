@@ -31,3 +31,21 @@ input:checked + .slider:before { transform: translateX(22px); }
 #save_config { background: #22c55e; color: #052e16; border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
 #save_config:hover { background: #16a34a; }
 #config_status { font-size: 13px; color: #94a3b8; }
+
+.config .section { margin-top: 8px; border: 1px solid #374151; border-radius: 8px; overflow: hidden; }
+.config .section .section-header { background: #0b1220; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.config .section .section-title { margin: 0; font-weight: 600; font-size: 14px; }
+.config .section .section-body { padding: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.form-field { display: grid; gap: 6px; }
+.form-field label { font-size: 12px; color: #cbd5e1; }
+.form-field input[type="text"], .form-field input[type="number"], .form-field select, .form-field input[type="time"] { width: 100%; background: #0b1220; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px; }
+.form-field input[type="checkbox"] { transform: scale(1.1); }
+.form-field .error { color: #fca5a5; font-size: 12px; }
+.days { display: flex; gap: 6px; flex-wrap: wrap; }
+.day-chip { background: #0b1220; border: 1px solid #334155; color: #e2e8f0; border-radius: 14px; padding: 4px 10px; cursor: pointer; user-select: none; }
+.day-chip.active { background: #2563eb; border-color: #1d4ed8; }
+.list-items { display: grid; gap: 10px; }
+.list-item { border: 1px dashed #334155; padding: 10px; border-radius: 6px; }
+.list-actions { display: flex; gap: 8px; }
+.add-btn { background: #2563eb; color: white; border: 0; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+.remove-btn { background: #ef4444; color: white; border: 0; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
