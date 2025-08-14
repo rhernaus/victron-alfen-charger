@@ -73,6 +73,67 @@ $('range')?.addEventListener('change', (e) => {
 	drawChart();
 });
 
+// Interaction state
+let isChangingMode = false;
+let isChangingCurrent = false;
+let modeDirtyUntil = 0;
+let currentDirtyUntil = 0;
+
+function setModeUI(mode) {
+	// Only update UI if not recently changed by the user
+	if (Date.now() < modeDirtyUntil) return;
+	['mode_manual','mode_auto','mode_sched'].forEach((id) => $(id).classList.remove('active'));
+	if (mode === 0) $('mode_manual').classList.add('active');
+	else if (mode === 1) $('mode_auto').classList.add('active');
+	else if (mode === 2) $('mode_sched').classList.add('active');
+}
+
+function setChargeUI(enabled) {
+	const btn = $('charge_btn');
+	if (enabled) { btn.textContent = 'Stop'; btn.classList.remove('off'); btn.classList.add('on'); } else { btn.textContent = 'Start'; btn.classList.add('off'); }
+}
+
+function setCurrentUI(amps, stationMax) {
+	if (Date.now() < currentDirtyUntil) return;
+	$('current_slider').value = String(amps);
+	$('current_value').textContent = `${Number(amps).toFixed(1)} A`;
+	$('station_max').textContent = `${Number(stationMax || 0).toFixed(1)} A`;
+}
+
+// Wire controls
+$('mode_manual').addEventListener('click', async () => {
+	modeDirtyUntil = Date.now() + 2000;
+	setModeUI(0);
+	await postJSON('/api/mode', { mode: 0 });
+});
+$('mode_auto').addEventListener('click', async () => {
+	modeDirtyUntil = Date.now() + 2000;
+	setModeUI(1);
+	await postJSON('/api/mode', { mode: 1 });
+});
+$('mode_sched').addEventListener('click', async () => {
+	modeDirtyUntil = Date.now() + 2000;
+	setModeUI(2);
+	await postJSON('/api/mode', { mode: 2 });
+});
+$('charge_btn').addEventListener('click', async () => {
+	// Toggle
+	const isOn = $('charge_btn').classList.contains('on');
+	setChargeUI(!isOn);
+	await postJSON('/api/startstop', { enabled: !isOn });
+});
+
+let currentChangeTimer = null;
+$('current_slider').addEventListener('input', () => {
+	currentDirtyUntil = Date.now() + 2000;
+	$('current_value').textContent = `${Number($('current_slider').value).toFixed(1)} A`;
+	if (currentChangeTimer) clearTimeout(currentChangeTimer);
+	currentChangeTimer = setTimeout(async () => {
+		const amps = parseFloat($('current_slider').value);
+		await postJSON('/api/set_current', { amps });
+	}, 400);
+});
+
 async function fetchStatus() {
 	try {
 		const res = await fetch('/api/status');
@@ -80,11 +141,22 @@ async function fetchStatus() {
 		$('product').textContent = s.product_name || '';
 		$('serial').textContent = s.serial ? `SN ${s.serial}` : '';
 		$('firmware').textContent = s.firmware ? `FW ${s.firmware}` : '';
-		$('mode').value = String(s.mode ?? 0);
-		$('startstop').checked = (s.start_stop ?? 1) === 1;
-		$('setcurrent').value = (s.set_current ?? 6.0).toFixed(1);
+		setModeUI(Number(s.mode ?? 0));
+		setChargeUI(Number(s.start_stop ?? 1) === 1);
+		setCurrentUI(Number(s.set_current ?? 6.0), Number(s.station_max_current ?? 0));
 		$('di').textContent = s.device_instance ?? '';
-		$('status').textContent = statusNames[s.status] || '-';
+		const stName = statusNames[s.status] || '-';
+		$('status').textContent = stName;
+		$('status_text').textContent = stName;
+		$('hero_power').textContent = `${Math.round(s.ac_power ?? 0)} W`;
+		$('hero_energy').textContent = `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`;
+		$('hero_current').textContent = `${(s.ac_current ?? 0).toFixed(2)} A`;
+		// status dot color
+		const dot = $('status_dot');
+		dot.classList.remove('ok','warn','err');
+		if (s.status === 2) dot.classList.add('ok');
+		else if (s.status === 4 || s.status === 6) dot.classList.add('warn');
+		else if (s.status === 7) dot.classList.add('err');
 		$('ac_current').textContent = `${(s.ac_current ?? 0).toFixed(2)} A`;
 		$('ac_power').textContent = `${Math.round(s.ac_power ?? 0)} W`;
 		$('energy').textContent = `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`;
@@ -473,11 +545,8 @@ async function applyControls() {
 	setTimeout(fetchStatus, 300);
 }
 
-$('apply').addEventListener('click', applyControls);
-$('mode').addEventListener('change', () => postJSON('/api/mode', { mode: parseInt($('mode').value, 10) }));
-$('startstop').addEventListener('change', () => postJSON('/api/startstop', { enabled: $('startstop').checked }));
-$('setcurrent').addEventListener('change', () => postJSON('/api/set_current', { amps: parseFloat($('setcurrent').value) }));
-$('save_config').addEventListener('click', saveConfig);
+// Remove old event wires for apply/mode/startstop/setcurrent
+try { $('apply').remove(); } catch(e) {}
 
 fetchStatus();
 initConfigForm();
