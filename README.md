@@ -25,6 +25,8 @@ Integrate an Alfen Eve (Pro Line and similar NG9xx platform) EV charger with a V
 
 See `requirements.txt` and `requirements-dev.txt`.
 
+Note for GX devices: Run the driver in a dedicated Python virtual environment and avoid installing requirements into the system Python. The built‑in two‑way communication service expects an older `pymodbus` and may break if system packages are upgraded. Keep system packages untouched; install this project's deps only inside the venv.
+
 ## Quick start (local testing)
 
 1) Clone and enter the repo
@@ -82,20 +84,26 @@ git clone https://github.com/yourusername/victron-alfen-charger.git
 cd victron-alfen-charger
 cp alfen_driver_config.sample.yaml alfen_driver_config.yaml
 vi alfen_driver_config.yaml   # set modbus.ip and other fields as needed
-pip3 install -r requirements.txt
 chmod +x main.py
 ```
 
-4) Test run
+4) Create a dedicated virtual environment and install dependencies (recommended)
 
 ```bash
-./main.py
+python3 -m venv /data/alfen-venv
+/data/alfen-venv/bin/pip install -r requirements.txt
 ```
 
-5) Auto‑start on boot (rc.local)
+5) Test run
 
 ```bash
-echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local
+/data/alfen-venv/bin/python ./main.py
+```
+
+6) Auto‑start on boot (rc.local)
+
+```bash
+echo '/data/alfen-venv/bin/python /data/victron-alfen-charger/main.py &' >> /data/rc.local
 chmod +x /data/rc.local
 ```
 
