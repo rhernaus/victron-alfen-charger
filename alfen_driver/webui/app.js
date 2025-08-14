@@ -73,7 +73,7 @@ function createInput(fieldKey, def, value, path) {
 			input.type = 'text';
 			if (def.format === 'ipv4') {
 				input.placeholder = 'e.g. 192.168.1.100';
-				input.pattern = '^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$';
+				input.pattern = '^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$';
 			}
 			input.value = value ?? '';
 			break;
@@ -172,7 +172,7 @@ function validateField(input, def) {
 		if (!error && def.max != null && val > def.max) error = `Must be ≤ ${def.max}`;
 	}
 	if (def.type === 'string' && def.format === 'ipv4' && val) {
-		const re = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+		const re = /^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$/;
 		if (!re.test(val)) error = 'Invalid IPv4 address';
 	}
 	const errEl = input.parentElement.querySelector('.error');
@@ -188,7 +188,7 @@ function validateField(input, def) {
 
 function buildSection(container, key, sectionDef, cfg) {
 	const section = document.createElement('div');
-	section.className = 'section';
+	section.className = 'section' + (sectionDef.advanced ? ' advanced' : '');
 	const header = document.createElement('div');
 	header.className = 'section-header';
 	const title = document.createElement('div');
@@ -197,9 +197,6 @@ function buildSection(container, key, sectionDef, cfg) {
 	header.appendChild(title);
 	const body = document.createElement('div');
 	body.className = 'section-body';
-	if (sectionDef.advanced) {
-		body.style.display = 'none';
-	}
 	header.addEventListener('click', () => {
 		body.style.display = body.style.display === 'none' ? '' : 'none';
 	});
@@ -269,8 +266,21 @@ function buildForm(schema, cfg) {
 	const root = $('config_form');
 	root.innerHTML = '';
 	const sections = schema.sections || {};
-	Object.keys(sections).forEach((key) => {
+	const nav = $('config_nav');
+	nav.innerHTML = '';
+	Object.keys(sections).forEach((key, idx) => {
 		buildSection(root, key, sections[key], cfg[key]);
+		const chip = document.createElement('div');
+		chip.className = 'chip' + (idx === 0 ? ' active' : '');
+		chip.textContent = sections[key].title || key;
+		chip.addEventListener('click', () => {
+			const sectionEls = Array.from(root.getElementsByClassName('section'));
+			const target = sectionEls[idx];
+			if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+			nav.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+			chip.classList.add('active');
+		});
+		nav.appendChild(chip);
 	});
 }
 
@@ -359,6 +369,24 @@ async function initConfigForm() {
 	}
 }
 
+function initUX() {
+	$('toggle_config').addEventListener('click', () => {
+		const sec = document.querySelector('section.config');
+		sec.classList.toggle('collapsed');
+		$('toggle_config').textContent = sec.classList.contains('collapsed') ? 'Edit configuration' : 'Hide configuration';
+	});
+	$('show_advanced').addEventListener('change', () => {
+		if ($('show_advanced').checked) document.body.classList.add('show-advanced');
+		else document.body.classList.remove('show-advanced');
+	});
+	$('expand_all').addEventListener('click', () => {
+		document.querySelectorAll('.section .section-body').forEach((el) => el.style.display = '');
+	});
+	$('collapse_all').addEventListener('click', () => {
+		document.querySelectorAll('.section .section-body').forEach((el) => el.style.display = 'none');
+	});
+}
+
 async function applyControls() {
 	const mode = parseInt($('mode').value, 10);
 	await postJSON('/api/mode', { mode });
@@ -380,4 +408,5 @@ $('save_config').addEventListener('click', saveConfig);
 
 fetchStatus();
 initConfigForm();
+initUX();
 setInterval(fetchStatus, 2000);

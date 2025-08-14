@@ -49,3 +49,15 @@ input:checked + .slider:before { transform: translateX(22px); }
 .list-actions { display: flex; gap: 8px; }
 .add-btn { background: #2563eb; color: white; border: 0; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
 .remove-btn { background: #ef4444; color: white; border: 0; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+
+section.config.collapsed .config-body { display: none; }
+section.config .toolbar { display: flex; align-items: center; gap: 8px; margin: 8px 0 12px; }
+section.config .toolbar .spacer { flex: 1; }
+section.config .toolbar .ghost { background: transparent; color: #cbd5e1; border: 1px solid #334155; }
+.checkbox { display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 13px; }
+.config-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.config-nav .chip { background: #0b1220; border: 1px solid #334155; padding: 6px 10px; border-radius: 14px; cursor: pointer; color: #e2e8f0; font-size: 12px; }
+.config-nav .chip.active { background: #2563eb; border-color: #1d4ed8; }
+
+/* Hide advanced sections by default */
+body:not(.show-advanced) .section.advanced .section-body { display: none !important; }

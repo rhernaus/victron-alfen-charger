@@ -72,13 +72,22 @@
 			</div>
 		</section>
 
-		<section class="config">
+		<section class="config collapsed">
 			<h2>Configuration</h2>
-			<p class="hint">Change settings with validation. Advanced options are collapsible.</p>
-			<div id="config_form"></div>
-			<div class="config-actions">
-				<button id="save_config">Save configuration</button>
-				<span id="config_status"></span>
+			<div class="toolbar">
+				<button id="toggle_config">Edit configuration</button>
+				<div class="spacer"></div>
+				<label class="checkbox"><input type="checkbox" id="show_advanced"> Show advanced</label>
+				<button id="expand_all" class="ghost">Expand all</button>
+				<button id="collapse_all" class="ghost">Collapse all</button>
+			</div>
+			<div id="config_nav" class="config-nav"></div>
+			<div id="config_body" class="config-body">
+				<div id="config_form"></div>
+				<div class="config-actions">
+					<button id="save_config">Save configuration</button>
+					<span id="config_status"></span>
+				</div>
 			</div>
 		</section>
 	</main>
