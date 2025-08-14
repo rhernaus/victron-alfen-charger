@@ -3,7 +3,6 @@
 import asyncio
 import json
 import os
-import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -34,7 +33,12 @@ class TestDebugAccessLogger:
 
         logger.debug.assert_called_once_with(
             '%s "%s %s" %s %.3f %s',
-            "127.0.0.1", "GET", "/test", 200, 0.123, "TestAgent"
+            "127.0.0.1",
+            "GET",
+            "/test",
+            200,
+            0.123,
+            "TestAgent",
         )
 
     def test_log_no_user_agent(self) -> None:
@@ -51,8 +55,7 @@ class TestDebugAccessLogger:
         access_logger.log(request, response, 0.123)
 
         logger.debug.assert_called_once_with(
-            '%s "%s %s" %s %.3f %s',
-            "127.0.0.1", "GET", "/test", 200, 0.123, "-"
+            '%s "%s %s" %s %.3f %s', "127.0.0.1", "GET", "/test", 200, 0.123, "-"
         )
 
     def test_log_no_remote(self) -> None:
@@ -69,8 +72,7 @@ class TestDebugAccessLogger:
         access_logger.log(request, response, 0.123)
 
         logger.debug.assert_called_once_with(
-            '%s "%s %s" %s %.3f %s',
-            "-", "GET", "/test", 200, 0.123, "-"
+            '%s "%s %s" %s %.3f %s', "-", "GET", "/test", 200, 0.123, "-"
         )
 
 
@@ -92,9 +94,9 @@ class TestWebServer:
     def test_init_with_explicit_args(self) -> None:
         """Test WebServer initialization with explicit arguments."""
         driver = Mock()
-        server = WebServer(driver, host="0.0.0.0", port=9000)
+        server = WebServer(driver, host="0.0.0.0", port=9000)  # noqa: S104
 
-        assert server.host == "0.0.0.0"
+        assert server.host == "0.0.0.0"  # noqa: S104
         assert server.port == 9000
 
     def test_init_with_config(self) -> None:
@@ -478,8 +480,7 @@ class TestWebServer:
         assert response.headers["Access-Control-Allow-Origin"] == "*"
         assert response.headers["Access-Control-Allow-Headers"] == "Content-Type"
         assert (
-            response.headers["Access-Control-Allow-Methods"]
-            == "GET,POST,PUT,OPTIONS"
+            response.headers["Access-Control-Allow-Methods"] == "GET,POST,PUT,OPTIONS"
         )
 
         # Test non-API endpoint
@@ -534,10 +535,10 @@ def test_start_web_server() -> None:
     driver = Mock()
 
     with patch.object(WebServer, "start") as mock_start:
-        server = start_web_server(driver, host="0.0.0.0", port=9000)
+        server = start_web_server(driver, host="0.0.0.0", port=9000)  # noqa: S104
 
     assert isinstance(server, WebServer)
     assert server.driver == driver
-    assert server.host == "0.0.0.0"
+    assert server.host == "0.0.0.0"  # noqa: S104
     assert server.port == 9000
     mock_start.assert_called_once()
