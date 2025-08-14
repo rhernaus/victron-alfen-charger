@@ -72,6 +72,26 @@
 			</div>
 		</section>
 
+		<section class="history">
+			<div class="history-header">
+				<h2>Recent history</h2>
+				<div class="range">
+					<label for="range">Window</label>
+					<select id="range">
+						<option value="60">60 s</option>
+						<option value="300" selected>300 s</option>
+						<option value="3600">3600 s</option>
+					</select>
+				</div>
+			</div>
+			<canvas id="chart" width="1000" height="260"></canvas>
+			<div class="legend">
+				<span class="dot dot-current"></span> Actual current
+				<span class="dot dot-allowed"></span> Allowed current
+				<span class="dot dot-station"></span> Station max
+			</div>
+		</section>
+
 		<section class="config collapsed">
 			<h2>Configuration</h2>
 			<div class="toolbar">

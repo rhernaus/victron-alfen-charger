@@ -13,6 +13,66 @@ const statusNames = {
 let currentConfig = null;
 let currentSchema = null;
 
+// History series
+const history = {
+	points: [], // {t, current, allowed, station}
+	windowSec: 300,
+};
+
+function addHistoryPoint(s) {
+	const t = Date.now() / 1000;
+	const current = Number(s.ac_current || 0);
+	const allowed = Number(s.set_current || 0);
+	const station = Number(s.station_max_current || 0);
+	history.points.push({ t, current, allowed, station });
+	const cutoff = t - history.windowSec;
+	history.points = history.points.filter((p) => p.t >= cutoff);
+	drawChart();
+}
+
+function drawChart() {
+	const canvas = $('chart');
+	if (!canvas) return;
+	const ctx = canvas.getContext('2d');
+	const W = canvas.width; const H = canvas.height;
+	ctx.clearRect(0, 0, W, H);
+	ctx.fillStyle = '#0a1228';
+	ctx.fillRect(0, 0, W, H);
+	if (history.points.length < 2) return;
+	const tMin = history.points[0].t;
+	const tMax = history.points[history.points.length - 1].t;
+	const tSpan = Math.max(1, tMax - tMin);
+	let vMax = 0;
+	history.points.forEach((p) => { vMax = Math.max(vMax, p.current, p.allowed, p.station); });
+	vMax = Math.max(10, Math.ceil(vMax / 5) * 5);
+	function mapX(t) { return 40 + ((t - tMin) / tSpan) * (W - 60); }
+	function mapY(v) { return H - 20 - (v / vMax) * (H - 40); }
+	// Grid
+	ctx.strokeStyle = '#1c273a'; ctx.lineWidth = 1;
+	for (let i = 0; i <= 5; i++) { const y = mapY((vMax/5)*i); ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(W-20, y); ctx.stroke(); }
+	// Series draw function
+	function plot(color, key) {
+		ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+		history.points.forEach((p, idx) => {
+			const x = mapX(p.t); const y = mapY(p[key]);
+			if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+		}); ctx.stroke();
+	}
+	plot('#22c55e', 'current');
+	plot('#f59e0b', 'allowed');
+	plot('#ef4444', 'station');
+	// Axes
+	ctx.strokeStyle = '#273042'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, H-20); ctx.lineTo(W-20, H-20); ctx.stroke();
+	ctx.fillStyle = '#9fb0c8'; ctx.font = '12px Inter, sans-serif';
+	ctx.fillText(`${vMax} A`, 4, mapY(vMax) + 4);
+	ctx.fillText('0', 20, H-22);
+}
+
+$('range')?.addEventListener('change', (e) => {
+	history.windowSec = parseInt(e.target.value, 10) || 300;
+	drawChart();
+});
+
 async function fetchStatus() {
 	try {
 		const res = await fetch('/api/status');
@@ -20,12 +80,10 @@ async function fetchStatus() {
 		$('product').textContent = s.product_name || '';
 		$('serial').textContent = s.serial ? `SN ${s.serial}` : '';
 		$('firmware').textContent = s.firmware ? `FW ${s.firmware}` : '';
-
 		$('mode').value = String(s.mode ?? 0);
 		$('startstop').checked = (s.start_stop ?? 1) === 1;
 		$('setcurrent').value = (s.set_current ?? 6.0).toFixed(1);
 		$('di').textContent = s.device_instance ?? '';
-
 		$('status').textContent = statusNames[s.status] || '-';
 		$('ac_current').textContent = `${(s.ac_current ?? 0).toFixed(2)} A`;
 		$('ac_power').textContent = `${Math.round(s.ac_power ?? 0)} W`;
@@ -33,6 +91,11 @@ async function fetchStatus() {
 		$('l1').textContent = `${(s.l1_voltage ?? 0).toFixed(1)} V / ${(s.l1_current ?? 0).toFixed(2)} A / ${Math.round(s.l1_power ?? 0)} W`;
 		$('l2').textContent = `${(s.l2_voltage ?? 0).toFixed(1)} V / ${(s.l2_current ?? 0).toFixed(2)} A / ${Math.round(s.l2_power ?? 0)} W`;
 		$('l3').textContent = `${(s.l3_voltage ?? 0).toFixed(1)} V / ${(s.l3_current ?? 0).toFixed(2)} A / ${Math.round(s.l3_power ?? 0)} W`;
+		addHistoryPoint(s);
+		// only rebuild form when closed to avoid flicker while editing
+		if (!isConfigOpen && currentSchema && currentConfig) {
+			// no-op here; form rebuild is heavy and only needed after save
+		}
 	} catch (e) {
 		console.error('status error', e);
 	}
@@ -369,12 +432,20 @@ async function initConfigForm() {
 	}
 }
 
+// Smarter polling to avoid clobbering edits: only refresh form when closed
+let isConfigOpen = false;
+
+function toggleConfigOpen(open) {
+	const sec = document.querySelector('section.config');
+	if (!sec) return;
+	if (open === undefined) sec.classList.toggle('collapsed');
+	else sec.classList.toggle('collapsed', !open);
+	isConfigOpen = !sec.classList.contains('collapsed');
+	$('toggle_config').textContent = isConfigOpen ? 'Hide configuration' : 'Edit configuration';
+}
+
 function initUX() {
-	$('toggle_config').addEventListener('click', () => {
-		const sec = document.querySelector('section.config');
-		sec.classList.toggle('collapsed');
-		$('toggle_config').textContent = sec.classList.contains('collapsed') ? 'Edit configuration' : 'Hide configuration';
-	});
+	$('toggle_config').addEventListener('click', () => toggleConfigOpen());
 	$('show_advanced').addEventListener('change', () => {
 		if ($('show_advanced').checked) document.body.classList.add('show-advanced');
 		else document.body.classList.remove('show-advanced');
@@ -385,6 +456,8 @@ function initUX() {
 	$('collapse_all').addEventListener('click', () => {
 		document.querySelectorAll('.section .section-body').forEach((el) => el.style.display = 'none');
 	});
+	// start collapsed
+	toggleConfigOpen(false);
 }
 
 async function applyControls() {
@@ -409,4 +482,5 @@ $('save_config').addEventListener('click', saveConfig);
 fetchStatus();
 initConfigForm();
 initUX();
+// Reduce polling frequency to 2s to lower UI churn
 setInterval(fetchStatus, 2000);
