@@ -131,7 +131,3 @@ echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local && chmod +x /data
 - Before pushing:
   - Run `make all` to exercise format, lint, type-check, security, and tests.
 
-### Cross‑verification notes (from CLAUDE.md)
-- Commands and architecture in `CLAUDE.md` match the codebase and `README.md`.
-- Additional modules present beyond CLAUDE.md summary: `config_validator.py`, `logging_utils.py`, `persistence.py`, `session_manager.py`, `tibber.py`, `constants.py`, `exceptions.py`.
-- `GEMINI.md` is currently empty.
