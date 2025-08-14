@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """Simplified Alfen EV Charger driver for Victron Venus OS."""
 
+import dataclasses
 import os
 import sys
+import threading
 import time
 import uuid
-import threading
-import dataclasses
 from typing import Any, Dict, List, Optional
 
 sys.path.insert(
     1, os.path.join(os.path.dirname(__file__), "/opt/victronenergy/dbus-modbus-client")
 )
 
+import yaml  # noqa: E402
 from gi.repository import GLib  # noqa: E402
 from pymodbus.client import ModbusTcpClient  # noqa: E402
 from pymodbus.exceptions import ModbusException  # noqa: E402
-import yaml  # noqa: E402
 
-from .config import Config, load_config, CONFIG_PATH  # noqa: E402
+from .config import CONFIG_PATH, Config, load_config  # noqa: E402
+from .config_validator import ConfigValidator  # noqa: E402
 from .constants import (  # noqa: E402
     ChargingLimits,
     ModbusRegisters,
@@ -60,7 +61,6 @@ from .modbus_utils import (  # noqa: E402
 from .persistence import PersistenceManager  # noqa: E402
 from .session_manager import ChargingSessionManager  # noqa: E402
 from .tibber import get_hourly_overview_text  # noqa: E402
-from .config_validator import ConfigValidator  # noqa: E402
 
 try:
     import dbus
@@ -174,8 +174,8 @@ class AlfenDriver:
             if old_host != new_host or old_port != new_port:
                 try:
                     self.client.close()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self.logger.debug(f"Error closing Modbus client: {exc}")
                 self.client = ModbusTcpClient(host=new_host, port=new_port)
 
             # Swap config and propagate
@@ -344,9 +344,7 @@ class AlfenDriver:
         )
 
         if success:
-            log_msg = (
-                f"{source}: Applied {effective_current:.2f} A in {msg_mode} mode"
-            )
+            log_msg = f"{source}: Applied {effective_current:.2f} A in {msg_mode} mode"
             if (
                 requested_current is not None
                 and abs(effective_current - requested_current) > 0.01
@@ -723,10 +721,14 @@ class AlfenDriver:
             snapshot["start_stop"] = int(self.start_stop.value)
             snapshot["set_current"] = float(self.intended_set_current.value)
             snapshot["station_max_current"] = float(self.station_max_current)
-            snapshot["status"] = int(self.service.get("/Status", 0)) if hasattr(self, "service") else 0
+            snapshot["status"] = (
+                int(self.service.get("/Status", 0)) if hasattr(self, "service") else 0
+            )
             snapshot["ac_current"] = float(self.service.get("/Ac/Current", 0.0))
             snapshot["ac_power"] = float(self.service.get("/Ac/Power", 0.0))
-            snapshot["energy_forward_kwh"] = float(self.service.get("/Ac/Energy/Forward", 0.0))
+            snapshot["energy_forward_kwh"] = float(
+                self.service.get("/Ac/Energy/Forward", 0.0)
+            )
             snapshot["l1_voltage"] = float(self.service.get("/Ac/L1/Voltage", 0.0))
             snapshot["l2_voltage"] = float(self.service.get("/Ac/L2/Voltage", 0.0))
             snapshot["l3_voltage"] = float(self.service.get("/Ac/L3/Voltage", 0.0))
@@ -743,7 +745,10 @@ class AlfenDriver:
             snapshot["product_name"] = str(self.service.get("/ProductName", ""))
             snapshot["device_instance"] = int(self.config.device_instance)
 
-            if hasattr(self.session_manager, "current_session") and self.session_manager.current_session is not None:
+            if (
+                hasattr(self.session_manager, "current_session")
+                and self.session_manager.current_session is not None
+            ):
                 cs = self.session_manager.current_session
                 snapshot["session"] = {
                     "start_ts": cs.start_time,
@@ -1010,3 +1015,17 @@ class AlfenDriver:
         # Start main loop
         mainloop = GLib.MainLoop()
         mainloop.run()
+
+    def _persist_state(self) -> None:
+        """Persist current state to disk."""
+        self.persistence.update(
+            {
+                "mode": self.current_mode.value,
+                "start_stop": self.start_stop.value,
+                "set_current": self.intended_set_current.value,
+                "insufficient_solar_start": self.insufficient_solar_start,
+            }
+        )
+        # Save session state
+        self.persistence.set_section("session", self.session_manager.get_state())
+        self.persistence.save_state()

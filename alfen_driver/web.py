@@ -3,7 +3,7 @@ import json
 import os
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from aiohttp import web
 from gi.repository import GLib
@@ -19,10 +19,12 @@ class WebServer:
     thread-safe with the driver's GLib-based lifecycle.
     """
 
-    def __init__(self, driver: Any, host: str = "0.0.0.0", port: int = 8088) -> None:
+    def __init__(
+        self, driver: Any, host: Optional[str] = None, port: int = 8088
+    ) -> None:
         self.driver = driver
-        self.host = host
-        self.port = port
+        self.host = host or os.getenv("ALFEN_WEB_HOST", "127.0.0.1")
+        self.port = int(os.getenv("ALFEN_WEB_PORT", str(port)))
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.runner: Optional[web.AppRunner] = None
         self.thread: Optional[threading.Thread] = None
@@ -36,14 +38,16 @@ class WebServer:
         if self.loop is None:
             raise RuntimeError("Event loop not initialized")
 
-        future: asyncio.Future[Any] = self.loop.create_future()
+        future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
 
         def _invoke() -> bool:
             try:
                 result = func(*args, **kwargs)
-                self.loop.call_soon_threadsafe(future.set_result, result)
+                if self.loop is not None:
+                    self.loop.call_soon_threadsafe(future.set_result, result)
             except Exception as exc:  # pragma: no cover
-                self.loop.call_soon_threadsafe(future.set_exception, exc)
+                if self.loop is not None:
+                    self.loop.call_soon_threadsafe(future.set_exception, exc)
             return False
 
         GLib.idle_add(_invoke, priority=GLib.PRIORITY_DEFAULT)
@@ -75,7 +79,9 @@ class WebServer:
         # Accept full config document as JSON; validate and apply
         try:
             payload = await request.json()
-            result = await self._run_on_glib(self.driver.apply_config_from_dict, payload)
+            result = await self._run_on_glib(
+                self.driver.apply_config_from_dict, payload
+            )
             status = 200 if result.get("ok") else 400
             return web.json_response(result, status=status)
         except json.JSONDecodeError:
@@ -91,54 +97,69 @@ class WebServer:
         data = await request.json()
         enabled = bool(data.get("enabled", True))
         value = 1 if enabled else 0
-        result = await self._run_on_glib(self.driver.startstop_callback, "/StartStop", value)
+        result = await self._run_on_glib(
+            self.driver.startstop_callback, "/StartStop", value
+        )
         return web.json_response({"ok": bool(result)})
 
     async def handle_set_current(self, request: web.Request) -> web.Response:
         data = await request.json()
         amps = float(data.get("amps", 6.0))
-        result = await self._run_on_glib(self.driver.set_current_callback, "/SetCurrent", amps)
+        result = await self._run_on_glib(
+            self.driver.set_current_callback, "/SetCurrent", amps
+        )
         return web.json_response({"ok": bool(result)})
 
     async def index(self, request: web.Request) -> web.Response:
-        return web.Response(text="Alfen Charger Web UI. Visit /ui/", content_type="text/plain")
+        return web.Response(
+            text="Alfen Charger Web UI. Visit /ui/", content_type="text/plain"
+        )
 
     async def _create_app(self) -> web.Application:
         app = web.Application()
 
         # Simple CORS for JSON endpoints (local device UI usage)
         @web.middleware
-        async def cors_mw(request: web.Request, handler: Any) -> web.StreamResponse:
+        async def cors_mw(
+            request: web.Request,
+            handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
+        ) -> web.StreamResponse:
             response: web.StreamResponse = await handler(request)
             if request.path.startswith("/api/"):
                 response.headers["Access-Control-Allow-Origin"] = "*"
                 response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-                response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,OPTIONS"
+                response.headers[
+                    "Access-Control-Allow-Methods"
+                ] = "GET,POST,PUT,OPTIONS"
             return response
 
         app.middlewares.append(cors_mw)
 
-        app.add_routes([
-            web.get("/", self.index),
-            web.get("/api/status", self.handle_status),
-            web.get("/api/config/schema", self.handle_get_schema),
-            web.get("/api/config", self.handle_get_config),
-            web.put("/api/config", self.handle_put_config),
-            web.post("/api/mode", self.handle_set_mode),
-            web.post("/api/startstop", self.handle_startstop),
-            web.post("/api/set_current", self.handle_set_current),
-        ])
+        app.add_routes(
+            [
+                web.get("/", self.index),
+                web.get("/api/status", self.handle_status),
+                web.get("/api/config/schema", self.handle_get_schema),
+                web.get("/api/config", self.handle_get_config),
+                web.put("/api/config", self.handle_put_config),
+                web.post("/api/mode", self.handle_set_mode),
+                web.post("/api/startstop", self.handle_startstop),
+                web.post("/api/set_current", self.handle_set_current),
+            ]
+        )
 
         static_dir = self._get_static_dir()
         if static_dir.exists():
             app.router.add_static("/ui/", str(static_dir), show_index=False)
-            async def _redirect_ui(request: web.Request) -> web.Response:  # type: ignore[no-redef]
-                raise web.HTTPFound("/ui/")
+
+            async def _redirect_ui(request: web.Request) -> web.Response:
+                return web.HTTPFound("/ui/")
+
             app.router.add_get("/ui", _redirect_ui)
         return app
 
     async def _start_async(self) -> None:
-        assert self.loop is not None
+        self.loop = asyncio.get_running_loop()
         app = await self._create_app()
         self.runner = web.AppRunner(app)
         await self.runner.setup()
@@ -163,7 +184,9 @@ class WebServer:
                 self.loop.run_until_complete(self._stop_async())
                 self.loop.close()
 
-        self.thread = threading.Thread(target=_thread_target, name="WebServer", daemon=True)
+        self.thread = threading.Thread(
+            target=_thread_target, name="WebServer", daemon=True
+        )
         self.thread.start()
 
     def stop(self) -> None:
@@ -174,7 +197,9 @@ class WebServer:
             self.thread = None
 
 
-def start_web_server(driver: Any, host: str = "0.0.0.0", port: int = 8088) -> WebServer:
+def start_web_server(
+    driver: Any, host: Optional[str] = None, port: int = 8088
+) -> WebServer:
     server = WebServer(driver, host=host, port=port)
     server.start()
     return server

@@ -4,7 +4,6 @@ from .config_validator import ConfigValidator
 
 
 def get_config_schema() -> Dict[str, Any]:
-    v = ConfigValidator()
     return {
         "sections": {
             "modbus": {
@@ -56,26 +55,83 @@ def get_config_schema() -> Dict[str, Any]:
                 "title": "Controls & Safety",
                 "type": "object",
                 "fields": {
-                    "current_tolerance": {"type": "number", "min": 0.0, "step": 0.01, "title": "Verification tolerance (A)"},
-                    "update_difference_threshold": {"type": "number", "min": 0.0, "step": 0.01, "title": "Update threshold (A)"},
-                    "verification_delay": {"type": "number", "min": 0.0, "step": 0.01, "title": "Verification delay (s)"},
-                    "retry_delay": {"type": "number", "min": 0.0, "step": 0.01, "title": "Retry delay (s)"},
-                    "max_retries": {"type": "integer", "min": 1, "title": "Max retries"},
-                    "watchdog_interval_seconds": {"type": "integer", "min": 1, "title": "Watchdog interval (s)"},
-                    "max_set_current": {"type": "number", "min": 0.01, "step": 0.1, "title": "Max set current (A)"},
-                    "min_charge_duration_seconds": {"type": "integer", "min": 0, "title": "Min charge duration (s)"},
-                    "current_update_interval": {"type": "integer", "min": 0, "title": "Current update interval (ms)"},
-                    "verify_delay": {"type": "integer", "min": 0, "title": "Verify delay (ms)"},
+                    "current_tolerance": {
+                        "type": "number",
+                        "min": 0.0,
+                        "step": 0.01,
+                        "title": "Verification tolerance (A)",
+                    },
+                    "update_difference_threshold": {
+                        "type": "number",
+                        "min": 0.0,
+                        "step": 0.01,
+                        "title": "Update threshold (A)",
+                    },
+                    "verification_delay": {
+                        "type": "number",
+                        "min": 0.0,
+                        "step": 0.01,
+                        "title": "Verification delay (s)",
+                    },
+                    "retry_delay": {
+                        "type": "number",
+                        "min": 0.0,
+                        "step": 0.01,
+                        "title": "Retry delay (s)",
+                    },
+                    "max_retries": {
+                        "type": "integer",
+                        "min": 1,
+                        "title": "Max retries",
+                    },
+                    "watchdog_interval_seconds": {
+                        "type": "integer",
+                        "min": 1,
+                        "title": "Watchdog interval (s)",
+                    },
+                    "max_set_current": {
+                        "type": "number",
+                        "min": 0.01,
+                        "step": 0.1,
+                        "title": "Max set current (A)",
+                    },
+                    "min_charge_duration_seconds": {
+                        "type": "integer",
+                        "min": 0,
+                        "title": "Min charge duration (s)",
+                    },
+                    "current_update_interval": {
+                        "type": "integer",
+                        "min": 0,
+                        "title": "Current update interval (ms)",
+                    },
+                    "verify_delay": {
+                        "type": "integer",
+                        "min": 0,
+                        "title": "Verify delay (ms)",
+                    },
                 },
             },
             "logging": {
                 "title": "Logging",
                 "type": "object",
                 "fields": {
-                    "level": {"type": "enum", "values": ConfigValidator.VALID_LOG_LEVELS, "title": "Level"},
+                    "level": {
+                        "type": "enum",
+                        "values": ConfigValidator.VALID_LOG_LEVELS,
+                        "title": "Level",
+                    },
                     "file": {"type": "string", "title": "File path"},
-                    "format": {"type": "enum", "values": ["structured", "simple"], "title": "Format"},
-                    "max_file_size_mb": {"type": "integer", "min": 1, "title": "Max file size (MB)"},
+                    "format": {
+                        "type": "enum",
+                        "values": ["structured", "simple"],
+                        "title": "Format",
+                    },
+                    "max_file_size_mb": {
+                        "type": "integer",
+                        "min": 1,
+                        "title": "Max file size (MB)",
+                    },
                     "backup_count": {"type": "integer", "min": 0, "title": "Backups"},
                     "console_output": {"type": "boolean", "title": "Console output"},
                     "json_format": {"type": "boolean", "title": "JSON format"},
@@ -89,10 +145,28 @@ def get_config_schema() -> Dict[str, Any]:
                     "access_token": {"type": "string", "title": "Access token"},
                     "home_id": {"type": "string", "title": "Home ID"},
                     "charge_on_cheap": {"type": "boolean", "title": "Charge on CHEAP"},
-                    "charge_on_very_cheap": {"type": "boolean", "title": "Charge on VERY_CHEAP"},
-                    "strategy": {"type": "enum", "values": ["level", "threshold", "percentile"], "title": "Strategy"},
-                    "max_price_total": {"type": "number", "min": 0.0, "step": 0.001, "title": "Max price (threshold)"},
-                    "cheap_percentile": {"type": "number", "min": 0.0, "max": 1.0, "step": 0.01, "title": "Cheap percentile"},
+                    "charge_on_very_cheap": {
+                        "type": "boolean",
+                        "title": "Charge on VERY_CHEAP",
+                    },
+                    "strategy": {
+                        "type": "enum",
+                        "values": ["level", "threshold", "percentile"],
+                        "title": "Strategy",
+                    },
+                    "max_price_total": {
+                        "type": "number",
+                        "min": 0.0,
+                        "step": 0.001,
+                        "title": "Max price (threshold)",
+                    },
+                    "cheap_percentile": {
+                        "type": "number",
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.01,
+                        "title": "Cheap percentile",
+                    },
                 },
             },
             "schedule": {
@@ -102,7 +176,12 @@ def get_config_schema() -> Dict[str, Any]:
                     "type": "object",
                     "fields": {
                         "active": {"type": "boolean", "title": "Active"},
-                        "days": {"type": "array", "items": {"type": "integer", "min": 0, "max": 6}, "ui": "days", "title": "Days"},
+                        "days": {
+                            "type": "array",
+                            "items": {"type": "integer", "min": 0, "max": 6},
+                            "ui": "days",
+                            "title": "Days",
+                        },
                         "start_time": {"type": "time", "title": "Start time"},
                         "end_time": {"type": "time", "title": "End time"},
                     },
@@ -114,7 +193,11 @@ def get_config_schema() -> Dict[str, Any]:
                 "advanced": True,
                 "fields": {
                     # Expose a subset commonly tweaked; the rest rely on defaults
-                    "station_max_current": {"type": "integer", "min": 0, "title": "Station max current (reg 1100)"},
+                    "station_max_current": {
+                        "type": "integer",
+                        "min": 0,
+                        "title": "Station max current (reg 1100)",
+                    },
                 },
             },
             "device_instance": {
