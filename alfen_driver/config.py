@@ -12,6 +12,7 @@ The configuration is hierarchical and covers all aspects of the driver:
     - Charging schedules and time-based control
     - Control parameters for current setting and verification
     - Polling intervals and operational parameters
+    - Web server binding (host/port)
 
 Example:
     ```python
@@ -307,6 +308,25 @@ class ControlsConfig:
 
 
 @dataclasses.dataclass
+class WebConfig:
+    """Web server binding configuration.
+
+    Attributes:
+        host: Bind address (default 127.0.0.1). Use 0.0.0.0 to listen on all interfaces.
+        port: TCP port (default 8088).
+    """
+
+    host: str = "127.0.0.1"
+    port: int = 8088
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.host, str) or not self.host:
+            raise ValidationError("web.host", self.host, "must be a non-empty string")
+        if not (1 <= int(self.port) <= 65535):
+            raise ValidationError("web.port", self.port, "must be between 1 and 65535")
+
+
+@dataclasses.dataclass
 class Config:
     """Main configuration container.
 
@@ -321,6 +341,7 @@ class Config:
         controls: Control and safety limits.
         poll_interval_ms: Polling interval in milliseconds.
         timezone: Timezone for schedule operations.
+        web: Web server binding configuration.
     """
 
     modbus: ModbusConfig
@@ -333,6 +354,7 @@ class Config:
     controls: ControlsConfig = dataclasses.field(default_factory=ControlsConfig)
     poll_interval_ms: int = 1000
     timezone: str = "UTC"
+    web: WebConfig = dataclasses.field(default_factory=WebConfig)
 
     def __post_init__(self) -> None:
         """Perform basic validation."""
@@ -403,6 +425,9 @@ class Config:
             items = []
         schedule = ScheduleConfig(items=items)
 
+        # Web config
+        web_cfg = WebConfig(**data.get("web", {}))
+
         # Create main config
         return cls(
             modbus=modbus_config,
@@ -415,6 +440,7 @@ class Config:
             controls=controls,
             poll_interval_ms=data.get("poll_interval_ms", 1000),
             timezone=data.get("timezone", "UTC"),
+            web=web_cfg,
         )
 
 

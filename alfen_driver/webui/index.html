@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Alfen EV Charger</title>
+	<link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+	<header>
+		<h1>Alfen EV Charger</h1>
+		<div class="meta">
+			<span id="product"></span>
+			<span id="serial"></span>
+			<span id="firmware"></span>
+		</div>
+	</header>
+	<main>
+		<section class="panel evcs">
+			<div class="hero">
+				<div class="hero-left">
+					<div class="status-line">
+						<div class="status-dot" id="status_dot"></div>
+						<div class="status-text" id="status_text">-</div>
+					</div>
+					<div class="power-big"><span id="hero_power_kw">0.0</span><small>kW</small></div>
+					<div class="segmented" role="group" aria-label="Mode">
+						<button id="mode_manual" data-mode="0" class="seg">Manual</button>
+						<button id="mode_auto" data-mode="1" class="seg">Auto</button>
+						<button id="mode_sched" data-mode="2" class="seg">Scheduled</button>
+					</div>
+				</div>
+				<div class="hero-right">
+					<button id="charge_btn" class="charge on" aria-label="Start/Stop"></button>
+				</div>
+			</div>
+
+			<div class="controls-row">
+				<div class="slider-wrap">
+					<label for="current_slider">Set current</label>
+					<input type="range" id="current_slider" min="0" max="64" step="0.1">
+					<div class="slider-values">
+						<span id="current_value">0.0 A</span>
+						<span class="hint">Station max <span id="station_max">0.0 A</span></span>
+					</div>
+				</div>
+				<div class="mini-metrics">
+					<div class="mini"><span>Power</span><strong id="hero_power">0 W</strong></div>
+					<div class="mini"><span>Energy</span><strong id="hero_energy">0.000 kWh</strong></div>
+					<div class="mini"><span>Current</span><strong id="hero_current">0.00 A</strong></div>
+				</div>
+			</div>
+		</section>
+
+		<section class="metrics">
+			<div class="metric">
+				<span class="label">Status</span>
+				<span class="value" id="status">-</span>
+			</div>
+			<div class="metric">
+				<span class="label">AC Current</span>
+				<span class="value" id="ac_current">0.0 A</span>
+			</div>
+			<div class="metric">
+				<span class="label">AC Power</span>
+				<span class="value" id="ac_power">0 W</span>
+			</div>
+			<div class="metric">
+				<span class="label">Energy (session)</span>
+				<span class="value" id="energy">0.000 kWh</span>
+			</div>
+			<div class="metric">
+				<span class="label">L1</span>
+				<span class="value" id="l1">0.0 V / 0.00 A / 0 W</span>
+			</div>
+			<div class="metric">
+				<span class="label">L2</span>
+				<span class="value" id="l2">0.0 V / 0.00 A / 0 W</span>
+			</div>
+			<div class="metric">
+				<span class="label">L3</span>
+				<span class="value" id="l3">0.0 V / 0.00 A / 0 W</span>
+			</div>
+		</section>
+
+		<section class="history">
+			<div class="history-header">
+				<h2>Recent history</h2>
+				<div class="range">
+					<label for="range">Window</label>
+					<select id="range">
+						<option value="60">60 s</option>
+						<option value="300" selected>300 s</option>
+						<option value="3600">3600 s</option>
+					</select>
+				</div>
+			</div>
+			<canvas id="chart" width="1000" height="260"></canvas>
+			<div class="legend">
+				<span class="dot dot-current"></span> Actual current
+				<span class="dot dot-allowed"></span> Allowed current
+				<span class="dot dot-station"></span> Station max
+			</div>
+		</section>
+
+		<section class="config collapsed">
+			<h2>Configuration</h2>
+			<div class="toolbar">
+				<button id="toggle_config">Edit configuration</button>
+				<div class="spacer"></div>
+				<label class="checkbox"><input type="checkbox" id="show_advanced"> Show advanced</label>
+				<button id="expand_all" class="ghost">Expand all</button>
+				<button id="collapse_all" class="ghost">Collapse all</button>
+			</div>
+			<div id="config_nav" class="config-nav"></div>
+			<div id="config_body" class="config-body">
+				<div id="config_form"></div>
+				<div class="config-actions">
+					<button id="save_config">Save configuration</button>
+					<span id="config_status"></span>
+				</div>
+			</div>
+		</section>
+	</main>
+	<footer>
+		<div>Device instance: <span id="di"></span></div>
+	</footer>
+	<script src="/ui/app.js"></script>
+</body>
+</html>

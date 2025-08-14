@@ -11,6 +11,7 @@ Integrate an Alfen Eve (Pro Line and similar NG9xx platform) EV charger with a V
 - Exposes key paths: `/Mode`, `/StartStop`, `/SetCurrent`, `/MaxCurrent`, `/Ac/Current`, `/Ac/Power`, `/Ac/Energy/Forward`, `/Status`, phase voltages/currents/power
 - Session tracking and energy accounting per charging session
 - Structured logging to console and `/var/log/alfen_driver.log`
+- Optional built‑in web UI with live metrics and controls (responsive)
 
 ## Requirements
 
@@ -21,7 +22,7 @@ Integrate an Alfen Eve (Pro Line and similar NG9xx platform) EV charger with a V
   - `pymodbus==3.6.4`
   - `pyyaml>=6.0.1`
   - `pytz`
-  - Optional: `aiohttp>=3.9.1,<4` for faster Tibber API
+  - Optional: `aiohttp<4` for faster Tibber API
 
 See `requirements.txt` and `requirements-dev.txt`.
 
@@ -69,11 +70,11 @@ python3 test_modbus.py
 
 1) Enable SSH (Venus OS Settings → Services → SSH) and log in as `root`
 
-2) Install minimal tooling
+2) Install system prerequisites (Python + D‑Bus bindings)
 
 ```bash
 opkg update
-opkg install git python3 python3-pip
+opkg install git python3 python3-pip python3-dbus python3-pygobject
 ```
 
 3) Fetch code and configure
@@ -87,27 +88,65 @@ vi alfen_driver_config.yaml   # set modbus.ip and other fields as needed
 chmod +x main.py
 ```
 
-4) Create a dedicated virtual environment and install dependencies (recommended)
+4) Create a virtualenv that inherits system site‑packages (for dbus/gi), then install Python deps (pymodbus 3, etc.)
 
 ```bash
-python3 -m venv /data/alfen-venv
-/data/alfen-venv/bin/pip install -r requirements.txt
+/usr/bin/python3 -m venv --system-site-packages /data/alfen-venv
+. /data/alfen-venv/bin/activate
+pip install -U pip setuptools wheel
+pip install -r /data/victron-alfen-charger/requirements.txt
 ```
 
-5) Test run
+Alternative (if you expose D‑Bus/GLib into the venv differently): a dedicated venv without `--system-site-packages` may work, but you must ensure `dbus` and `gi` are importable from that venv.
+
+5) Test run (ensure Venus velib is on PYTHONPATH)
 
 ```bash
-/data/alfen-venv/bin/python ./main.py
+export PYTHONPATH=/opt/victronenergy/velib_python:$PYTHONPATH
+/data/alfen-venv/bin/python3 /data/victron-alfen-charger/main.py
 ```
 
 6) Auto‑start on boot (rc.local)
 
 ```bash
-echo '/data/alfen-venv/bin/python /data/victron-alfen-charger/main.py &' >> /data/rc.local
+cat >/data/rc.local <<'EOF'
+export PYTHONPATH=/opt/victronenergy/velib_python:$PYTHONPATH
+/data/alfen-venv/bin/python3 /data/victron-alfen-charger/main.py &
+EOF
 chmod +x /data/rc.local
 ```
 
+Notes:
+- Using `--system-site-packages` makes the venv see system `dbus` and `gi` provided by opkg, while pip installs (e.g., `pymodbus 3`) live in the venv and override older system packages.
+- If you need to bind the web UI beyond localhost, set environment variables:
+  - `ALFEN_WEB_HOST=0.0.0.0` and optional `ALFEN_WEB_PORT=8088`
+
 Logs: `/var/log/alfen_driver.log`
+
+### Optional: Built‑in Web UI
+
+- The driver starts a lightweight HTTP server on port 8088 (defaults to 127.0.0.1; override in config or via env).
+- Configure binding in `alfen_driver_config.yaml`:
+
+```yaml
+web:
+  host: "0.0.0.0"  # 127.0.0.1 for localhost only
+  port: 8088
+```
+
+- Or via environment variables (override config): `ALFEN_WEB_HOST`, `ALFEN_WEB_PORT`
+- Local access: `http://<venus-ip>:8088/ui/`
+- API endpoints:
+  - `GET /api/status` → JSON snapshot
+  - `GET /api/config/schema` → UI schema
+  - `GET /api/config` / `PUT /api/config` → full configuration
+  - `POST /api/mode {"mode": 0|1|2}`
+  - `POST /api/startstop {"enabled": true|false}`
+  - `POST /api/set_current {"amps": number}`
+
+VRM proxying:
+- On Venus OS Large you can alternatively use Node‑RED dashboards which are auto‑proxied by VRM.
+- For custom services on stock Venus OS, you can run a reverse proxy (e.g. Caddy/nginx) on the device and register it as a local service; consult Victron docs/community for `localservices.d`/GUI integration details.
 
 ## Configuration
 
@@ -152,11 +191,13 @@ graph TD
     E -- Victron UI/System --> F[GX Device]
     G[Config YAML] -- Loads --> B
     H[Persistence JSON] -- Saves/Loads State --> B
+    I[Web UI] -- HTTP JSON --> B
 ```
 
 - Modbus polling: voltages, currents, power, energy, status
 - Logic: mode handling (MANUAL/AUTO/SCHEDULED), low SOC checks, excess‑solar calculation, dynamic scheduling (Tibber or legacy windows)
 - D‑Bus: exposes EV‑charger paths for the Victron UI and ecosystem
+- Web UI: live snapshot and control endpoints (port 8088)
 
 ## D‑Bus interface (selected paths)
 
