@@ -156,12 +156,13 @@ class WebServer:
 
         static_dir = self._get_static_dir()
         if static_dir.exists():
+
+            async def _redirect_root(request: web.Request) -> web.Response:
+                return web.HTTPFound("/ui/index.html")
+
+            app.router.add_get("/ui", _redirect_root)
+            app.router.add_get("/ui/", _redirect_root)
             app.router.add_static("/ui/", str(static_dir), show_index=False)
-
-            async def _redirect_ui(request: web.Request) -> web.Response:
-                return web.HTTPFound("/ui/")
-
-            app.router.add_get("/ui", _redirect_ui)
         return app
 
     async def _start_async(self) -> None:
