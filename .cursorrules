@@ -130,4 +130,3 @@ echo '/data/victron-alfen-charger/main.py &' >> /data/rc.local && chmod +x /data
   - Do not commit if either tests or hooks fail.
 - Before pushing:
   - Run `make all` to exercise format, lint, type-check, security, and tests.
-

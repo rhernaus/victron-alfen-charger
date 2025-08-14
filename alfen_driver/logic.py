@@ -483,9 +483,12 @@ def get_complete_status(
             min_battery_soc = get_victron_min_soc()
             if battery_soc < min_battery_soc:
                 return EVC_STATUS.LOW_SOC
-        except Exception:  # noqa: S110
+        except Exception as error:  # noqa: S110
             # If we can't check SOC, use raw status
-            pass
+            logging.getLogger("alfen_driver.logic").debug(
+                "Unable to check battery SOC; falling back to raw status",
+                exc_info=error,
+            )
 
     return raw_status
 
