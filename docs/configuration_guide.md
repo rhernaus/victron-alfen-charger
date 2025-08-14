@@ -422,6 +422,15 @@ modbus:
   ip: "192.168.1.100"
 ```
 
+### 1a. Use a virtual environment on GX (recommended)
+On Venus OS devices (e.g., Cerbo GX), create a dedicated Python virtual environment for this project to avoid modifying system packages used by built‑in services. Example:
+```bash
+python3 -m venv /data/alfen-venv
+/data/alfen-venv/bin/pip install -r /data/victron-alfen-charger/requirements.txt
+# Run the driver
+/data/alfen-venv/bin/python /data/victron-alfen-charger/main.py
+```
+
 ### 2. Use Configuration Validation
 Always validate configuration before deployment:
 ```bash
