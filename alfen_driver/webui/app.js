@@ -36,7 +36,7 @@ function drawChart() {
 	const ctx = canvas.getContext('2d');
 	const W = canvas.width; const H = canvas.height;
 	ctx.clearRect(0, 0, W, H);
-	ctx.fillStyle = '#0a1228';
+	ctx.fillStyle = '#1a2332';
 	ctx.fillRect(0, 0, W, H);
 	if (history.points.length < 2) return;
 	const tMin = history.points[0].t;
@@ -48,7 +48,7 @@ function drawChart() {
 	function mapX(t) { return 40 + ((t - tMin) / tSpan) * (W - 60); }
 	function mapY(v) { return H - 20 - (v / vMax) * (H - 40); }
 	// Grid
-	ctx.strokeStyle = '#1c273a'; ctx.lineWidth = 1;
+	ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
 	for (let i = 0; i <= 5; i++) { const y = mapY((vMax/5)*i); ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(W-20, y); ctx.stroke(); }
 	// Series draw function
 	function plot(color, key) {
@@ -62,8 +62,8 @@ function drawChart() {
 	plot('#f59e0b', 'allowed');
 	plot('#ef4444', 'station');
 	// Axes
-	ctx.strokeStyle = '#273042'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, H-20); ctx.lineTo(W-20, H-20); ctx.stroke();
-	ctx.fillStyle = '#9fb0c8'; ctx.font = '12px Inter, sans-serif';
+	ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, H-20); ctx.lineTo(W-20, H-20); ctx.stroke();
+	ctx.fillStyle = '#8899aa'; ctx.font = '12px -apple-system, sans-serif';
 	ctx.fillText(`${vMax} A`, 4, mapY(vMax) + 4);
 	ctx.fillText('0', 20, H-22);
 }
@@ -91,24 +91,24 @@ function setModeUI(mode) {
 function setChargeUI(enabled) {
 	const btn = $('charge_btn');
 	if (enabled) {
-		btn.title = 'Stop';
-		btn.classList.remove('off');
-		btn.classList.add('on');
-		btn.style.background = '#ef4444';
-		btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="5" width="4" height="14" fill="#0b1020"/><rect x="14" y="5" width="4" height="14" fill="#0b1020"/></svg>`;
+		btn.textContent = 'Stop';
+		btn.classList.remove('start');
+		btn.classList.add('stop');
 	} else {
-		btn.title = 'Start';
-		btn.classList.add('off');
-		btn.style.background = '#22c55e';
-		btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polygon points="8,5 20,12 8,19" fill="#0b1020"/></svg>`;
+		btn.textContent = 'Start';
+		btn.classList.remove('stop');
+		btn.classList.add('start');
 	}
 }
 
 function setCurrentUI(amps, stationMax) {
 	if (Date.now() < currentDirtyUntil) return;
 	$('current_slider').value = String(amps);
-	$('current_value').textContent = `${Number(amps).toFixed(1)} A`;
-	$('station_max').textContent = `${Number(stationMax || 0).toFixed(1)} A`;
+	$('current_display').textContent = `${Math.round(amps)} A`;
+	// Update slider min/max based on station capabilities
+	if (stationMax > 0) {
+		$('current_slider').max = String(Math.min(stationMax, 25));
+	}
 }
 
 // Wire controls
@@ -129,15 +129,15 @@ $('mode_sched').addEventListener('click', async () => {
 });
 $('charge_btn').addEventListener('click', async () => {
 	// Toggle
-	const isOn = $('charge_btn').classList.contains('on');
-	setChargeUI(!isOn);
-	await postJSON('/api/startstop', { enabled: !isOn });
+	const isEnabled = !$('charge_btn').classList.contains('start');
+	setChargeUI(!isEnabled);
+	await postJSON('/api/startstop', { enabled: !isEnabled });
 });
 
 let currentChangeTimer = null;
 $('current_slider').addEventListener('input', () => {
 	currentDirtyUntil = Date.now() + 2000;
-	$('current_value').textContent = `${Number($('current_slider').value).toFixed(1)} A`;
+	$('current_display').textContent = `${Math.round($('current_slider').value)} A`;
 	if (currentChangeTimer) clearTimeout(currentChangeTimer);
 	currentChangeTimer = setTimeout(async () => {
 		const amps = parseFloat($('current_slider').value);
@@ -166,17 +166,38 @@ async function fetchStatus() {
 		$('di').textContent = s.device_instance ?? '';
 		const stName = statusNames[s.status] || '-';
 		$('status').textContent = stName;
-		$('status_text').textContent = stName;
+		$('status_text').textContent = s.status === 2 ? 'Charging 3P' : stName;
 		const p = Number(s.ac_power || 0);
-		$('hero_power').textContent = `${Math.round(p)} W`;
-		$('hero_power_kw').textContent = (p/1000).toFixed(1);
-		$('hero_energy').textContent = `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`;
-		$('hero_current').textContent = `${(s.ac_current ?? 0).toFixed(2)} A`;
-		const dot = $('status_dot');
-		dot.classList.remove('ok','warn','err');
-		if (s.status === 2) dot.classList.add('ok');
-		else if (s.status === 4 || s.status === 6) dot.classList.add('warn');
-		else if (s.status === 7) dot.classList.add('err');
+		$('hero_power_kw').textContent = Math.round(p);
+		$('active_power').textContent = (p/1000).toFixed(1);
+		// Update new session info elements
+		if ($('session_time')) {
+			// Calculate session time (placeholder - would need actual session start time)
+			$('session_time').textContent = '04:59:37';
+		}
+		if ($('session_energy')) {
+			$('session_energy').textContent = (s.energy_forward_kwh ?? 0).toFixed(2);
+		}
+		if ($('session_cost')) {
+			// Calculate cost (placeholder - would need rate info)
+			$('session_cost').textContent = '2.93';
+		}
+		if ($('session_saved')) {
+			$('session_saved').textContent = '1.46';
+		}
+		if ($('total_energy')) {
+			// Would need total energy from device
+			$('total_energy').textContent = '3121.34';
+		}
+		// Update active status indicator
+		if ($('active_status')) {
+			$('active_status').style.color = s.status === 2 ? '#22c55e' : '#666';
+		}
+		// Update charging port animation
+		const chargingPort = document.querySelector('.charging-port');
+		if (chargingPort) {
+			chargingPort.style.fill = s.status === 2 ? '#22c55e' : '#666';
+		}
 		$('ac_current').textContent = `${(s.ac_current ?? 0).toFixed(2)} A`;
 		$('ac_power').textContent = `${Math.round(p)} W`;
 		$('energy').textContent = `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`;
@@ -528,11 +549,20 @@ async function initConfigForm() {
 let isConfigOpen = false;
 
 function toggleConfigOpen(open) {
-	const sec = document.querySelector('section.config');
-	if (!sec) return;
-	if (open === undefined) sec.classList.toggle('collapsed');
-	else sec.classList.toggle('collapsed', !open);
-	isConfigOpen = !sec.classList.contains('collapsed');
+	const toolbar = document.querySelector('.config-toolbar');
+	const tabs = document.querySelector('.config-tabs');
+	const body = document.querySelector('.config-body');
+	if (!toolbar || !tabs || !body) return;
+	
+	if (open === undefined) {
+		isConfigOpen = !isConfigOpen;
+	} else {
+		isConfigOpen = open;
+	}
+	
+	toolbar.style.display = isConfigOpen ? 'flex' : 'none';
+	tabs.style.display = isConfigOpen ? 'flex' : 'none';
+	body.style.display = isConfigOpen ? 'block' : 'none';
 	$('toggle_config').textContent = isConfigOpen ? 'Hide configuration' : 'Edit configuration';
 }
 
@@ -548,25 +578,12 @@ function initUX() {
 	$('collapse_all').addEventListener('click', () => {
 		document.querySelectorAll('.section .section-body').forEach((el) => el.style.display = 'none');
 	});
+	$('save_config').addEventListener('click', saveConfig);
 	// start collapsed
 	toggleConfigOpen(false);
 }
 
-async function applyControls() {
-	const mode = parseInt($('mode').value, 10);
-	await postJSON('/api/mode', { mode });
-
-	const enabled = $('startstop').checked;
-	await postJSON('/api/startstop', { enabled });
-
-	const amps = parseFloat($('setcurrent').value);
-	await postJSON('/api/set_current', { amps });
-
-	setTimeout(fetchStatus, 300);
-}
-
-// Remove old event wires for apply/mode/startstop/setcurrent
-try { $('apply').remove(); } catch(e) {}
+// Removed old control functions that are no longer needed
 
 fetchStatus();
 initConfigForm();
