@@ -1,0 +1,9 @@
+{
+  "rules": {
+    "color-hex-length": "short"
+  },
+  "ignoreFiles": [
+    "htmlcov/**/*.css",
+    "**/*.min.css"
+  ]
+}

@@ -5,9 +5,19 @@
   padding: 0;
 }
 
-html, body {
+html,
+body {
   height: 100%;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    sans-serif;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   background-attachment: fixed;
   color: #1e293b;
@@ -97,13 +107,20 @@ html {
   height: 12px;
   border-radius: 999px;
   background: #f59e0b;
-  box-shadow: 0 0 0 3px rgba(245,158,11,0.2);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
   animation: pulse-dot 2s infinite;
 }
 
 @keyframes pulse-dot {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.1); opacity: 0.8; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
 }
 
 /* Error banner */
@@ -128,7 +145,7 @@ html {
   width: auto;
   height: auto;
   padding: 8px 12px;
-  background: #4A9FD8;
+  background: #4a9fd8;
   color: white;
   border-radius: 6px;
 }
@@ -170,7 +187,7 @@ html {
 .card.dark-theme {
   background: rgba(15, 23, 42, 0.9);
   border: 1px solid rgba(148, 163, 184, 0.2);
-  color: #ffffff;
+  color: #fff;
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
@@ -200,8 +217,12 @@ html {
 }
 
 @keyframes rotate {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .charging-header {
@@ -473,15 +494,21 @@ html {
 }
 
 @keyframes pulse {
-  0% { opacity: 0.6; }
-  50% { opacity: 1; }
-  100% { opacity: 0.6; }
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
 }
 
 .status-text {
   font-size: 18px;
   font-weight: 500;
-  color: #4A9FD8;
+  color: #4a9fd8;
   margin-top: 20px;
 }
 
@@ -667,8 +694,8 @@ html {
 
 .pause-btn {
   background: transparent;
-  border: 1px solid #4A9FD8;
-  color: #4A9FD8;
+  border: 1px solid #4a9fd8;
+  color: #4a9fd8;
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -697,14 +724,14 @@ html {
 .metric-label {
   display: block;
   font-size: 12px;
-  color: #8899aa;
+  color: #89a;
   margin-bottom: 4px;
 }
 
 .metric-value {
   font-size: 18px;
   font-weight: 500;
-  color: #ffffff;
+  color: #fff;
 }
 
 /* Phase grid */
@@ -726,13 +753,13 @@ html {
 .phase-label {
   display: block;
   font-size: 14px;
-  color: #8899aa;
+  color: #89a;
   margin-bottom: 4px;
 }
 
 .phase-value {
   font-size: 14px;
-  color: #ffffff;
+  color: #fff;
 }
 
 /* Chart section - now in main card */
@@ -801,7 +828,9 @@ canvas {
   height: 200px;
 }
 @media (max-width: 768px) {
-  canvas { height: 160px; }
+  canvas {
+    height: 160px;
+  }
 }
 
 .chart-legend {
@@ -809,7 +838,7 @@ canvas {
   gap: 20px;
   margin-top: 12px;
   font-size: 12px;
-  color: #8899aa;
+  color: #89a;
 }
 
 .legend-item {
@@ -953,7 +982,7 @@ canvas {
   cursor: pointer;
 }
 
-.modern-toggle input[type="checkbox"] {
+.modern-toggle input[type='checkbox'] {
   display: none;
 }
 
@@ -1120,8 +1149,8 @@ canvas {
 
 .edit-btn {
   background: transparent;
-  border: 1px solid #4A9FD8;
-  color: #4A9FD8;
+  border: 1px solid #4a9fd8;
+  color: #4a9fd8;
   padding: 8px 16px;
   border-radius: 6px;
   font-size: 14px;
@@ -1130,7 +1159,7 @@ canvas {
 }
 
 .edit-btn:hover {
-  background: #4A9FD8;
+  background: #4a9fd8;
   color: white;
 }
 
@@ -1158,7 +1187,7 @@ canvas {
 .text-btn {
   background: transparent;
   border: none;
-  color: #4A9FD8;
+  color: #4a9fd8;
   font-size: 14px;
   cursor: pointer;
   text-decoration: underline;
@@ -1174,7 +1203,7 @@ canvas {
 .config-tabs .chip {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #ffffff;
+  color: #fff;
   padding: 6px 12px;
   border-radius: 16px;
   font-size: 12px;
@@ -1183,8 +1212,8 @@ canvas {
 }
 
 .config-tabs .chip.active {
-  background: #4A9FD8;
-  border-color: #4A9FD8;
+  background: #4a9fd8;
+  border-color: #4a9fd8;
 }
 
 .config-body {
@@ -1327,24 +1356,24 @@ canvas {
 .form-field label {
   display: block;
   font-size: 14px;
-  color: #8899aa;
+  color: #89a;
   margin-bottom: 6px;
 }
 
-.form-field input[type="text"],
-.form-field input[type="number"],
-.form-field input[type="time"],
+.form-field input[type='text'],
+.form-field input[type='number'],
+.form-field input[type='time'],
 .form-field select {
   width: 100%;
   padding: 8px 12px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
-  color: #ffffff;
+  color: #fff;
   font-size: 14px;
 }
 
-.form-field input[type="checkbox"] {
+.form-field input[type='checkbox'] {
   width: 16px;
   height: 16px;
   margin-right: 8px;
@@ -1380,7 +1409,7 @@ canvas {
 
 /* Utility classes */
 .unit {
-  color: #8899aa;
+  color: #89a;
   font-size: 14px;
 }
 
@@ -1410,7 +1439,7 @@ canvas {
 }
 
 .add-btn {
-  background: #4A9FD8;
+  background: #4a9fd8;
   color: white;
   border: none;
   padding: 8px 16px;
@@ -1421,7 +1450,7 @@ canvas {
 }
 
 .add-btn:hover {
-  background: #3B87BD;
+  background: #3b87bd;
 }
 
 .remove-btn {
@@ -1448,7 +1477,7 @@ canvas {
 .day-chip {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #ffffff;
+  color: #fff;
   padding: 4px 10px;
   border-radius: 14px;
   font-size: 12px;
@@ -1458,8 +1487,8 @@ canvas {
 }
 
 .day-chip.active {
-  background: #4A9FD8;
-  border-color: #4A9FD8;
+  background: #4a9fd8;
+  border-color: #4a9fd8;
 }
 
 /* Hide advanced sections by default */
@@ -1487,8 +1516,12 @@ button:focus-visible {
 
 /* Animation for charging cable */
 @keyframes flow {
-  0% { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: -100; }
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -100;
+  }
 }
 
 .charging-cable path {

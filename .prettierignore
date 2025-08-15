@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+htmlcov/
+
+# Generated files
+*.min.js
+*.min.css
+
+# Documentation
+docs/
+
+# Configuration files that should maintain their format
+*.md
+*.yml
+*.yaml
+
+# Python files (handled by Black)
+*.py
+
+# Large data files
+reference/

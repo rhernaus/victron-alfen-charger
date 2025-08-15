@@ -37,3 +37,22 @@ repos:
     hooks:
       - id: bandit
         args: ['-x', 'tests,reference', '-s', 'B101']
+
+  # Frontend/Web Development Hooks
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v8.56.0
+    hooks:
+      - id: eslint
+        files: \.(js|ts|jsx|tsx)$
+        types: [file]
+        additional_dependencies:
+          - eslint@8.56.0
+
+  - repo: https://github.com/awebdeveloper/pre-commit-stylelint
+    rev: 0.0.2
+    hooks:
+      - id: stylelint
+        files: \.(css|scss|sass)$
+        additional_dependencies:
+          - stylelint@16.1.0
+          - stylelint-config-standard@36.0.0
