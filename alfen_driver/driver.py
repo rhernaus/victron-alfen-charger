@@ -2,12 +2,12 @@
 """Simplified Alfen EV Charger driver for Victron Venus OS."""
 
 import dataclasses
+import math
 import os
 import sys
 import threading
 import time
 import uuid
-import math
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -850,17 +850,32 @@ class AlfenDriver:
             l3_i = snapshot["l3_current"]
 
             if not math.isfinite(snapshot["l1_power"]):
-                if math.isfinite(l1_v) and math.isfinite(l1_i) and abs(l1_v) > 1.0 and abs(l1_i) > 0.01:
+                if (
+                    math.isfinite(l1_v)
+                    and math.isfinite(l1_i)
+                    and abs(l1_v) > 1.0
+                    and abs(l1_i) > 0.01
+                ):
                     snapshot["l1_power"] = round(l1_v * l1_i, 0)
                 else:
                     snapshot["l1_power"] = 0.0
             if not math.isfinite(snapshot["l2_power"]):
-                if math.isfinite(l2_v) and math.isfinite(l2_i) and abs(l2_v) > 1.0 and abs(l2_i) > 0.01:
+                if (
+                    math.isfinite(l2_v)
+                    and math.isfinite(l2_i)
+                    and abs(l2_v) > 1.0
+                    and abs(l2_i) > 0.01
+                ):
                     snapshot["l2_power"] = round(l2_v * l2_i, 0)
                 else:
                     snapshot["l2_power"] = 0.0
             if not math.isfinite(snapshot["l3_power"]):
-                if math.isfinite(l3_v) and math.isfinite(l3_i) and abs(l3_v) > 1.0 and abs(l3_i) > 0.01:
+                if (
+                    math.isfinite(l3_v)
+                    and math.isfinite(l3_i)
+                    and abs(l3_v) > 1.0
+                    and abs(l3_i) > 0.01
+                ):
                     snapshot["l3_power"] = round(l3_v * l3_i, 0)
                 else:
                     snapshot["l3_power"] = 0.0
