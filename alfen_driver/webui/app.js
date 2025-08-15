@@ -494,8 +494,13 @@ async function fetchStatus() {
     setCurrentUI(displayCurrent, stationMax);
     const slider = $('current_slider');
     if (slider && Date.now() >= currentDirtyUntil) {
-      slider.value = String(setpoint);
-      slider.setAttribute('aria-valuenow', String(Math.round(setpoint)));
+      if (mode === 1) {
+        slider.value = String(displayCurrent);
+        slider.setAttribute('aria-valuenow', String(Math.round(displayCurrent)));
+      } else {
+        slider.value = String(setpoint);
+        slider.setAttribute('aria-valuenow', String(Math.round(setpoint)));
+      }
     }
     setTextIfExists('di', s.device_instance ?? '');
     const stName = statusNames[s.status] || '-';
