@@ -30,8 +30,10 @@
       role="alert"
       aria-live="assertive"
       style="display: none"
-    ></div>
+        ></div>
     <div id="main" class="container" role="main">
+      <!-- Dashboard View (default) -->
+      <div id="dashboard_content" class="view-content">
       <!-- Main charging status card -->
       <div class="card charging-card">
         <div class="charging-header">
@@ -179,6 +181,7 @@
           <span class="info-value"><span id="total_energy">3121.34</span> kWh</span>
         </div>
       </div>
+      </div>
 
       <!-- Navigation Toggle -->
       <div class="view-toggle">
@@ -190,11 +193,6 @@
           <span class="view-icon">⚙️</span>
           <span>Configuration</span>
         </button>
-      </div>
-
-      <!-- Dashboard View (default) -->
-      <div id="dashboard_content" class="view-content">
-        <!-- Dashboard content is already above in the main charging card and info grid -->
       </div>
 
       <!-- Configuration View -->
