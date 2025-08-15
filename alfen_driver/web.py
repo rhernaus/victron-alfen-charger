@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 
 from aiohttp import web
 from aiohttp.abc import AbstractAccessLogger
+from aiohttp.web_request import BaseRequest
 from gi.repository import GLib
 
 from .config_schema import get_config_schema
@@ -17,7 +18,7 @@ class DebugAccessLogger(AbstractAccessLogger):
     """Log HTTP access lines at DEBUG level instead of INFO."""
 
     def log(
-        self, request: web.Request, response: web.StreamResponse, time: float
+        self, request: BaseRequest, response: web.StreamResponse, time: float
     ) -> None:  # noqa: D401
         try:
             remote = request.remote or "-"

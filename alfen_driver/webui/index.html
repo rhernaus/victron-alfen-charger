@@ -1,13 +1,28 @@
 <!doctype html>
 <html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Alfen EV Charger</title>
-    <link rel="stylesheet" href="/ui/styles.css">
-</head>
-<body>
-    <div class="container">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Alfen EV Charger</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="/ui/styles.css">
+    </head>
+    <body>
+        <a class="skip-link" href="#main">Skip to content</a>
+        <header class="topbar" role="banner">
+            <div class="brand">
+                <span class="logo" aria-hidden="true">⚡</span>
+                <span class="brand-name">Alfen EV Charger</span>
+            </div>
+            <div class="topbar-status">
+                <span class="dot" id="conn_dot" aria-live="polite" aria-label="Connection status"></span>
+                <span id="conn_text">Connecting…</span>
+            </div>
+        </header>
+        <div id="error_banner" class="error-banner" role="alert" aria-live="assertive" style="display:none"></div>
+        <div id="main" class="container" role="main">
         <!-- Main charging status card -->
         <div class="card charging-card">
             <div class="charging-header">
@@ -20,9 +35,9 @@
                     </div>
                 </div>
                 <div class="charging-control">
-                    <span class="charging-status">Charging current [6-25A]:</span>
-                    <span class="current-display" id="current_display">11 A</span>
-                    <button id="charge_btn" class="stop-btn">Stop</button>
+                    <span class="charging-status" id="current_slider_label">Charging current [6-25A]:</span>
+                    <span class="current-display" id="current_display" aria-live="polite">11 A</span>
+                    <button id="charge_btn" class="stop-btn" aria-pressed="true" aria-label="Stop charging">Stop</button>
                 </div>
             </div>
 
@@ -55,7 +70,7 @@
             </div>
 
             <div class="current-slider-section">
-                <input type="range" id="current_slider" min="6" max="25" step="1" value="11" class="current-slider">
+                <input type="range" id="current_slider" min="6" max="25" step="1" value="11" class="current-slider" role="slider" aria-labelledby="current_slider_label" aria-valuemin="6" aria-valuemax="25" aria-valuenow="11">
             </div>
         </div>
 
