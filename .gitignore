@@ -170,3 +170,7 @@ alfen_driver_config.yaml
 
 # Log files location
 /var/log/alfen_driver.log
+
+.ruff_cache/
+
+.claude/
