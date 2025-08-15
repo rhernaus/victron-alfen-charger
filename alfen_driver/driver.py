@@ -192,11 +192,11 @@ class AlfenDriver:
             system = bus.get_object("com.victronenergy.system", "/")
             values = system.GetValue()
             explicit_keys = [
-               "Energy/Price",
-               "Ac/Consumption/Price",
-               "Ac/Grid/Price",
-               "Settings/Energy/PricekWh",
-               "Settings/Energy/PriceKwh",
+                "Energy/Price",
+                "Ac/Consumption/Price",
+                "Ac/Grid/Price",
+                "Settings/Energy/PricekWh",
+                "Settings/Energy/PriceKwh",
             ]
             for key in explicit_keys:
                 val = values.get(key)
@@ -971,13 +971,19 @@ class AlfenDriver:
             # Pricing information and session cost
             try:
                 rate = self._get_energy_rate()
-                currency = getattr(getattr(self.config, "pricing", None), "currency_symbol", "€")
-                snapshot["pricing_source"] = getattr(getattr(self.config, "pricing", None), "source", "static")
+                currency = getattr(
+                    getattr(self.config, "pricing", None), "currency_symbol", "€"
+                )
+                snapshot["pricing_source"] = getattr(
+                    getattr(self.config, "pricing", None), "source", "static"
+                )
                 snapshot["pricing_currency"] = currency
                 snapshot["energy_rate"] = rate if rate is not None else None
                 session_energy = snapshot["energy_forward_kwh"]
                 if isinstance(session_energy, (int, float)) and rate is not None:
-                    snapshot["session_cost"] = round(float(session_energy) * float(rate), 2)
+                    snapshot["session_cost"] = round(
+                        float(session_energy) * float(rate), 2
+                    )
                 else:
                     snapshot["session_cost"] = None
             except Exception as e:
