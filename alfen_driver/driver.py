@@ -201,6 +201,13 @@ class AlfenDriver:
             return None
         return None
 
+    def _svc_value(self, path: str, default: Any) -> Any:
+        """Safely read a value from the VeDbusService, returning a default on error."""
+        try:
+            return self.service[path]
+        except Exception:
+            return default
+
     def _determine_config_file_path(self) -> str:
         """Determine the active configuration file path used by the driver."""
         local_path = os.path.join(os.getcwd(), "alfen_driver_config.yaml")
@@ -817,28 +824,28 @@ class AlfenDriver:
             snapshot["start_stop"] = int(self.start_stop.value)
             snapshot["set_current"] = float(self.intended_set_current.value)
             snapshot["station_max_current"] = float(self.station_max_current)
-            snapshot["status"] = (
-                int(self.service.get("/Status", 0)) if hasattr(self, "service") else 0
-            )
-            snapshot["ac_current"] = float(self.service.get("/Ac/Current", 0.0))
-            snapshot["ac_power"] = float(self.service.get("/Ac/Power", 0.0))
+            snapshot["status"] = int(self._svc_value("/Status", 0))
+            snapshot["ac_current"] = float(self._svc_value("/Ac/Current", 0.0))
+            snapshot["ac_power"] = float(self._svc_value("/Ac/Power", 0.0))
             snapshot["energy_forward_kwh"] = float(
-                self.service.get("/Ac/Energy/Forward", 0.0)
+                self._svc_value("/Ac/Energy/Forward", 0.0)
             )
-            snapshot["l1_voltage"] = float(self.service.get("/Ac/L1/Voltage", 0.0))
-            snapshot["l2_voltage"] = float(self.service.get("/Ac/L2/Voltage", 0.0))
-            snapshot["l3_voltage"] = float(self.service.get("/Ac/L3/Voltage", 0.0))
-            snapshot["l1_current"] = float(self.service.get("/Ac/L1/Current", 0.0))
-            snapshot["l2_current"] = float(self.service.get("/Ac/L2/Current", 0.0))
-            snapshot["l3_current"] = float(self.service.get("/Ac/L3/Current", 0.0))
-            snapshot["l1_power"] = float(self.service.get("/Ac/L1/Power", 0.0))
-            snapshot["l2_power"] = float(self.service.get("/Ac/L2/Power", 0.0))
-            snapshot["l3_power"] = float(self.service.get("/Ac/L3/Power", 0.0))
+            snapshot["l1_voltage"] = float(self._svc_value("/Ac/L1/Voltage", 0.0))
+            snapshot["l2_voltage"] = float(self._svc_value("/Ac/L2/Voltage", 0.0))
+            snapshot["l3_voltage"] = float(self._svc_value("/Ac/L3/Voltage", 0.0))
+            snapshot["l1_current"] = float(self._svc_value("/Ac/L1/Current", 0.0))
+            snapshot["l2_current"] = float(self._svc_value("/Ac/L2/Current", 0.0))
+            snapshot["l3_current"] = float(self._svc_value("/Ac/L3/Current", 0.0))
+            snapshot["l1_power"] = float(self._svc_value("/Ac/L1/Power", 0.0))
+            snapshot["l2_power"] = float(self._svc_value("/Ac/L2/Power", 0.0))
+            snapshot["l3_power"] = float(self._svc_value("/Ac/L3/Power", 0.0))
             snapshot["active_phases"] = int(getattr(self, "active_phases", 0) or 0)
-            snapshot["charging_time_sec"] = int(self.service.get("/ChargingTime", 0))
-            snapshot["firmware"] = str(self.service.get("/FirmwareVersion", ""))
-            snapshot["serial"] = str(self.service.get("/Serial", ""))
-            snapshot["product_name"] = str(self.service.get("/ProductName", ""))
+            snapshot["charging_time_sec"] = int(self._svc_value("/ChargingTime", 0))
+            # Provide legacy alias expected by UI fallback
+            snapshot["charging_time"] = snapshot["charging_time_sec"]
+            snapshot["firmware"] = str(self._svc_value("/FirmwareVersion", ""))
+            snapshot["serial"] = str(self._svc_value("/Serial", ""))
+            snapshot["product_name"] = str(self._svc_value("/ProductName", ""))
             snapshot["device_instance"] = int(self.config.device_instance)
 
             # Maintain last applied current for UI display logic
