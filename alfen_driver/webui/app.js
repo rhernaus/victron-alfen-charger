@@ -532,10 +532,10 @@ async function fetchStatus() {
       }
 
       // Display power in watts or kW if >= 1000W
-      powerEl.textContent = newPower >= 1000 ? (newPower / 1000).toFixed(1) : newPower;
+      powerEl.textContent = newPower >= 1000 ? (newPower / 1000).toFixed(2) : newPower;
     }
     // Display power with conditional units
-    setTextIfExists('active_power', p >= 1000 ? (p / 1000).toFixed(1) : Math.round(p));
+    setTextIfExists('active_power', p >= 1000 ? (p / 1000).toFixed(2) : Math.round(p));
     const unitEl = $('hero_power_unit');
     if (unitEl) {
       unitEl.textContent = p >= 1000 ? 'kW' : 'W';
@@ -597,7 +597,7 @@ async function fetchStatus() {
       chargingPort.style.fill = s.status === 2 ? '#22c55e' : '#666';
     }
     setTextIfExists('ac_current', `${(s.ac_current ?? 0).toFixed(2)} A`);
-    setTextIfExists('ac_power', p >= 1000 ? `${(p / 1000).toFixed(1)} kW` : `${Math.round(p)} W`);
+    setTextIfExists('ac_power', p >= 1000 ? `${(p / 1000).toFixed(2)} kW` : `${Math.round(p)} W`);
     setTextIfExists('energy', `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`);
     setTextIfExists(
       'l1',
