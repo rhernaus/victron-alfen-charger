@@ -159,6 +159,48 @@ VRM proxying:
 - On Venus OS Large you can alternatively use Node‑RED dashboards which are auto‑proxied by VRM.
 - For custom services on stock Venus OS, you can run a reverse proxy (e.g. Caddy/nginx) on the device and register it as a local service; consult Victron docs/community for `localservices.d`/GUI integration details.
 
+### VRM Control Panel integration (open this UI via VRM)
+
+By default VRM’s generic Control Panel button assumes port 80. The driver’s UI runs on 8088. You can make VRM open the UI without changing the system webserver by using a loopback alias and a NAT redirect:
+
+1) Configure the driver to advertise a loopback alias that VRM can target:
+```yaml
+web:
+  host: "127.0.0.2"  # loopback alias used only for VRM
+  port: 8088          # actual UI port
+```
+
+2) Add the loopback alias and redirect 127.0.0.2:80 → 127.0.0.1:8088 on the GX:
+```bash
+# One‑time test (non‑persistent)
+ip addr add 127.0.0.2/8 dev lo label lo:1 || true
+iptables -t nat -C OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.1:8088 2>/dev/null || \
+iptables -t nat -A OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.1:8088
+```
+
+3) Persist across reboots via `/data/rc.local` (before starting the driver):
+```bash
+ip addr add 127.0.0.2/8 dev lo label lo:1 || true
+iptables -t nat -C OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.1:8088 2>/dev/null || \
+iptables -t nat -A OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.1:8088
+/data/alfen-venv/bin/python3 /data/victron-alfen-charger/main.py &
+```
+
+4) Restart the driver. When you click Control Panel in VRM, it should open the UI. The default system webserver on 0.0.0.0:80 is not affected because connections to 127.0.0.2:80 are rewritten to 8088 before delivery.
+
+Alternative: register as a local service so VRM proxies the correct port directly. Create `/data/localservices.d/alfen.json`:
+```json
+{
+  "name": "Alfen EV Charger",
+  "port": 8088,
+  "path": "/",
+  "description": "Alfen EV Charger UI",
+  "gzip": true,
+  "auth": "none"
+}
+```
+Then reboot the GX and use the local service entry from VRM.
+
 ## Configuration
 
 - Primary file: `alfen_driver_config.yaml` (copy from the provided sample)
