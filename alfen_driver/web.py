@@ -26,9 +26,9 @@ class ConfigurableAccessLogger(AbstractAccessLogger):
             path = str(request.rel_url)
             status = getattr(response, "status", 0)
             ua = request.headers.get("User-Agent", "-")
-            level = self.logger.getEffectiveLevel() or logging.INFO
-            self.logger.log(
-                level, '%s "%s %s" %s %.3f %s', remote, method, path, status, time, ua
+            # Always categorize access logs as DEBUG; root/config level filters visibility
+            self.logger.debug(
+                '%s "%s %s" %s %.3f %s', remote, method, path, status, time, ua
             )
         except Exception as exc:  # pragma: no cover
             self.logger.debug("access log failed: %s", exc)
