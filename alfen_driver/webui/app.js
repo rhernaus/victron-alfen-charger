@@ -498,26 +498,26 @@ function createInput(fieldKey, def, value, path) {
     input = document.createElement('input');
     input.type = 'number';
     input.step = '1';
-    if (def.min !== null) {
+    if (def.min !== null && def.min !== undefined) {
       input.min = String(def.min);
     }
-    if (def.max !== null) {
+    if (def.max !== null && def.max !== undefined) {
       input.max = String(def.max);
     }
-    input.value = value !== null ? String(value) : '';
+    input.value = value !== null && value !== undefined ? String(value) : '';
     break;
   }
   case 'number': {
     input = document.createElement('input');
     input.type = 'number';
-    input.step = def.step !== null ? String(def.step) : 'any';
-    if (def.min !== null) {
+    input.step = def.step !== null && def.step !== undefined ? String(def.step) : 'any';
+    if (def.min !== null && def.min !== undefined) {
       input.min = String(def.min);
     }
-    if (def.max !== null) {
+    if (def.max !== null && def.max !== undefined) {
       input.max = String(def.max);
     }
-    input.value = value !== null ? String(value) : '';
+    input.value = value !== null && value !== undefined ? String(value) : '';
     break;
   }
   case 'boolean': {
@@ -604,16 +604,16 @@ function getValueFromInput(input, def) {
 function validateField(input, def) {
   let val = getValueFromInput(input, def);
   let error = '';
-  if ((def.type === 'integer' || def.type === 'number') && val !== null) {
-    if (def.min !== null && val < def.min) {
+  if ((def.type === 'integer' || def.type === 'number') && val !== null && val !== undefined) {
+    if (def.min !== null && def.min !== undefined && val < def.min) {
       error = `Must be ≥ ${def.min}`;
     }
-    if (!error && def.max !== null && val > def.max) {
+    if (!error && def.max !== null && def.max !== undefined && val > def.max) {
       error = `Must be ≤ ${def.max}`;
     }
   }
   if (def.type === 'string' && def.format === 'ipv4' && val) {
-    const re = /^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$/;
+    const re = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
     if (!re.test(val)) {
       error = 'Invalid IPv4 address';
     }
