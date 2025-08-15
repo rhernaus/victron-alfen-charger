@@ -358,7 +358,10 @@ function addButtonFeedback(button) {
 $('mode_manual').addEventListener('click', async () => {
   modeDirtyUntil = Date.now() + 3000;
   pendingMode = 0;
-  if (pendingModeTimer) clearTimeout(pendingModeTimer);
+  if (pendingModeTimer) {
+    clearTimeout(pendingModeTimer);
+    pendingModeTimer = null;
+  }
   setModeUI(0);
   pendingModeTimer = setTimeout(() => {
     if (window.lastStatusData && Number(window.lastStatusData.mode) !== 0) {
@@ -367,18 +370,41 @@ $('mode_manual').addEventListener('click', async () => {
     pendingMode = null;
     modeDirtyUntil = 0;
   }, 3000);
-  const resp = await postJSON('/api/mode', { mode: 0 });
-  if (!resp || resp.ok === false) {
-    // Revert immediately on error
+  try {
+    const resp = await postJSON('/api/mode', { mode: 0 });
+    if (!resp || resp.ok === false) {
+      // Revert immediately on error
+      setModeUI(Number(window.lastStatusData?.mode || 0));
+      pendingMode = null;
+      modeDirtyUntil = 0;
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    } else {
+      // Success: avoid auto-revert; wait for /api/status confirmation
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    }
+  } catch (e) {
     setModeUI(Number(window.lastStatusData?.mode || 0));
     pendingMode = null;
     modeDirtyUntil = 0;
+    if (pendingModeTimer) {
+      clearTimeout(pendingModeTimer);
+      pendingModeTimer = null;
+    }
   }
 });
 $('mode_auto').addEventListener('click', async () => {
   modeDirtyUntil = Date.now() + 3000;
   pendingMode = 1;
-  if (pendingModeTimer) clearTimeout(pendingModeTimer);
+  if (pendingModeTimer) {
+    clearTimeout(pendingModeTimer);
+    pendingModeTimer = null;
+  }
   setModeUI(1);
   pendingModeTimer = setTimeout(() => {
     if (window.lastStatusData && Number(window.lastStatusData.mode) !== 1) {
@@ -387,17 +413,39 @@ $('mode_auto').addEventListener('click', async () => {
     pendingMode = null;
     modeDirtyUntil = 0;
   }, 3000);
-  const resp = await postJSON('/api/mode', { mode: 1 });
-  if (!resp || resp.ok === false) {
+  try {
+    const resp = await postJSON('/api/mode', { mode: 1 });
+    if (!resp || resp.ok === false) {
+      setModeUI(Number(window.lastStatusData?.mode || 0));
+      pendingMode = null;
+      modeDirtyUntil = 0;
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    } else {
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    }
+  } catch (e) {
     setModeUI(Number(window.lastStatusData?.mode || 0));
     pendingMode = null;
     modeDirtyUntil = 0;
+    if (pendingModeTimer) {
+      clearTimeout(pendingModeTimer);
+      pendingModeTimer = null;
+    }
   }
 });
 $('mode_sched').addEventListener('click', async () => {
   modeDirtyUntil = Date.now() + 3000;
   pendingMode = 2;
-  if (pendingModeTimer) clearTimeout(pendingModeTimer);
+  if (pendingModeTimer) {
+    clearTimeout(pendingModeTimer);
+    pendingModeTimer = null;
+  }
   setModeUI(2);
   pendingModeTimer = setTimeout(() => {
     if (window.lastStatusData && Number(window.lastStatusData.mode) !== 2) {
@@ -406,11 +454,30 @@ $('mode_sched').addEventListener('click', async () => {
     pendingMode = null;
     modeDirtyUntil = 0;
   }, 3000);
-  const resp = await postJSON('/api/mode', { mode: 2 });
-  if (!resp || resp.ok === false) {
+  try {
+    const resp = await postJSON('/api/mode', { mode: 2 });
+    if (!resp || resp.ok === false) {
+      setModeUI(Number(window.lastStatusData?.mode || 0));
+      pendingMode = null;
+      modeDirtyUntil = 0;
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    } else {
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    }
+  } catch (e) {
     setModeUI(Number(window.lastStatusData?.mode || 0));
     pendingMode = null;
     modeDirtyUntil = 0;
+    if (pendingModeTimer) {
+      clearTimeout(pendingModeTimer);
+      pendingModeTimer = null;
+    }
   }
 });
 
@@ -531,6 +598,10 @@ async function fetchStatus() {
     if (pendingMode !== null && Number(s.mode ?? 0) === Number(pendingMode)) {
       pendingMode = null;
       modeDirtyUntil = 0;
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
     }
     setModeUI(Number(s.mode ?? 0));
     setChargeUI(Number(s.start_stop ?? 1) === 1);
