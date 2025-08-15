@@ -27,17 +27,32 @@
         <div class="card charging-card">
             <div class="charging-header">
                 <div class="mode-selector">
-                    <span class="mode-label">Charge mode:</span>
+                    <span class="mode-label">Charge Mode</span>
                     <div class="mode-buttons">
-                        <button id="mode_manual" data-mode="0" class="mode-btn active">Manual</button>
-                        <button id="mode_auto" data-mode="1" class="mode-btn">Auto</button>
-                        <button id="mode_sched" data-mode="2" class="mode-btn">Scheduled</button>
+                        <button id="mode_manual" data-mode="0" class="mode-btn active" aria-pressed="true">
+                            <span class="mode-icon">⚡</span>
+                            <span>Manual</span>
+                        </button>
+                        <button id="mode_auto" data-mode="1" class="mode-btn" aria-pressed="false">
+                            <span class="mode-icon">🤖</span>
+                            <span>Auto</span>
+                        </button>
+                        <button id="mode_sched" data-mode="2" class="mode-btn" aria-pressed="false">
+                            <span class="mode-icon">📅</span>
+                            <span>Scheduled</span>
+                        </button>
                     </div>
                 </div>
                 <div class="charging-control">
-                    <span class="charging-status" id="current_slider_label">Charging current [6-25A]:</span>
+                    <div class="current-info">
+                        <span class="charging-status" id="current_slider_label">Charging Current</span>
+                        <span class="current-range">[6-25A]</span>
+                    </div>
                     <span class="current-display" id="current_display" aria-live="polite">11 A</span>
-                    <button id="charge_btn" class="stop-btn" aria-pressed="true" aria-label="Stop charging">Stop</button>
+                    <button id="charge_btn" class="stop-btn" aria-pressed="true" aria-label="Stop charging">
+                        <span class="btn-icon">⏹️</span>
+                        <span>Stop</span>
+                    </button>
                 </div>
             </div>
 

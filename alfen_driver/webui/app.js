@@ -83,22 +83,39 @@ let currentDirtyUntil = 0;
 function setModeUI(mode) {
     // Only update UI if not recently changed by the user
     if (Date.now() < modeDirtyUntil) return;
-    ['mode_manual','mode_auto','mode_sched'].forEach((id) => $(id).classList.remove('active'));
-    if (mode === 0) $('mode_manual').classList.add('active');
-    else if (mode === 1) $('mode_auto').classList.add('active');
-    else if (mode === 2) $('mode_sched').classList.add('active');
+    ['mode_manual','mode_auto','mode_sched'].forEach((id) => {
+        const btn = $(id);
+        btn.classList.remove('active');
+        btn.setAttribute('aria-pressed', 'false');
+    });
+
+    if (mode === 0) {
+        $('mode_manual').classList.add('active');
+        $('mode_manual').setAttribute('aria-pressed', 'true');
+    } else if (mode === 1) {
+        $('mode_auto').classList.add('active');
+        $('mode_auto').setAttribute('aria-pressed', 'true');
+    } else if (mode === 2) {
+        $('mode_sched').classList.add('active');
+        $('mode_sched').setAttribute('aria-pressed', 'true');
+    }
 }
 
 function setChargeUI(enabled) {
     const btn = $('charge_btn');
+    const icon = btn.querySelector('.btn-icon');
+    const text = btn.querySelector('span:not(.btn-icon)');
+
     if (enabled) {
-        btn.textContent = 'Stop';
+        if (icon) icon.textContent = '⏹️';
+        if (text) text.textContent = 'Stop';
         btn.classList.remove('start');
         btn.classList.add('stop');
         btn.setAttribute('aria-pressed', 'true');
         btn.setAttribute('aria-label', 'Stop charging');
     } else {
-        btn.textContent = 'Start';
+        if (icon) icon.textContent = '▶️';
+        if (text) text.textContent = 'Start';
         btn.classList.remove('stop');
         btn.classList.add('start');
         btn.setAttribute('aria-pressed', 'false');
@@ -124,14 +141,21 @@ function setConnectionState(ok) {
     const dot = $('conn_dot');
     const text = $('conn_text');
     if (!dot || !text) return;
+
+    // Add transition animation
+    dot.style.transition = 'all 0.3s ease';
+    text.style.transition = 'all 0.3s ease';
+
     if (ok) {
         dot.style.background = '#22c55e';
-        dot.style.boxShadow = '0 0 0 2px rgba(34,197,94,0.2)';
+        dot.style.boxShadow = '0 0 0 3px rgba(34,197,94,0.2)';
         text.textContent = 'Online';
+        text.style.color = '#22c55e';
     } else {
         dot.style.background = '#ef4444';
-        dot.style.boxShadow = '0 0 0 2px rgba(239,68,68,0.2)';
+        dot.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.2)';
         text.textContent = 'Offline';
+        text.style.color = '#ef4444';
     }
 }
 
@@ -170,7 +194,17 @@ window.addEventListener('resize', () => {
     resizeChartCanvas();
 });
 
-// Wire controls
+// Enhanced visual feedback for interactions
+function addButtonFeedback(button) {
+    button.addEventListener('click', function() {
+        this.style.transform = 'scale(0.95)';
+        setTimeout(() => {
+            this.style.transform = '';
+        }, 150);
+    });
+}
+
+// Wire controls with enhanced feedback
 $('mode_manual').addEventListener('click', async () => {
     modeDirtyUntil = Date.now() + 2000;
     setModeUI(0);
@@ -186,12 +220,44 @@ $('mode_sched').addEventListener('click', async () => {
     setModeUI(2);
     await postJSON('/api/mode', { mode: 2 });
 });
+
 $('charge_btn').addEventListener('click', async () => {
-    // Toggle
+    // Toggle with animation
     const isEnabled = !$('charge_btn').classList.contains('start');
-    setChargeUI(!isEnabled);
-    await postJSON('/api/startstop', { enabled: !isEnabled });
+    const btn = $('charge_btn');
+
+    // Add loading state
+    btn.style.opacity = '0.7';
+    btn.style.pointerEvents = 'none';
+
+    try {
+        setChargeUI(!isEnabled);
+        await postJSON('/api/startstop', { enabled: !isEnabled });
+
+        // Success animation
+        btn.style.transform = 'scale(1.05)';
+        setTimeout(() => {
+            btn.style.transform = '';
+        }, 200);
+    } catch (error) {
+        console.error('Failed to toggle charging:', error);
+        // Revert UI on error
+        setChargeUI(isEnabled);
+    } finally {
+        btn.style.opacity = '';
+        btn.style.pointerEvents = '';
+    }
 });
+
+// Add feedback to all mode buttons
+['mode_manual', 'mode_auto', 'mode_sched'].forEach(id => {
+    const btn = $(id);
+    if (btn) addButtonFeedback(btn);
+});
+
+// Add feedback to charge button
+const chargeBtn = $('charge_btn');
+if (chargeBtn) addButtonFeedback(chargeBtn);
 
 let currentChangeTimer = null;
 $('current_slider').addEventListener('input', () => {
@@ -232,8 +298,22 @@ async function fetchStatus() {
         $('status').textContent = stName;
         $('status_text').textContent = s.status === 2 ? 'Charging 3P' : stName;
         const p = Number(s.ac_power || 0);
+
+        // Animate power value changes
+        const powerEl = $('hero_power_w');
+        const currentPower = parseInt(powerEl.textContent) || 0;
+        const newPower = Math.round(p);
+
+        if (Math.abs(newPower - currentPower) > 10) {
+            powerEl.style.transform = 'scale(1.1)';
+            powerEl.style.transition = 'all 0.3s ease';
+            setTimeout(() => {
+                powerEl.style.transform = '';
+            }, 300);
+        }
+
         // Display power in watts
-        $('hero_power_w').textContent = Math.round(p);
+        powerEl.textContent = newPower;
         // Display power in kW with one decimal for the status card
         $('active_power').textContent = (p/1000).toFixed(1);
 
