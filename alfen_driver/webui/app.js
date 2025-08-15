@@ -1,5 +1,12 @@
 const $ = id => document.getElementById(id);
 
+function setTextIfExists(id, text) {
+  const el = $(id);
+  if (el) {
+    el.textContent = text;
+  }
+}
+
 const statusNames = {
   0: 'Disconnected',
   1: 'Connected',
@@ -345,35 +352,37 @@ async function fetchStatus() {
     setConnectionState(true);
     showError('');
     window.lastStatusData = s; // Store for session timer
-    $('product').textContent = s.product_name || '';
-    $('serial').textContent = s.serial ? `SN ${s.serial}` : '';
-    $('firmware').textContent = s.firmware ? `FW ${s.firmware}` : '';
+    setTextIfExists('product', s.product_name || '');
+    setTextIfExists('serial', s.serial ? `SN ${s.serial}` : '');
+    setTextIfExists('firmware', s.firmware ? `FW ${s.firmware}` : '');
     setModeUI(Number(s.mode ?? 0));
     setChargeUI(Number(s.start_stop ?? 1) === 1);
     setCurrentUI(Number(s.set_current ?? 6.0), Number(s.station_max_current ?? 0));
-    $('di').textContent = s.device_instance ?? '';
+    setTextIfExists('di', s.device_instance ?? '');
     const stName = statusNames[s.status] || '-';
-    $('status').textContent = stName;
-    $('status_text').textContent = s.status === 2 ? 'Charging 3P' : stName;
+    setTextIfExists('status', stName);
+    setTextIfExists('status_text', s.status === 2 ? 'Charging 3P' : stName);
     const p = Number(s.ac_power || 0);
 
     // Animate power value changes
     const powerEl = $('hero_power_w');
-    const currentPower = parseInt(powerEl.textContent) || 0;
-    const newPower = Math.round(p);
+    if (powerEl) {
+      const currentPower = parseInt(powerEl.textContent) || 0;
+      const newPower = Math.round(p);
 
-    if (Math.abs(newPower - currentPower) > 10) {
-      powerEl.style.transform = 'scale(1.1)';
-      powerEl.style.transition = 'all 0.3s ease';
-      setTimeout(() => {
-        powerEl.style.transform = '';
-      }, 300);
+      if (Math.abs(newPower - currentPower) > 10) {
+        powerEl.style.transform = 'scale(1.1)';
+        powerEl.style.transition = 'all 0.3s ease';
+        setTimeout(() => {
+          powerEl.style.transform = '';
+        }, 300);
+      }
+
+      // Display power in watts
+      powerEl.textContent = newPower;
     }
-
-    // Display power in watts
-    powerEl.textContent = newPower;
-    // Display power in kW with one decimal for the status card
-    $('active_power').textContent = (p / 1000).toFixed(1);
+    // Display power in kW with one decimal for the status card (if present)
+    setTextIfExists('active_power', (p / 1000).toFixed(1));
 
     // Update session info elements with actual data from backend
     if ($('session_time')) {
@@ -432,15 +441,12 @@ async function fetchStatus() {
     if (chargingPort) {
       chargingPort.style.fill = s.status === 2 ? '#22c55e' : '#666';
     }
-    $('ac_current').textContent = `${(s.ac_current ?? 0).toFixed(2)} A`;
-    $('ac_power').textContent = `${Math.round(p)} W`;
-    $('energy').textContent = `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`;
-    $('l1').textContent =
-      `${(s.l1_voltage ?? 0).toFixed(1)} V / ${(s.l1_current ?? 0).toFixed(2)} A / ${Math.round(s.l1_power ?? 0)} W`;
-    $('l2').textContent =
-      `${(s.l2_voltage ?? 0).toFixed(1)} V / ${(s.l2_current ?? 0).toFixed(2)} A / ${Math.round(s.l2_power ?? 0)} W`;
-    $('l3').textContent =
-      `${(s.l3_voltage ?? 0).toFixed(1)} V / ${(s.l3_current ?? 0).toFixed(2)} A / ${Math.round(s.l3_power ?? 0)} W`;
+    setTextIfExists('ac_current', `${(s.ac_current ?? 0).toFixed(2)} A`);
+    setTextIfExists('ac_power', `${Math.round(p)} W`);
+    setTextIfExists('energy', `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`);
+    setTextIfExists('l1', `${(s.l1_voltage ?? 0).toFixed(1)} V / ${(s.l1_current ?? 0).toFixed(2)} A / ${Math.round(s.l1_power ?? 0)} W`);
+    setTextIfExists('l2', `${(s.l2_voltage ?? 0).toFixed(1)} V / ${(s.l2_current ?? 0).toFixed(2)} A / ${Math.round(s.l2_power ?? 0)} W`);
+    setTextIfExists('l3', `${(s.l3_voltage ?? 0).toFixed(1)} V / ${(s.l3_current ?? 0).toFixed(2)} A / ${Math.round(s.l3_power ?? 0)} W`);
     addHistoryPoint(s);
     // only rebuild form when closed to avoid flicker while editing
     if (!isConfigOpen && currentSchema && currentConfig) {
