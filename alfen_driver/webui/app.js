@@ -618,23 +618,29 @@ function buildSection(container, key, sectionDef, cfg) {
 
 function buildForm(schema, cfg) {
     const root = $('config_form');
+    if (!root) return;
+
     root.innerHTML = '';
     const sections = schema.sections || {};
     const nav = $('config_nav');
-    nav.innerHTML = '';
+    if (nav) nav.innerHTML = '';
+
     Object.keys(sections).forEach((key, idx) => {
         buildSection(root, key, sections[key], cfg[key]);
-        const chip = document.createElement('div');
-        chip.className = 'chip' + (idx === 0 ? ' active' : '');
-        chip.textContent = sections[key].title || key;
-        chip.addEventListener('click', () => {
-            const sectionEls = Array.from(root.getElementsByClassName('section'));
-            const target = sectionEls[idx];
-            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            nav.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
-            chip.classList.add('active');
-        });
-        nav.appendChild(chip);
+
+        if (nav) {
+            const chip = document.createElement('div');
+            chip.className = 'chip' + (idx === 0 ? ' active' : '');
+            chip.textContent = sections[key].title || key;
+            chip.addEventListener('click', () => {
+                const sectionEls = Array.from(root.getElementsByClassName('section'));
+                const target = sectionEls[idx];
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                nav.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+                chip.classList.add('active');
+            });
+            nav.appendChild(chip);
+        }
     });
 }
 
@@ -694,20 +700,55 @@ function collectConfig(schema) {
 }
 
 async function saveConfig() {
+    const statusEl = $('config_status');
+    const saveBtn = $('save_config');
+
     try {
-        $('config_status').textContent = 'Saving...';
+        if (statusEl) {
+            statusEl.textContent = 'Saving...';
+            statusEl.style.background = 'rgba(59, 130, 246, 0.1)';
+            statusEl.style.color = '#3b82f6';
+        }
+
+        if (saveBtn) {
+            saveBtn.style.opacity = '0.7';
+            saveBtn.style.pointerEvents = 'none';
+        }
+
         const payload = collectConfig(currentSchema);
         const resp = await postJSON('/api/config', payload, 'PUT');
+
         if (resp.ok) {
-            $('config_status').textContent = 'Saved';
-            setTimeout(() => $('config_status').textContent = '', 1200);
+            if (statusEl) {
+                statusEl.textContent = '✅ Configuration saved successfully!';
+                statusEl.style.background = 'rgba(16, 185, 129, 0.1)';
+                statusEl.style.color = '#10b981';
+                setTimeout(() => {
+                    statusEl.textContent = '';
+                    statusEl.style.background = '';
+                    statusEl.style.color = '';
+                }, 3000);
+            }
             currentConfig = payload;
             fetchStatus();
         } else {
-            $('config_status').textContent = `Error: ${resp.error || 'Validation failed'}`;
+            if (statusEl) {
+                statusEl.textContent = `❌ Error: ${resp.error || 'Validation failed'}`;
+                statusEl.style.background = 'rgba(239, 68, 68, 0.1)';
+                statusEl.style.color = '#ef4444';
+            }
         }
     } catch (e) {
-        $('config_status').textContent = e.message || 'Invalid configuration';
+        if (statusEl) {
+            statusEl.textContent = `❌ ${e.message || 'Invalid configuration'}`;
+            statusEl.style.background = 'rgba(239, 68, 68, 0.1)';
+            statusEl.style.color = '#ef4444';
+        }
+    } finally {
+        if (saveBtn) {
+            saveBtn.style.opacity = '';
+            saveBtn.style.pointerEvents = '';
+        }
     }
 }
 
@@ -719,46 +760,112 @@ async function initConfigForm() {
         ]);
         buildForm(currentSchema, currentConfig);
     } catch (e) {
-        $('config_status').textContent = 'Failed to load configuration UI';
+        const statusEl = $('config_status');
+        if (statusEl) {
+            statusEl.textContent = '❌ Failed to load configuration UI';
+            statusEl.style.background = 'rgba(239, 68, 68, 0.1)';
+            statusEl.style.color = '#ef4444';
+        }
+        console.error('Failed to initialize config form:', e);
     }
 }
 
-// Smarter polling to avoid clobbering edits: only refresh form when closed
+// Enhanced view management
+let currentView = 'dashboard';
 let isConfigOpen = false;
 
-function toggleConfigOpen(open) {
-    const toolbar = document.querySelector('.config-toolbar');
-    const tabs = document.querySelector('.config-tabs');
-    const body = document.querySelector('.config-body');
-    if (!toolbar || !tabs || !body) return;
+function switchView(viewName) {
+    const dashboardContent = $('dashboard_content');
+    const configContent = $('config_content');
+    const dashboardBtn = $('dashboard_view');
+    const configBtn = $('config_view');
 
-    if (open === undefined) {
-        isConfigOpen = !isConfigOpen;
-    } else {
-        isConfigOpen = open;
+    if (!dashboardContent || !configContent || !dashboardBtn || !configBtn) return;
+
+    // Update current view
+    currentView = viewName;
+
+    // Handle view switching with smooth animation
+    if (viewName === 'dashboard') {
+        configContent.style.opacity = '0';
+        setTimeout(() => {
+            configContent.style.display = 'none';
+            dashboardContent.style.display = 'block';
+            dashboardContent.style.opacity = '1';
+        }, 150);
+
+        // Update button states
+        dashboardBtn.classList.add('active');
+        configBtn.classList.remove('active');
+        dashboardBtn.setAttribute('aria-pressed', 'true');
+        configBtn.setAttribute('aria-pressed', 'false');
+
+        isConfigOpen = false;
+
+    } else if (viewName === 'config') {
+        dashboardContent.style.opacity = '0';
+        setTimeout(() => {
+            dashboardContent.style.display = 'none';
+            configContent.style.display = 'block';
+            configContent.style.opacity = '1';
+        }, 150);
+
+        // Update button states
+        configBtn.classList.add('active');
+        dashboardBtn.classList.remove('active');
+        configBtn.setAttribute('aria-pressed', 'true');
+        dashboardBtn.setAttribute('aria-pressed', 'false');
+
+        isConfigOpen = true;
+
+        // Initialize config form if not already done
+        if (currentSchema && currentConfig) {
+            buildForm(currentSchema, currentConfig);
+        }
     }
+}
 
-    toolbar.style.display = isConfigOpen ? 'flex' : 'none';
-    tabs.style.display = isConfigOpen ? 'flex' : 'none';
-    body.style.display = isConfigOpen ? 'block' : 'none';
-    $('toggle_config').textContent = isConfigOpen ? 'Hide configuration' : 'Edit configuration';
+function toggleConfigOpen(open) {
+    // This function is now handled by switchView
+    if (open === undefined) {
+        switchView(currentView === 'config' ? 'dashboard' : 'config');
+    } else {
+        switchView(open ? 'config' : 'dashboard');
+    }
 }
 
 function initUX() {
-    $('toggle_config').addEventListener('click', () => toggleConfigOpen());
-    $('show_advanced').addEventListener('change', () => {
-        if ($('show_advanced').checked) document.body.classList.add('show-advanced');
-        else document.body.classList.remove('show-advanced');
-    });
-    $('expand_all').addEventListener('click', () => {
-        document.querySelectorAll('.section .section-body').forEach((el) => el.style.display = '');
-    });
-    $('collapse_all').addEventListener('click', () => {
-        document.querySelectorAll('.section .section-body').forEach((el) => el.style.display = 'none');
-    });
-    $('save_config').addEventListener('click', saveConfig);
-    // start collapsed
-    toggleConfigOpen(false);
+    // View toggle functionality
+    const dashboardBtn = $('dashboard_view');
+    const configBtn = $('config_view');
+
+    if (dashboardBtn) {
+        dashboardBtn.addEventListener('click', () => switchView('dashboard'));
+        addButtonFeedback(dashboardBtn);
+    }
+
+    if (configBtn) {
+        configBtn.addEventListener('click', () => switchView('config'));
+        addButtonFeedback(configBtn);
+    }
+
+    // Configuration functionality
+    const showAdvanced = $('show_advanced');
+    if (showAdvanced) {
+        showAdvanced.addEventListener('change', () => {
+            if (showAdvanced.checked) document.body.classList.add('show-advanced');
+            else document.body.classList.remove('show-advanced');
+        });
+    }
+
+    const saveBtn = $('save_config');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', saveConfig);
+        addButtonFeedback(saveBtn);
+    }
+
+    // Start with dashboard view
+    switchView('dashboard');
 }
 
 // Removed old control functions that are no longer needed
