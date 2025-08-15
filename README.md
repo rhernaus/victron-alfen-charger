@@ -170,19 +170,19 @@ web:
   port: 8088          # actual UI port
 ```
 
-2) Add the loopback alias and redirect 127.0.0.2:80 → 127.0.0.1:8088 on the GX:
+2) Add the loopback alias and redirect 127.0.0.2:80 → 127.0.0.2:8088 on the GX:
 ```bash
 # One‑time test (non‑persistent)
 ip addr add 127.0.0.2/8 dev lo label lo:1 || true
-iptables -t nat -C OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.1:8088 2>/dev/null || \
-iptables -t nat -A OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.1:8088
+iptables -t nat -C OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.2:8088 2>/dev/null || \
+ip﻿tables -t nat -A OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.2:8088
 ```
 
 3) Persist across reboots via `/data/rc.local` (before starting the driver):
 ```bash
 ip addr add 127.0.0.2/8 dev lo label lo:1 || true
-iptables -t nat -C OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.1:8088 2>/dev/null || \
-iptables -t nat -A OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.1:8088
+iptables -t nat -C OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.2:8088 2>/dev/null || \
+ip﻿tables -t nat -A OUTPUT -p tcp -d 127.0.0.2 --dport 80 -j DNAT --to-destination 127.0.0.2:8088
 /data/alfen-venv/bin/python3 /data/victron-alfen-charger/main.py &
 ```
 
