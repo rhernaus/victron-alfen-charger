@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
-from alfen_driver.session_manager import ChargingSessionManager
 from alfen_driver.constants import SessionDefaults
+from alfen_driver.session_manager import ChargingSessionManager
 
 
 def test_session_start_confirmation_by_time(monkeypatch) -> None:
@@ -17,7 +17,9 @@ def test_session_start_confirmation_by_time(monkeypatch) -> None:
     class FauxDatetime:
         @classmethod
         def now(cls):
-            return base + timedelta(seconds=SessionDefaults.START_CONFIRMATION_SECONDS + 1)
+            return base + timedelta(
+                seconds=SessionDefaults.START_CONFIRMATION_SECONDS + 1
+            )
 
     monkeypatch.setattr("alfen_driver.session_manager.datetime", FauxDatetime)
     mgr.update(power_w=1200, total_energy_kwh=0.0)
@@ -34,7 +36,9 @@ def test_session_end_after_grace_period(monkeypatch) -> None:
     class FauxDatetimeStart:
         @classmethod
         def now(cls):
-            return base + timedelta(seconds=SessionDefaults.START_CONFIRMATION_SECONDS + 1)
+            return base + timedelta(
+                seconds=SessionDefaults.START_CONFIRMATION_SECONDS + 1
+            )
 
     monkeypatch.setattr("alfen_driver.session_manager.datetime", FauxDatetimeStart)
     mgr.update(power_w=1200, total_energy_kwh=0.0)
@@ -71,7 +75,9 @@ def test_state_persistence_roundtrip(monkeypatch) -> None:
     class FauxDatetime:
         @classmethod
         def now(cls):
-            return base + timedelta(seconds=SessionDefaults.START_CONFIRMATION_SECONDS + 1)
+            return base + timedelta(
+                seconds=SessionDefaults.START_CONFIRMATION_SECONDS + 1
+            )
 
         @staticmethod
         def fromisoformat(s: str):

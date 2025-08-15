@@ -1,15 +1,17 @@
-import asyncio
-from typing import Any, Dict
-
 import pytest
 
 from alfen_driver.config import TibberConfig
-from alfen_driver.tibber import PriceLevel, TibberClient, check_tibber_schedule, get_hourly_overview_text
+from alfen_driver.tibber import (
+    PriceLevel,
+    TibberClient,
+    check_tibber_schedule,
+    get_hourly_overview_text,
+)
 
 
 @pytest.mark.asyncio
 async def test_tibber_should_charge_strategies(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = TibberConfig(access_token="x", enabled=True)
+    cfg = TibberConfig(access_token="x", enabled=True)  # noqa: S106
     client = TibberClient(cfg)
 
     # Seed cache with current price info
@@ -57,7 +59,7 @@ def test_check_tibber_schedule_disabled_or_missing_token() -> None:
 
 
 def test_get_hourly_overview_text_no_data() -> None:
-    cfg = TibberConfig(access_token="x", enabled=True)
+    cfg = TibberConfig(access_token="x", enabled=True)  # noqa: S106
     text = get_hourly_overview_text(cfg)
     assert "not enabled" not in text  # enabled
     # With no cached data, it should say so
@@ -65,7 +67,7 @@ def test_get_hourly_overview_text_no_data() -> None:
 
 
 def test_get_hourly_overview_text_with_data(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = TibberConfig(access_token="x", enabled=True)
+    cfg = TibberConfig(access_token="x", enabled=True)  # noqa: S106
     client = TibberClient(cfg)
     # Populate upcoming and cache
     client._cached_upcoming = [
@@ -73,7 +75,13 @@ def test_get_hourly_overview_text_with_data(monkeypatch: pytest.MonkeyPatch) -> 
         {"total": 0.2, "startsAt": "2025-01-01T01:00:00Z", "level": "NORMAL"},
         {"total": 0.4, "startsAt": "2025-01-01T02:00:00Z", "level": "EXPENSIVE"},
     ]
-    client._cache = {"current_price": {"total": 0.15, "level": "CHEAP", "startsAt": "2025-01-01T00:00:00Z"}}
+    client._cache = {
+        "current_price": {
+            "total": 0.15,
+            "level": "CHEAP",
+            "startsAt": "2025-01-01T00:00:00Z",
+        }
+    }
 
     # Inject as shared client
     import alfen_driver.tibber as tib_mod
