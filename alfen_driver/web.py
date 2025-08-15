@@ -65,9 +65,12 @@ class WebServer:
                 level_name = getattr(cfg_logging, "level", "INFO")
                 level = getattr(logging, str(level_name).upper(), logging.INFO)
                 self.access_logger.setLevel(level)
-            except Exception:
-                # Fall back to root-configured effective level
-                pass
+            except Exception as exc:
+                # Fall back to root-configured effective level, but log once
+                logging.getLogger(__name__).warning(
+                    "Failed to apply access log level from config; using root level: %s",
+                    exc,
+                )
 
     def _get_static_dir(self) -> Path:
         base_dir = Path(os.path.dirname(__file__)) / "webui"
@@ -203,7 +206,9 @@ class WebServer:
         self.loop = asyncio.get_running_loop()
         app = await self._create_app()
         self.runner = web.AppRunner(
-            app, access_log_class=ConfigurableAccessLogger, access_log=self.access_logger
+            app,
+            access_log_class=ConfigurableAccessLogger,
+            access_log=self.access_logger,
         )
         await self.runner.setup()
         site = web.TCPSite(self.runner, host=self.host, port=self.port)
