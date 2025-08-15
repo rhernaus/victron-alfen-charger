@@ -54,6 +54,20 @@
                                 <span class="current-range">[6-25A]</span>
                             </div>
                             <span class="current-display" id="current_display" aria-live="polite">11 A</span>
+                            <input
+                                type="range"
+                                id="current_slider"
+                                min="6"
+                                max="25"
+                                step="1"
+                                value="11"
+                                class="current-slider compact"
+                                role="slider"
+                                aria-labelledby="current_slider_label"
+                                aria-valuemin="6"
+                                aria-valuemax="25"
+                                aria-valuenow="11"
+                            />
                             <button id="charge_btn" class="stop-btn" aria-pressed="true" aria-label="Stop charging">
                                 <span class="btn-icon">⏹️</span>
                                 <span>Stop</span>
@@ -78,13 +92,15 @@
                             <div class="chart-controls">
                                 <span>Window</span>
                                 <select id="range" class="range-select">
-                                    <option value="60">60 s</option>
                                     <option value="300" selected>300 s</option>
                                     <option value="3600">3600 s</option>
                                 </select>
                             </div>
                         </div>
-                        <canvas id="chart" width="800" height="200"></canvas>
+                        <div style="position: relative">
+                            <canvas id="chart" width="800" height="200"></canvas>
+                            <div id="chart_tooltip" class="chart-tooltip" style="display: none"></div>
+                        </div>
                         <div class="chart-legend">
                             <span class="legend-item"><span class="legend-dot actual"></span>Actual current</span>
                             <span class="legend-item"><span class="legend-dot allowed"></span>Allowed current</span>
@@ -92,172 +108,152 @@
                         </div>
                     </div>
 
-                    <div class="current-slider-section">
-                        <input
-                            type="range"
-                            id="current_slider"
-                            min="6"
-                            max="25"
-                            step="1"
-                            value="11"
-                            class="current-slider"
-                            role="slider"
-                            aria-labelledby="current_slider_label"
-                            aria-valuemin="6"
-                            aria-valuemax="25"
-                            aria-valuenow="11"
-                        />
+                    <!-- Session info cards -->
+                    <div class="info-grid">
+                        <div class="info-card">
+                            <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="12" cy="12" r="10" stroke="#4A9FD8" stroke-width="2" />
+                                <path
+                                    d="M12 6 L12 12 L16 16"
+                                    stroke="#4A9FD8"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                />
+                            </svg>
+                            <span class="info-label">Session time</span>
+                            <span class="info-value" id="session_time">04:59:37</span>
+                        </div>
+
+                        <div class="info-card">
+                            <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path
+                                    d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"
+                                    stroke="#4A9FD8"
+                                    stroke-width="2"
+                                    fill="none"
+                                />
+                            </svg>
+                            <span class="info-label">Session energy</span>
+                            <span class="info-value"><span id="session_energy">33.80</span> kWh</span>
+                        </div>
+
+                        <div class="info-card">
+                            <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path
+                                    d="M12 2v20M17 5l-5 5-5-5M7 19l5-5 5 5"
+                                    stroke="#4A9FD8"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                />
+                            </svg>
+                            <span class="info-label">Session cost</span>
+                            <span class="info-value" id="session_cost">2.93</span>
+                        </div>
+
+                        <div class="info-card">
+                            <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="3" y="3" width="18" height="18" rx="2" stroke="#4A9FD8" stroke-width="2" />
+                                <path d="M3 9h18M9 21V9" stroke="#4A9FD8" stroke-width="2" />
+                            </svg>
+                            <span class="info-label">Total energy</span>
+                            <span class="info-value"><span id="total_energy">3121.34</span> kWh</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Session info cards -->
-                <div class="info-grid">
-                    <div class="info-card">
-                        <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <circle cx="12" cy="12" r="10" stroke="#4A9FD8" stroke-width="2" />
-                            <path d="M12 6 L12 12 L16 16" stroke="#4A9FD8" stroke-width="2" stroke-linecap="round" />
-                        </svg>
-                        <span class="info-label">Session time</span>
-                        <span class="info-value" id="session_time">04:59:37</span>
-                    </div>
+                <!-- Navigation Toggle -->
+                <div class="view-toggle">
+                    <button id="dashboard_view" class="view-btn active" aria-pressed="true">
+                        <span class="view-icon">📊</span>
+                        <span>Dashboard</span>
+                    </button>
+                    <button id="config_view" class="view-btn" aria-pressed="false">
+                        <span class="view-icon">⚙️</span>
+                        <span>Configuration</span>
+                    </button>
+                </div>
 
-                    <div class="info-card">
-                        <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="#4A9FD8" stroke-width="2" fill="none" />
-                        </svg>
-                        <span class="info-label">Session energy</span>
-                        <span class="info-value"><span id="session_energy">33.80</span> kWh</span>
-                    </div>
+                <!-- Configuration View -->
+                <div id="config_content" class="view-content" style="display: none">
+                    <div class="config-container">
+                        <div class="config-header-modern">
+                            <div class="config-title">
+                                <h2>⚙️ Configuration</h2>
+                                <p class="config-subtitle">Customize your EV charging system settings</p>
+                            </div>
+                            <div class="config-actions-top">
+                                <label class="modern-toggle">
+                                    <input type="checkbox" id="show_advanced" />
+                                    <span class="toggle-slider"></span>
+                                    <span class="toggle-label">Advanced Settings</span>
+                                </label>
+                            </div>
+                        </div>
 
-                    <div class="info-card">
-                        <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path
-                                d="M12 2v20M17 5l-5 5-5-5M7 19l5-5 5 5"
-                                stroke="#4A9FD8"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            />
-                        </svg>
-                        <span class="info-label">Session cost</span>
-                        <span class="info-value" id="session_cost">2.93</span>
-                    </div>
+                        <!-- Quick Settings Panel -->
+                        <div class="quick-settings-panel">
+                            <h3>🚀 Quick Settings</h3>
+                            <div class="quick-settings-grid">
+                                <div class="quick-setting-card">
+                                    <div class="quick-icon">⚡</div>
+                                    <div class="quick-content">
+                                        <h4>Charging Mode</h4>
+                                        <p>Default charging behavior</p>
+                                    </div>
+                                </div>
+                                <div class="quick-setting-card">
+                                    <div class="quick-icon">🔌</div>
+                                    <div class="quick-content">
+                                        <h4>Connection</h4>
+                                        <p>Network and device settings</p>
+                                    </div>
+                                </div>
+                                <div class="quick-setting-card">
+                                    <div class="quick-icon">📅</div>
+                                    <div class="quick-content">
+                                        <h4>Scheduling</h4>
+                                        <p>Automated charging times</p>
+                                    </div>
+                                </div>
+                                <div class="quick-setting-card">
+                                    <div class="quick-icon">💰</div>
+                                    <div class="quick-content">
+                                        <h4>Energy Pricing</h4>
+                                        <p>Cost optimization settings</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
-                    <div class="info-card">
-                        <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path
-                                d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5Z"
-                                stroke="#4A9FD8"
-                                stroke-width="2"
-                                fill="none"
-                            />
-                        </svg>
-                        <span class="info-label">Session saved cost</span>
-                        <span class="info-value" id="session_saved">1.46</span>
-                    </div>
+                        <!-- Configuration Navigation -->
+                        <div class="config-nav-modern" id="config_nav"></div>
 
-                    <div class="info-card full-width">
-                        <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <rect x="3" y="3" width="18" height="18" rx="2" stroke="#4A9FD8" stroke-width="2" />
-                            <path d="M3 9h18M9 21V9" stroke="#4A9FD8" stroke-width="2" />
-                        </svg>
-                        <span class="info-label">Total energy</span>
-                        <span class="info-value"><span id="total_energy">3121.34</span> kWh</span>
+                        <!-- Configuration Form -->
+                        <div class="config-form-container">
+                            <div id="config_form" class="config-form-modern"></div>
+                            <div class="config-actions-bottom">
+                                <button id="save_config" class="save-btn-modern">
+                                    <span class="btn-icon">💾</span>
+                                    <span>Save Configuration</span>
+                                </button>
+                                <span id="config_status" class="config-status-modern"></span>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Navigation Toggle -->
-            <div class="view-toggle">
-                <button id="dashboard_view" class="view-btn active" aria-pressed="true">
-                    <span class="view-icon">📊</span>
-                    <span>Dashboard</span>
-                </button>
-                <button id="config_view" class="view-btn" aria-pressed="false">
-                    <span class="view-icon">⚙️</span>
-                    <span>Configuration</span>
-                </button>
-            </div>
-
-            <!-- Configuration View -->
-            <div id="config_content" class="view-content" style="display: none">
-                <div class="config-container">
-                    <div class="config-header-modern">
-                        <div class="config-title">
-                            <h2>⚙️ Configuration</h2>
-                            <p class="config-subtitle">Customize your EV charging system settings</p>
-                        </div>
-                        <div class="config-actions-top">
-                            <label class="modern-toggle">
-                                <input type="checkbox" id="show_advanced" />
-                                <span class="toggle-slider"></span>
-                                <span class="toggle-label">Advanced Settings</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Quick Settings Panel -->
-                    <div class="quick-settings-panel">
-                        <h3>🚀 Quick Settings</h3>
-                        <div class="quick-settings-grid">
-                            <div class="quick-setting-card">
-                                <div class="quick-icon">⚡</div>
-                                <div class="quick-content">
-                                    <h4>Charging Mode</h4>
-                                    <p>Default charging behavior</p>
-                                </div>
-                            </div>
-                            <div class="quick-setting-card">
-                                <div class="quick-icon">🔌</div>
-                                <div class="quick-content">
-                                    <h4>Connection</h4>
-                                    <p>Network and device settings</p>
-                                </div>
-                            </div>
-                            <div class="quick-setting-card">
-                                <div class="quick-icon">📅</div>
-                                <div class="quick-content">
-                                    <h4>Scheduling</h4>
-                                    <p>Automated charging times</p>
-                                </div>
-                            </div>
-                            <div class="quick-setting-card">
-                                <div class="quick-icon">💰</div>
-                                <div class="quick-content">
-                                    <h4>Energy Pricing</h4>
-                                    <p>Cost optimization settings</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Configuration Navigation -->
-                    <div class="config-nav-modern" id="config_nav"></div>
-
-                    <!-- Configuration Form -->
-                    <div class="config-form-container">
-                        <div id="config_form" class="config-form-modern"></div>
-                        <div class="config-actions-bottom">
-                            <button id="save_config" class="save-btn-modern">
-                                <span class="btn-icon">💾</span>
-                                <span>Save Configuration</span>
-                            </button>
-                            <span id="config_status" class="config-status-modern"></span>
-                        </div>
+                <div class="footer">
+                    <span>Device instance: <span id="di"></span></span>
+                    <div class="device-info">
+                        <span id="product"></span>
+                        <span id="serial"></span>
+                        <span id="firmware"></span>
                     </div>
                 </div>
             </div>
 
-            <div class="footer">
-                <span>Device instance: <span id="di"></span></span>
-                <div class="device-info">
-                    <span id="product"></span>
-                    <span id="serial"></span>
-                    <span id="firmware"></span>
-                </div>
-            </div>
+            <script src="/ui/app.js"></script>
         </div>
-
-        <script src="/ui/app.js"></script>
     </body>
 </html>

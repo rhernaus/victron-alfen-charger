@@ -24,6 +24,8 @@ let currentSchema = null;
 const chartHistory = {
   points: [], // {t, current, allowed, station}
   windowSec: 300,
+  maxBufferSec: 21600, // keep up to 6h for smooth window changes
+  hoverT: null,
 };
 
 function addHistoryPoint(s) {
@@ -40,9 +42,16 @@ function addHistoryPoint(s) {
     allowed = Number(s.applied_current ?? allowed);
   }
   chartHistory.points.push({ t, current, allowed, station });
-  const cutoff = t - chartHistory.windowSec;
+  const cutoff = t - chartHistory.maxBufferSec;
   chartHistory.points = chartHistory.points.filter(p => p.t >= cutoff);
   drawChart();
+}
+
+function drawDotOnChart(ctx, x, y, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, 3, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawChart() {
@@ -60,11 +69,17 @@ function drawChart() {
   if (chartHistory.points.length < 2) {
     return;
   }
-  const tMin = chartHistory.points[0].t;
-  const tMax = chartHistory.points[chartHistory.points.length - 1].t;
+  const tEnd = chartHistory.points[chartHistory.points.length - 1].t;
+  const tMinDesired = tEnd - chartHistory.windowSec;
+  const visible = chartHistory.points.filter(p => p.t >= tMinDesired);
+  if (visible.length < 2) {
+    return;
+  }
+  const tMin = visible[0].t;
+  const tMax = visible[visible.length - 1].t;
   const tSpan = Math.max(1, tMax - tMin);
   let vMax = 0;
-  chartHistory.points.forEach(p => {
+  visible.forEach(p => {
     vMax = Math.max(vMax, p.current, p.allowed, p.station);
   });
   vMax = Math.max(10, Math.ceil(vMax / 5) * 5);
@@ -74,7 +89,7 @@ function drawChart() {
   function mapY(v) {
     return H - 20 - (v / vMax) * (H - 40);
   }
-  // Grid
+  // Grid (horizontal)
   ctx.strokeStyle = 'rgba(255,255,255,0.1)';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 5; i++) {
@@ -89,7 +104,7 @@ function drawChart() {
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    chartHistory.points.forEach((p, idx) => {
+    visible.forEach((p, idx) => {
       const x = mapX(p.t);
       const y = mapY(p[key]);
       if (idx === 0) {
@@ -115,6 +130,75 @@ function drawChart() {
   ctx.font = '12px -apple-system, sans-serif';
   ctx.fillText(`${vMax} A`, 4, mapY(vMax) + 4);
   ctx.fillText('0', 20, H - 22);
+
+  // X-axis ticks and labels (HH:MM)
+  const numTicks = 5;
+  const step = tSpan / numTicks;
+  ctx.fillStyle = '#94a3b8';
+  for (let i = 0; i <= numTicks; i++) {
+    const tTick = tMin + step * i;
+    const x = mapX(tTick);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.beginPath();
+    ctx.moveTo(x, H - 20);
+    ctx.lineTo(x, H - 16);
+    ctx.stroke();
+    const d = new Date(tTick * 1000);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const label = `${hh}:${mm}`;
+    const textW = ctx.measureText(label).width;
+    ctx.fillText(label, Math.min(Math.max(40, x - textW / 2), W - 20 - textW), H - 4);
+  }
+
+  // Hover crosshair and tooltip
+  const tip = $('chart_tooltip');
+  if (chartHistory.hoverT && tip) {
+    // Find nearest point in visible range
+    let nearest = visible[0];
+    let bestDt = Math.abs(chartHistory.hoverT - nearest.t);
+    for (let i = 1; i < visible.length; i++) {
+      const dt = Math.abs(chartHistory.hoverT - visible[i].t);
+      if (dt < bestDt) {
+        bestDt = dt;
+        nearest = visible[i];
+      }
+    }
+    const x = mapX(nearest.t);
+    // Vertical line
+    ctx.strokeStyle = 'rgba(148,163,184,0.6)';
+    ctx.beginPath();
+    ctx.moveTo(x, 10);
+    ctx.lineTo(x, H - 20);
+    ctx.stroke();
+    // Points
+    drawDotOnChart(ctx, x, mapY(nearest.current), '#22c55e');
+    drawDotOnChart(ctx, x, mapY(nearest.allowed), '#f59e0b');
+    drawDotOnChart(ctx, x, mapY(nearest.station), '#ef4444');
+    // Tooltip content
+    const d = new Date(nearest.t * 1000);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    tip.innerHTML = `${hh}:${mm}:${ss} — cur ${nearest.current.toFixed(
+      1
+    )} A · allow ${nearest.allowed.toFixed(1)} A · max ${nearest.station.toFixed(0)} A`;
+    // Place tooltip
+    const rect = canvas.getBoundingClientRect();
+    const parent = canvas.parentElement;
+    const parentRect = parent
+      ? parent.getBoundingClientRect()
+      : { left: 0, top: 0, width: rect.width };
+    const canvasCssW = rect.width;
+    const scale = canvasCssW / W;
+    const cssX = x * scale + (rect.left - parentRect.left);
+    const top = rect.top - parentRect.top + 12;
+    tip.style.left = `${cssX}px`;
+    tip.style.top = `${top}px`;
+    tip.style.display = '';
+  } else if (tip) {
+    tip.style.display = 'none';
+  }
 }
 
 $('range')?.addEventListener('change', e => {
@@ -351,6 +435,36 @@ $('current_slider').addEventListener('pointerup', () => {
   currentDirtyUntil = Date.now() + 1500;
 });
 
+// Chart hover listeners
+(function initChartHover() {
+  const canvas = $('chart');
+  if (!canvas) return;
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    const cssX = e.clientX - rect.left;
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.width / dpr;
+    // Recompute current visible window mapping
+    if (chartHistory.points.length < 2) return;
+    const tEnd = chartHistory.points[chartHistory.points.length - 1].t;
+    const tMinDesired = tEnd - chartHistory.windowSec;
+    const visible = chartHistory.points.filter(p => p.t >= tMinDesired);
+    if (visible.length < 2) return;
+    const tMin = visible[0].t;
+    const tMax = visible[visible.length - 1].t;
+    const tSpan = Math.max(1, tMax - tMin);
+    const rectW = rect.width;
+    const x = Math.max(40, Math.min(rectW - 20, cssX));
+    const frac = (x - 40) / Math.max(1, rectW - 60);
+    chartHistory.hoverT = tMin + frac * tSpan;
+    drawChart();
+  });
+  canvas.addEventListener('mouseleave', () => {
+    chartHistory.hoverT = null;
+    drawChart();
+  });
+})();
+
 async function fetchStatus() {
   try {
     const res = await fetch('/api/status');
@@ -439,18 +553,15 @@ async function fetchStatus() {
       $('session_energy').textContent = (s.energy_forward_kwh ?? 0).toFixed(2);
     }
     if ($('session_cost')) {
-      // Calculate cost based on energy and configured rate
-      const energy = s.energy_forward_kwh ?? 0;
-      // TODO: Get actual energy rate from config or Tibber integration
-      const rate = s.energy_rate ?? 0.25; // Default rate per kWh
-      const cost = energy * rate;
-      $('session_cost').textContent = cost.toFixed(2);
-    }
-    if ($('session_saved')) {
-      // Calculate saved amount if available (e.g., from solar charging)
-      // TODO: Implement actual savings calculation based on solar/grid mix
-      const savedAmount = s.session_saved ?? 0;
-      $('session_saved').textContent = savedAmount.toFixed(2);
+      // Prefer server-calculated session_cost (hourly price aware) if provided
+      let cost = s.session_cost;
+      if (cost === null || cost === undefined) {
+        const energy = s.energy_forward_kwh ?? 0;
+        // Fallback: flat rate per kWh when hourly breakdown is unavailable
+        const rate = s.energy_rate ?? 0.25;
+        cost = energy * rate;
+      }
+      $('session_cost').textContent = Number(cost).toFixed(2);
     }
     if ($('total_energy')) {
       // Use total lifetime energy if available
