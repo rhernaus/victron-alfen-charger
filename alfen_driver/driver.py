@@ -160,6 +160,22 @@ class AlfenDriver:
 
         self.logger.info("Driver initialization complete")
 
+    def _merge_status_snapshot(self, updates: Dict[str, Any]) -> None:
+        """Safely merge partial updates into the HTTP status snapshot.
+
+        This ensures the web UI reflects immediate state changes (like
+        mode/start-stop/current) even if Modbus polling is failing or has
+        not yet run again.
+        """
+        try:
+            with self.status_lock:
+                current = dict(self.status_snapshot)
+                current.update(updates)
+                self.status_snapshot = current
+        except Exception as exc:
+            # Do not allow snapshot issues to interrupt callbacks; log at debug
+            self.logger.debug(f"snapshot merge failed: {exc}")
+
     def _determine_config_file_path(self) -> str:
         """Determine the active configuration file path used by the driver."""
         local_path = os.path.join(os.getcwd(), "alfen_driver_config.yaml")
@@ -220,6 +236,14 @@ class AlfenDriver:
                 current = dict(self.status_snapshot)
                 current["device_instance"] = int(self.config.device_instance)
                 self.status_snapshot = current
+
+            # Reflect limits that may have changed due to config apply
+            self._merge_status_snapshot(
+                {
+                    "station_max_current": float(self.station_max_current),
+                    "set_current": float(self.intended_set_current.value),
+                }
+            )
 
             return {"ok": True}
         except Exception as exc:  # pragma: no cover - runtime safe-guard
@@ -391,6 +415,9 @@ class AlfenDriver:
             self.current_mode.value = int(value)
             self._persist_state()
 
+            # Update HTTP snapshot immediately
+            self._merge_status_snapshot({"mode": int(self.current_mode.value)})
+
             # Apply immediate current change for MANUAL mode
             if self.current_mode.value == EVC_MODE.MANUAL.value:
                 self._apply_current_change("Mode change", force_verify=True)
@@ -422,6 +449,9 @@ class AlfenDriver:
         try:
             self.start_stop.value = int(value)
             self._persist_state()
+
+            # Update HTTP snapshot immediately
+            self._merge_status_snapshot({"start_stop": int(self.start_stop.value)})
 
             # Apply current change based on mode
             target = (
@@ -458,6 +488,11 @@ class AlfenDriver:
             self.intended_set_current.value = requested
             self.service["/SetCurrent"] = round(self.intended_set_current.value, 1)
             self._persist_state()
+
+            # Update HTTP snapshot immediately
+            self._merge_status_snapshot(
+                {"set_current": float(self.intended_set_current.value)}
+            )
 
             # Apply immediate change for MANUAL mode
             if self.current_mode.value == EVC_MODE.MANUAL.value:
@@ -778,14 +813,16 @@ class AlfenDriver:
             ):
                 cs = self.session_manager.current_session
                 snapshot["session"] = {
-                    "start_ts": cs.start_time,
+                    "start_ts": cs.start_time.isoformat(),
                     "start_energy_kwh": cs.start_energy_kwh,
                 }
             elif self.session_manager.last_session is not None:
                 ls = self.session_manager.last_session
                 snapshot["session"] = {
-                    "start_ts": ls.start_time,
-                    "end_ts": ls.end_time,
+                    "start_ts": ls.start_time.isoformat(),
+                    "end_ts": ls.end_time.isoformat()
+                    if ls.end_time is not None
+                    else None,
                     "energy_delivered_kwh": ls.energy_delivered_kwh,
                 }
             else:
@@ -1029,10 +1066,12 @@ class AlfenDriver:
         except ModbusException as e:
             self.logger.error(f"Modbus error in poll: {e}")
             reconnect(self.client, self.logger)
-            return False
+            # Keep periodic polling alive; try again on next tick
+            return True
         except Exception as e:
             self.logger.error(f"Unexpected error in poll: {e}")
-            return False
+            # Avoid stopping the GLib timeout; continue polling
+            return True
 
     def run(self) -> None:
         """Run the main driver loop."""
