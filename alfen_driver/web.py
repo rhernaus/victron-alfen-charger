@@ -96,6 +96,30 @@ class WebServer:
         GLib.idle_add(_invoke, priority=GLib.PRIORITY_DEFAULT)
         return await future
 
+    def _sanitize_for_json(self, value: Any) -> Any:
+        """Recursively sanitize data so it is valid JSON.
+
+        - Replace NaN/Infinity floats with None (-> null)
+        - Sanitize dicts/lists/tuples recursively
+        - Leave basic JSON types unchanged; fallback to str() for unknown types
+        """
+        try:
+            import math  # Local import to avoid global dependency if unused
+        except Exception:
+            # If math is somehow unavailable, just return the value as-is
+            return value
+
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
+        if isinstance(value, dict):
+            return {k: self._sanitize_for_json(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._sanitize_for_json(v) for v in value]
+        if isinstance(value, (str, int, bool)) or value is None:
+            return value
+        # Fallback: stringify unsupported types
+        return str(value)
+
     async def handle_status(self, request: web.Request) -> web.Response:
         snapshot: Dict[str, Any]
         try:
@@ -108,7 +132,9 @@ class WebServer:
                 snapshot = dict(getattr(self.driver, "status_snapshot", {}) or {})
         except Exception:
             snapshot = {}
-        return web.json_response(snapshot)
+        # Ensure JSON validity by sanitizing NaN/Infinity to null
+        sanitized = self._sanitize_for_json(snapshot)
+        return web.json_response(sanitized)
 
     async def handle_get_schema(self, request: web.Request) -> web.Response:
         return web.json_response(get_config_schema())

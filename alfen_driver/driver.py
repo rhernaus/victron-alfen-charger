@@ -2,6 +2,7 @@
 """Simplified Alfen EV Charger driver for Victron Venus OS."""
 
 import dataclasses
+import math
 import os
 import sys
 import threading
@@ -839,6 +840,52 @@ class AlfenDriver:
             snapshot["l1_power"] = float(self._svc_value("/Ac/L1/Power", 0.0))
             snapshot["l2_power"] = float(self._svc_value("/Ac/L2/Power", 0.0))
             snapshot["l3_power"] = float(self._svc_value("/Ac/L3/Power", 0.0))
+
+            # Derive phase power from voltage * current if reported power is not finite
+            l1_v = snapshot["l1_voltage"]
+            l1_i = snapshot["l1_current"]
+            l2_v = snapshot["l2_voltage"]
+            l2_i = snapshot["l2_current"]
+            l3_v = snapshot["l3_voltage"]
+            l3_i = snapshot["l3_current"]
+
+            if not math.isfinite(snapshot["l1_power"]):
+                if (
+                    math.isfinite(l1_v)
+                    and math.isfinite(l1_i)
+                    and abs(l1_v) > 1.0
+                    and abs(l1_i) > 0.01
+                ):
+                    snapshot["l1_power"] = round(l1_v * l1_i, 0)
+                else:
+                    snapshot["l1_power"] = 0.0
+            if not math.isfinite(snapshot["l2_power"]):
+                if (
+                    math.isfinite(l2_v)
+                    and math.isfinite(l2_i)
+                    and abs(l2_v) > 1.0
+                    and abs(l2_i) > 0.01
+                ):
+                    snapshot["l2_power"] = round(l2_v * l2_i, 0)
+                else:
+                    snapshot["l2_power"] = 0.0
+            if not math.isfinite(snapshot["l3_power"]):
+                if (
+                    math.isfinite(l3_v)
+                    and math.isfinite(l3_i)
+                    and abs(l3_v) > 1.0
+                    and abs(l3_i) > 0.01
+                ):
+                    snapshot["l3_power"] = round(l3_v * l3_i, 0)
+                else:
+                    snapshot["l3_power"] = 0.0
+
+            # If total AC power is not finite, sum phase powers
+            if not math.isfinite(snapshot["ac_power"]):
+                snapshot["ac_power"] = (
+                    snapshot["l1_power"] + snapshot["l2_power"] + snapshot["l3_power"]
+                )
+
             snapshot["active_phases"] = int(getattr(self, "active_phases", 0) or 0)
             snapshot["charging_time_sec"] = int(self._svc_value("/ChargingTime", 0))
             # Provide legacy alias expected by UI fallback
