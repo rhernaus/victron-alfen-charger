@@ -431,9 +431,13 @@ class AlfenDriver:
             self.logger.info(log_msg)
             # Reflect the applied current in the HTTP snapshot for the UI
             try:
-                self._merge_status_snapshot({"applied_current": float(effective_current)})
-            except Exception:
-                pass
+                self._merge_status_snapshot(
+                    {"applied_current": float(effective_current)}
+                )
+            except Exception as exc:
+                self.logger.debug(
+                    f"Failed to update applied_current in snapshot: {exc}"
+                )
             return True
         else:
             self.logger.warning(f"Failed to apply current on {source}")
@@ -836,7 +840,7 @@ class AlfenDriver:
             snapshot["serial"] = str(self.service.get("/Serial", ""))
             snapshot["product_name"] = str(self.service.get("/ProductName", ""))
             snapshot["device_instance"] = int(self.config.device_instance)
-            
+
             # Maintain last applied current for UI display logic
             snapshot["applied_current"] = float(self.last_sent_current)
 
