@@ -14,7 +14,7 @@ const statusNames = {
   3: 'Charged',
   4: 'Wait sun',
   6: 'Wait start',
-  7: 'Low SOC'
+  7: 'Low SOC',
 };
 
 let currentConfig = null;
@@ -23,7 +23,7 @@ let currentSchema = null;
 // History series
 const chartHistory = {
   points: [], // {t, current, allowed, station}
-  windowSec: 300
+  windowSec: 300,
 };
 
 function addHistoryPoint(s) {
@@ -32,9 +32,11 @@ function addHistoryPoint(s) {
   let allowed = Number(s.set_current || 0);
   const station = Number(s.station_max_current || 0);
   const mode = Number(s.mode || 0);
-  if (mode === 1) { // AUTO
+  if (mode === 1) {
+    // AUTO
     allowed = Number(s.applied_current ?? allowed);
-  } else if (mode === 2) { // SCHEDULED
+  } else if (mode === 2) {
+    // SCHEDULED
     allowed = Number(s.applied_current ?? allowed);
   }
   chartHistory.points.push({ t, current, allowed, station });
@@ -258,7 +260,7 @@ window.addEventListener('resize', () => {
 
 // Enhanced visual feedback for interactions
 function addButtonFeedback(button) {
-  button.addEventListener('click', function() {
+  button.addEventListener('click', function () {
     this.style.transform = 'scale(0.95)';
     setTimeout(() => {
       this.style.transform = '';
@@ -267,23 +269,23 @@ function addButtonFeedback(button) {
 }
 
 // Wire controls with enhanced feedback
-$('mode_manual').addEventListener('click', async() => {
+$('mode_manual').addEventListener('click', async () => {
   modeDirtyUntil = Date.now() + 2000;
   setModeUI(0);
   await postJSON('/api/mode', { mode: 0 });
 });
-$('mode_auto').addEventListener('click', async() => {
+$('mode_auto').addEventListener('click', async () => {
   modeDirtyUntil = Date.now() + 2000;
   setModeUI(1);
   await postJSON('/api/mode', { mode: 1 });
 });
-$('mode_sched').addEventListener('click', async() => {
+$('mode_sched').addEventListener('click', async () => {
   modeDirtyUntil = Date.now() + 2000;
   setModeUI(2);
   await postJSON('/api/mode', { mode: 2 });
 });
 
-$('charge_btn').addEventListener('click', async() => {
+$('charge_btn').addEventListener('click', async () => {
   // Toggle with animation
   const isEnabled = !$('charge_btn').classList.contains('start');
   const btn = $('charge_btn');
@@ -335,7 +337,7 @@ $('current_slider').addEventListener('input', () => {
   if (currentChangeTimer) {
     clearTimeout(currentChangeTimer);
   }
-  currentChangeTimer = setTimeout(async() => {
+  currentChangeTimer = setTimeout(async () => {
     const amps = parseFloat(slider.value);
     await postJSON('/api/set_current', { amps });
   }, 400);
@@ -365,9 +367,11 @@ async function fetchStatus() {
     const mode = Number(s.mode ?? 0);
     const setpoint = Number(s.set_current ?? 6.0);
     let displayCurrent = setpoint;
-    if (mode === 1) { // AUTO
+    if (mode === 1) {
+      // AUTO
       displayCurrent = Number(s.applied_current ?? setpoint);
-    } else if (mode === 2) { // SCHEDULED
+    } else if (mode === 2) {
+      // SCHEDULED
       displayCurrent = Number(s.applied_current ?? setpoint);
     }
     // Update display and slider separately
@@ -414,16 +418,18 @@ async function fetchStatus() {
         const hours = Math.floor(duration / 3600);
         const minutes = Math.floor((duration % 3600) / 60);
         const seconds = duration % 60;
-        $('session_time').textContent =
-          `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        $('session_time').textContent = `${hours.toString().padStart(2, '0')}:${minutes
+          .toString()
+          .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
       } else if (s.charging_time) {
         // Use ChargingTime from D-Bus if available (in seconds)
         const duration = s.charging_time;
         const hours = Math.floor(duration / 3600);
         const minutes = Math.floor((duration % 3600) / 60);
         const seconds = duration % 60;
-        $('session_time').textContent =
-          `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        $('session_time').textContent = `${hours.toString().padStart(2, '0')}:${minutes
+          .toString()
+          .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
       } else {
         $('session_time').textContent = '00:00:00';
       }
@@ -464,9 +470,24 @@ async function fetchStatus() {
     setTextIfExists('ac_current', `${(s.ac_current ?? 0).toFixed(2)} A`);
     setTextIfExists('ac_power', `${Math.round(p)} W`);
     setTextIfExists('energy', `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`);
-    setTextIfExists('l1', `${(s.l1_voltage ?? 0).toFixed(1)} V / ${(s.l1_current ?? 0).toFixed(2)} A / ${Math.round(s.l1_power ?? 0)} W`);
-    setTextIfExists('l2', `${(s.l2_voltage ?? 0).toFixed(1)} V / ${(s.l2_current ?? 0).toFixed(2)} A / ${Math.round(s.l2_power ?? 0)} W`);
-    setTextIfExists('l3', `${(s.l3_voltage ?? 0).toFixed(1)} V / ${(s.l3_current ?? 0).toFixed(2)} A / ${Math.round(s.l3_power ?? 0)} W`);
+    setTextIfExists(
+      'l1',
+      `${(s.l1_voltage ?? 0).toFixed(1)} V / ${(s.l1_current ?? 0).toFixed(2)} A / ${Math.round(
+        s.l1_power ?? 0
+      )} W`
+    );
+    setTextIfExists(
+      'l2',
+      `${(s.l2_voltage ?? 0).toFixed(1)} V / ${(s.l2_current ?? 0).toFixed(2)} A / ${Math.round(
+        s.l2_power ?? 0
+      )} W`
+    );
+    setTextIfExists(
+      'l3',
+      `${(s.l3_voltage ?? 0).toFixed(1)} V / ${(s.l3_current ?? 0).toFixed(2)} A / ${Math.round(
+        s.l3_power ?? 0
+      )} W`
+    );
     addHistoryPoint(s);
     // only rebuild form when closed to avoid flicker while editing
     if (!isConfigOpen && currentSchema && currentConfig) {
@@ -489,7 +510,7 @@ async function postJSON(url, payload, method = 'POST') {
   const res = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
   return await res.json();
 }
@@ -510,94 +531,94 @@ function createInput(fieldKey, def, value, path) {
   error.style.display = 'none';
 
   switch (def.type) {
-  case 'string': {
-    input = document.createElement('input');
-    input.type = 'text';
-    if (def.format === 'ipv4') {
-      input.placeholder = 'e.g. 192.168.1.100';
-      input.pattern = '^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$';
-    }
-    input.value = value ?? '';
-    break;
-  }
-  case 'integer': {
-    input = document.createElement('input');
-    input.type = 'number';
-    input.step = '1';
-    if (def.min !== null && def.min !== undefined) {
-      input.min = String(def.min);
-    }
-    if (def.max !== null && def.max !== undefined) {
-      input.max = String(def.max);
-    }
-    input.value = value !== null && value !== undefined ? String(value) : '';
-    break;
-  }
-  case 'number': {
-    input = document.createElement('input');
-    input.type = 'number';
-    input.step = def.step !== null && def.step !== undefined ? String(def.step) : 'any';
-    if (def.min !== null && def.min !== undefined) {
-      input.min = String(def.min);
-    }
-    if (def.max !== null && def.max !== undefined) {
-      input.max = String(def.max);
-    }
-    input.value = value !== null && value !== undefined ? String(value) : '';
-    break;
-  }
-  case 'boolean': {
-    input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = !!value;
-    break;
-  }
-  case 'enum': {
-    input = document.createElement('select');
-    (def.values || []).forEach(opt => {
-      const o = document.createElement('option');
-      o.value = String(opt);
-      o.textContent = String(opt);
-      if (String(value) === String(opt)) {
-        o.selected = true;
+    case 'string': {
+      input = document.createElement('input');
+      input.type = 'text';
+      if (def.format === 'ipv4') {
+        input.placeholder = 'e.g. 192.168.1.100';
+        input.pattern = '^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$';
       }
-      input.appendChild(o);
-    });
-    break;
-  }
-  case 'time': {
-    input = document.createElement('input');
-    input.type = 'time';
-    input.value = value || '00:00';
-    break;
-  }
-  case 'array': {
-    // Only special case we support here is days-of-week chips
-    const container = document.createElement('div');
-    container.className = 'days';
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const set = new Set((value || []).map(n => Number(n)));
-    days.forEach((name, idx) => {
-      const chip = document.createElement('div');
-      chip.className = 'day-chip' + (set.has(idx) ? ' active' : '');
-      chip.textContent = name;
-      chip.addEventListener('click', () => {
-        if (chip.classList.contains('active')) {
-          chip.classList.remove('active');
-        } else {
-          chip.classList.add('active');
+      input.value = value ?? '';
+      break;
+    }
+    case 'integer': {
+      input = document.createElement('input');
+      input.type = 'number';
+      input.step = '1';
+      if (def.min !== null && def.min !== undefined) {
+        input.min = String(def.min);
+      }
+      if (def.max !== null && def.max !== undefined) {
+        input.max = String(def.max);
+      }
+      input.value = value !== null && value !== undefined ? String(value) : '';
+      break;
+    }
+    case 'number': {
+      input = document.createElement('input');
+      input.type = 'number';
+      input.step = def.step !== null && def.step !== undefined ? String(def.step) : 'any';
+      if (def.min !== null && def.min !== undefined) {
+        input.min = String(def.min);
+      }
+      if (def.max !== null && def.max !== undefined) {
+        input.max = String(def.max);
+      }
+      input.value = value !== null && value !== undefined ? String(value) : '';
+      break;
+    }
+    case 'boolean': {
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!value;
+      break;
+    }
+    case 'enum': {
+      input = document.createElement('select');
+      (def.values || []).forEach(opt => {
+        const o = document.createElement('option');
+        o.value = String(opt);
+        o.textContent = String(opt);
+        if (String(value) === String(opt)) {
+          o.selected = true;
         }
+        input.appendChild(o);
       });
-      container.appendChild(chip);
-    });
-    input = container;
-    break;
-  }
-  default: {
-    input = document.createElement('input');
-    input.type = 'text';
-    input.value = value ?? '';
-  }
+      break;
+    }
+    case 'time': {
+      input = document.createElement('input');
+      input.type = 'time';
+      input.value = value || '00:00';
+      break;
+    }
+    case 'array': {
+      // Only special case we support here is days-of-week chips
+      const container = document.createElement('div');
+      container.className = 'days';
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const set = new Set((value || []).map(n => Number(n)));
+      days.forEach((name, idx) => {
+        const chip = document.createElement('div');
+        chip.className = 'day-chip' + (set.has(idx) ? ' active' : '');
+        chip.textContent = name;
+        chip.addEventListener('click', () => {
+          if (chip.classList.contains('active')) {
+            chip.classList.remove('active');
+          } else {
+            chip.classList.add('active');
+          }
+        });
+        container.appendChild(chip);
+      });
+      input = container;
+      break;
+    }
+    default: {
+      input = document.createElement('input');
+      input.type = 'text';
+      input.value = value ?? '';
+    }
   }
   input.id = id;
   wrap.appendChild(input);
@@ -699,7 +720,7 @@ function buildSection(container, key, sectionDef, cfg) {
           key,
           'items',
           String(listWrap.children.length),
-          fkey
+          fkey,
         ]);
         itemBody.appendChild(fieldEl);
       });
@@ -892,7 +913,7 @@ async function initConfigForm() {
   try {
     [currentSchema, currentConfig] = await Promise.all([
       getJSON('/api/config/schema'),
-      getJSON('/api/config')
+      getJSON('/api/config'),
     ]);
     buildForm(currentSchema, currentConfig);
   } catch (e) {
@@ -1020,7 +1041,9 @@ setInterval(() => {
       const hours = Math.floor(duration / 3600);
       const minutes = Math.floor((duration % 3600) / 60);
       const seconds = duration % 60;
-      sessionTimeEl.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      sessionTimeEl.textContent = `${hours.toString().padStart(2, '0')}:${minutes
+        .toString()
+        .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
   }
 }, 1000);

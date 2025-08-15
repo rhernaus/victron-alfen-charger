@@ -12,7 +12,7 @@ body {
     Inter,
     -apple-system,
     BlinkMacSystemFont,
-    'Segoe UI',
+    "Segoe UI",
     Roboto,
     Oxygen,
     Ubuntu,
@@ -167,7 +167,7 @@ html {
 }
 
 .card::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
@@ -205,7 +205,7 @@ html {
 }
 
 .charging-card::after {
-  content: '';
+  content: "";
   position: absolute;
   top: -50%;
   left: -50%;
@@ -272,7 +272,7 @@ html {
 }
 
 .mode-btn::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: -100%;
@@ -364,7 +364,7 @@ html {
 }
 
 .stop-btn::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: -100%;
@@ -436,7 +436,7 @@ html {
 }
 
 .power-display::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
@@ -613,7 +613,7 @@ html {
 }
 
 .info-card::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
@@ -896,7 +896,7 @@ canvas {
 }
 
 .view-btn::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: -100%;
@@ -982,7 +982,7 @@ canvas {
   cursor: pointer;
 }
 
-.modern-toggle input[type='checkbox'] {
+.modern-toggle input[type="checkbox"] {
   display: none;
 }
 
@@ -996,7 +996,7 @@ canvas {
 }
 
 .toggle-slider::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 2px;
   left: 2px;
@@ -1257,7 +1257,7 @@ canvas {
 }
 
 .save-btn-modern::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: -100%;
@@ -1360,9 +1360,9 @@ canvas {
   margin-bottom: 6px;
 }
 
-.form-field input[type='text'],
-.form-field input[type='number'],
-.form-field input[type='time'],
+.form-field input[type="text"],
+.form-field input[type="number"],
+.form-field input[type="time"],
 .form-field select {
   width: 100%;
   padding: 8px 12px;
@@ -1373,7 +1373,7 @@ canvas {
   font-size: 14px;
 }
 
-.form-field input[type='checkbox'] {
+.form-field input[type="checkbox"] {
   width: 16px;
   height: 16px;
   margin-right: 8px;
