@@ -58,6 +58,12 @@ tibber:
   # Percentile for strategy=percentile (0..1). Example: 0.3 means charge during the cheapest ~30% of upcoming hours.
   cheap_percentile: 0.3
 
+# Pricing configuration for session cost calculation
+pricing:
+  source: static        # 'victron' to read from Victron system if available, or 'static'
+  static_rate_eur_per_kwh: 0.25  # EUR per kWh used when source=='static' (and as fallback)
+  currency_symbol: "€"  # Currency symbol to display
+
 # Legacy time-based schedules (only used if Tibber is disabled)
 schedule:
   items:

@@ -209,6 +209,8 @@ $('range')?.addEventListener('change', e => {
 // Interaction state
 let modeDirtyUntil = 0;
 let currentDirtyUntil = 0;
+let pendingMode = null;
+let pendingModeTimer = null;
 
 function setModeUI(mode) {
   // Only update UI if not recently changed by the user
@@ -354,19 +356,129 @@ function addButtonFeedback(button) {
 
 // Wire controls with enhanced feedback
 $('mode_manual').addEventListener('click', async () => {
-  modeDirtyUntil = Date.now() + 2000;
+  modeDirtyUntil = Date.now() + 3000;
+  pendingMode = 0;
+  if (pendingModeTimer) {
+    clearTimeout(pendingModeTimer);
+    pendingModeTimer = null;
+  }
   setModeUI(0);
-  await postJSON('/api/mode', { mode: 0 });
+  pendingModeTimer = setTimeout(() => {
+    if (window.lastStatusData && Number(window.lastStatusData.mode) !== 0) {
+      setModeUI(Number(window.lastStatusData.mode || 0));
+    }
+    pendingMode = null;
+    modeDirtyUntil = 0;
+  }, 3000);
+  try {
+    const resp = await postJSON('/api/mode', { mode: 0 });
+    if (!resp || resp.ok === false) {
+      // Revert immediately on error
+      setModeUI(Number(window.lastStatusData?.mode || 0));
+      pendingMode = null;
+      modeDirtyUntil = 0;
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    } else {
+      // Success: avoid auto-revert; wait for /api/status confirmation
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    }
+  } catch (e) {
+    setModeUI(Number(window.lastStatusData?.mode || 0));
+    pendingMode = null;
+    modeDirtyUntil = 0;
+    if (pendingModeTimer) {
+      clearTimeout(pendingModeTimer);
+      pendingModeTimer = null;
+    }
+  }
 });
 $('mode_auto').addEventListener('click', async () => {
-  modeDirtyUntil = Date.now() + 2000;
+  modeDirtyUntil = Date.now() + 3000;
+  pendingMode = 1;
+  if (pendingModeTimer) {
+    clearTimeout(pendingModeTimer);
+    pendingModeTimer = null;
+  }
   setModeUI(1);
-  await postJSON('/api/mode', { mode: 1 });
+  pendingModeTimer = setTimeout(() => {
+    if (window.lastStatusData && Number(window.lastStatusData.mode) !== 1) {
+      setModeUI(Number(window.lastStatusData.mode || 0));
+    }
+    pendingMode = null;
+    modeDirtyUntil = 0;
+  }, 3000);
+  try {
+    const resp = await postJSON('/api/mode', { mode: 1 });
+    if (!resp || resp.ok === false) {
+      setModeUI(Number(window.lastStatusData?.mode || 0));
+      pendingMode = null;
+      modeDirtyUntil = 0;
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    } else {
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    }
+  } catch (e) {
+    setModeUI(Number(window.lastStatusData?.mode || 0));
+    pendingMode = null;
+    modeDirtyUntil = 0;
+    if (pendingModeTimer) {
+      clearTimeout(pendingModeTimer);
+      pendingModeTimer = null;
+    }
+  }
 });
 $('mode_sched').addEventListener('click', async () => {
-  modeDirtyUntil = Date.now() + 2000;
+  modeDirtyUntil = Date.now() + 3000;
+  pendingMode = 2;
+  if (pendingModeTimer) {
+    clearTimeout(pendingModeTimer);
+    pendingModeTimer = null;
+  }
   setModeUI(2);
-  await postJSON('/api/mode', { mode: 2 });
+  pendingModeTimer = setTimeout(() => {
+    if (window.lastStatusData && Number(window.lastStatusData.mode) !== 2) {
+      setModeUI(Number(window.lastStatusData.mode || 0));
+    }
+    pendingMode = null;
+    modeDirtyUntil = 0;
+  }, 3000);
+  try {
+    const resp = await postJSON('/api/mode', { mode: 2 });
+    if (!resp || resp.ok === false) {
+      setModeUI(Number(window.lastStatusData?.mode || 0));
+      pendingMode = null;
+      modeDirtyUntil = 0;
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    } else {
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    }
+  } catch (e) {
+    setModeUI(Number(window.lastStatusData?.mode || 0));
+    pendingMode = null;
+    modeDirtyUntil = 0;
+    if (pendingModeTimer) {
+      clearTimeout(pendingModeTimer);
+      pendingModeTimer = null;
+    }
+  }
 });
 
 $('charge_btn').addEventListener('click', async () => {
@@ -482,6 +594,15 @@ async function fetchStatus() {
     setTextIfExists('product', s.product_name || '');
     setTextIfExists('serial', s.serial ? `SN ${s.serial}` : '');
     setTextIfExists('firmware', s.firmware ? `FW ${s.firmware}` : '');
+    // If server confirmed pending mode, clear pending and let UI reflect server
+    if (pendingMode !== null && Number(s.mode ?? 0) === Number(pendingMode)) {
+      pendingMode = null;
+      modeDirtyUntil = 0;
+      if (pendingModeTimer) {
+        clearTimeout(pendingModeTimer);
+        pendingModeTimer = null;
+      }
+    }
     setModeUI(Number(s.mode ?? 0));
     setChargeUI(Number(s.start_stop ?? 1) === 1);
     // Determine which current to display based on mode
@@ -532,10 +653,10 @@ async function fetchStatus() {
       }
 
       // Display power in watts or kW if >= 1000W
-      powerEl.textContent = newPower >= 1000 ? (newPower / 1000).toFixed(1) : newPower;
+      powerEl.textContent = newPower >= 1000 ? (newPower / 1000).toFixed(2) : newPower;
     }
     // Display power with conditional units
-    setTextIfExists('active_power', p >= 1000 ? (p / 1000).toFixed(1) : Math.round(p));
+    setTextIfExists('active_power', p >= 1000 ? (p / 1000).toFixed(2) : Math.round(p));
     const unitEl = $('hero_power_unit');
     if (unitEl) {
       unitEl.textContent = p >= 1000 ? 'kW' : 'W';
@@ -580,7 +701,8 @@ async function fetchStatus() {
         const rate = s.energy_rate ?? 0.25;
         cost = energy * rate;
       }
-      $('session_cost').textContent = `€${Number(cost).toFixed(2)}`;
+      const currency = s.pricing_currency || '€';
+      $('session_cost').textContent = `${currency}${Number(cost).toFixed(2)}`;
     }
     if ($('total_energy')) {
       // Use total lifetime energy available from charger
@@ -597,7 +719,7 @@ async function fetchStatus() {
       chargingPort.style.fill = s.status === 2 ? '#22c55e' : '#666';
     }
     setTextIfExists('ac_current', `${(s.ac_current ?? 0).toFixed(2)} A`);
-    setTextIfExists('ac_power', p >= 1000 ? `${(p / 1000).toFixed(1)} kW` : `${Math.round(p)} W`);
+    setTextIfExists('ac_power', p >= 1000 ? `${(p / 1000).toFixed(2)} kW` : `${Math.round(p)} W`);
     setTextIfExists('energy', `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`);
     setTextIfExists(
       'l1',
@@ -1105,6 +1227,8 @@ function switchView(viewName) {
     // Initialize config form if not already done
     if (currentSchema && currentConfig) {
       buildForm(currentSchema, currentConfig);
+    } else {
+      initConfigForm();
     }
   }
 }

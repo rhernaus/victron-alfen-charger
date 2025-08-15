@@ -137,6 +137,9 @@ class ConfigValidator:
         if "logging" in config:
             self._validate_logging_config(config["logging"])
 
+        if "pricing" in config:
+            self._validate_pricing_config(config["pricing"])
+
         # Validate global settings
         self._validate_global_settings(config)
 
@@ -545,6 +548,33 @@ class ConfigValidator:
                     file_path,
                     "Specify a valid log file path or remove this field",
                 )
+
+    def _validate_pricing_config(self, pricing: Dict[str, Any]) -> None:
+        """Validate pricing configuration section."""
+        source = pricing.get("source", "static")
+        if not isinstance(source, str) or source not in {"victron", "static"}:
+            self._add_error(
+                "pricing.source",
+                "Invalid pricing source (must be 'victron' or 'static')",
+                source,
+                "Choose 'victron' to read from Victron system or 'static' to use a fixed rate",
+            )
+        rate = pricing.get("static_rate_eur_per_kwh", 0.25)
+        if not isinstance(rate, (int, float)) or rate < 0:
+            self._add_error(
+                "pricing.static_rate_eur_per_kwh",
+                "Static rate must be a non-negative number",
+                rate,
+                "Provide a valid EUR/kWh value like 0.25",
+            )
+        currency = pricing.get("currency_symbol", "€")
+        if not isinstance(currency, str) or not currency:
+            self._add_error(
+                "pricing.currency_symbol",
+                "Currency symbol must be a non-empty string",
+                currency,
+                "Use symbols like '€', '$', '£'",
+            )
 
     def _validate_global_settings(self, config: Dict[str, Any]) -> None:
         """Validate global configuration settings."""
