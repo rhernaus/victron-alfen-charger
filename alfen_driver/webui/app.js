@@ -363,18 +363,18 @@ async function fetchStatus() {
     setChargeUI(Number(s.start_stop ?? 1) === 1);
     // Determine which current to display based on mode
     const mode = Number(s.mode ?? 0);
-    let displayCurrent = Number(s.set_current ?? 6.0);
+    const setpoint = Number(s.set_current ?? 6.0);
+    let displayCurrent = setpoint;
     if (mode === 1) { // AUTO
-      displayCurrent = Number(s.applied_current ?? s.set_current ?? 0);
+      displayCurrent = Number(s.applied_current ?? setpoint);
     } else if (mode === 2) { // SCHEDULED
-      displayCurrent = Number(s.applied_current ?? s.set_current ?? 0);
+      displayCurrent = Number(s.applied_current ?? setpoint);
     }
     // Update display and slider separately
     const stationMax = Number(s.station_max_current ?? 0);
     setCurrentUI(displayCurrent, stationMax);
     const slider = $('current_slider');
-    if (slider) {
-      const setpoint = Number(s.set_current ?? 6.0);
+    if (slider && Date.now() >= currentDirtyUntil) {
       slider.value = String(setpoint);
       slider.setAttribute('aria-valuenow', String(Math.round(setpoint)));
     }
