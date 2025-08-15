@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 sys.path.insert(
@@ -175,6 +176,29 @@ class AlfenDriver:
         except Exception as exc:
             # Do not allow snapshot issues to interrupt callbacks; log at debug
             self.logger.debug(f"snapshot merge failed: {exc}")
+
+    def _to_iso8601(self, value: Any) -> Optional[str]:
+        """Convert various timestamp representations to ISO 8601 string.
+
+        Accepts datetime objects, Unix epoch (int/float), ISO strings, or None.
+        Returns None on unsupported values or conversion errors.
+        """
+        if value is None:
+            return None
+        try:
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if isinstance(value, (int, float)):
+                return datetime.fromtimestamp(float(value)).isoformat()
+            if isinstance(value, str):
+                # Best-effort normalization; if it's already ISO, this is a no-op
+                try:
+                    return datetime.fromisoformat(value).isoformat()
+                except Exception:
+                    return value
+        except Exception:
+            return None
+        return None
 
     def _determine_config_file_path(self) -> str:
         """Determine the active configuration file path used by the driver."""
@@ -813,16 +837,14 @@ class AlfenDriver:
             ):
                 cs = self.session_manager.current_session
                 snapshot["session"] = {
-                    "start_ts": cs.start_time.isoformat(),
+                    "start_ts": self._to_iso8601(getattr(cs, "start_time", None)),
                     "start_energy_kwh": cs.start_energy_kwh,
                 }
             elif self.session_manager.last_session is not None:
                 ls = self.session_manager.last_session
                 snapshot["session"] = {
-                    "start_ts": ls.start_time.isoformat(),
-                    "end_ts": ls.end_time.isoformat()
-                    if ls.end_time is not None
-                    else None,
+                    "start_ts": self._to_iso8601(getattr(ls, "start_time", None)),
+                    "end_ts": self._to_iso8601(getattr(ls, "end_time", None)),
                     "energy_delivered_kwh": ls.energy_delivered_kwh,
                 }
             else:
