@@ -456,6 +456,11 @@ class AlfenDriver:
         try:
             self.current_mode.value = int(value)
             self._persist_state()
+            # Reflect change on D-Bus so VRM and other consumers see the update
+            try:
+                self.service["/Mode"] = int(self.current_mode.value)
+            except Exception as exc:
+                self.logger.debug(f"Failed to write /Mode to D-Bus: {exc}")
 
             # Update HTTP snapshot immediately
             self._merge_status_snapshot({"mode": int(self.current_mode.value)})
@@ -491,6 +496,11 @@ class AlfenDriver:
         try:
             self.start_stop.value = int(value)
             self._persist_state()
+            # Reflect change on D-Bus
+            try:
+                self.service["/StartStop"] = int(self.start_stop.value)
+            except Exception as exc:
+                self.logger.debug(f"Failed to write /StartStop to D-Bus: {exc}")
 
             # Update HTTP snapshot immediately
             self._merge_status_snapshot({"start_stop": int(self.start_stop.value)})
@@ -528,7 +538,10 @@ class AlfenDriver:
             )
 
             self.intended_set_current.value = requested
-            self.service["/SetCurrent"] = round(self.intended_set_current.value, 1)
+            try:
+                self.service["/SetCurrent"] = round(self.intended_set_current.value, 1)
+            except Exception as exc:
+                self.logger.debug(f"Failed to write /SetCurrent to D-Bus: {exc}")
             self._persist_state()
 
             # Update HTTP snapshot immediately
@@ -890,6 +903,8 @@ class AlfenDriver:
             snapshot["charging_time_sec"] = int(self._svc_value("/ChargingTime", 0))
             # Provide legacy alias expected by UI fallback
             snapshot["charging_time"] = snapshot["charging_time_sec"]
+            # Include total lifetime energy from meter
+            snapshot["total_energy_kwh"] = float(energy_kwh)
             snapshot["firmware"] = str(self._svc_value("/FirmwareVersion", ""))
             snapshot["serial"] = str(self._svc_value("/Serial", ""))
             snapshot["product_name"] = str(self._svc_value("/ProductName", ""))

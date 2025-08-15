@@ -438,18 +438,24 @@ $('current_slider').addEventListener('pointerup', () => {
 // Chart hover listeners
 (function initChartHover() {
   const canvas = $('chart');
-  if (!canvas) return;
+  if (!canvas) {
+    return;
+  }
   canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     const cssX = e.clientX - rect.left;
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.width / dpr;
     // Recompute current visible window mapping
-    if (chartHistory.points.length < 2) return;
+    if (chartHistory.points.length < 2) {
+      return;
+    }
     const tEnd = chartHistory.points[chartHistory.points.length - 1].t;
     const tMinDesired = tEnd - chartHistory.windowSec;
     const visible = chartHistory.points.filter(p => p.t >= tMinDesired);
-    if (visible.length < 2) return;
+    if (visible.length < 2) {
+      return;
+    }
     const tMin = visible[0].t;
     const tMax = visible[visible.length - 1].t;
     const tSpan = Math.max(1, tMax - tMin);
@@ -469,6 +475,7 @@ async function fetchStatus() {
   try {
     const res = await fetch('/api/status');
     const s = await res.json();
+    s._last_update_ts = Date.now() / 1000;
     setConnectionState(true);
     showError('');
     window.lastStatusData = s; // Store for session timer
@@ -493,13 +500,21 @@ async function fetchStatus() {
     setCurrentUI(displayCurrent, stationMax);
     const slider = $('current_slider');
     if (slider && Date.now() >= currentDirtyUntil) {
-      slider.value = String(setpoint);
-      slider.setAttribute('aria-valuenow', String(Math.round(setpoint)));
+      if (mode === 1) {
+        slider.value = String(displayCurrent);
+        slider.setAttribute('aria-valuenow', String(Math.round(displayCurrent)));
+      } else {
+        slider.value = String(setpoint);
+        slider.setAttribute('aria-valuenow', String(Math.round(setpoint)));
+      }
     }
     setTextIfExists('di', s.device_instance ?? '');
     const stName = statusNames[s.status] || '-';
     setTextIfExists('status', stName);
-    setTextIfExists('status_text', s.status === 2 ? 'Charging 3P' : stName);
+    setTextIfExists(
+      'status_text',
+      s.status === 2 ? `Charging ${Number(s.active_phases) === 1 ? '1P' : '3P'}` : stName
+    );
     const p = Number(s.ac_power || 0);
 
     // Animate power value changes
@@ -516,28 +531,32 @@ async function fetchStatus() {
         }, 300);
       }
 
-      // Display power in watts
-      powerEl.textContent = newPower;
+      // Display power in watts or kW if >= 1000W
+      powerEl.textContent = newPower >= 1000 ? (newPower / 1000).toFixed(1) : newPower;
     }
-    // Display power in kW with one decimal for the status card (if present)
-    setTextIfExists('active_power', (p / 1000).toFixed(1));
+    // Display power with conditional units
+    setTextIfExists('active_power', p >= 1000 ? (p / 1000).toFixed(1) : Math.round(p));
+    const unitEl = $('hero_power_unit');
+    if (unitEl) {
+      unitEl.textContent = p >= 1000 ? 'kW' : 'W';
+    }
 
     // Update session info elements with actual data from backend
     if ($('session_time')) {
-      // Use session data from backend if available
-      if (s.session && s.session.start_ts) {
-        const startTime = new Date(s.session.start_ts).getTime();
-        const endTime = s.session.end_ts ? new Date(s.session.end_ts).getTime() : Date.now();
-        const duration = Math.floor((endTime - startTime) / 1000);
+      // Prefer charger-reported ChargingTime (seconds) to avoid timezone issues
+      if (typeof s.charging_time === 'number' && s.charging_time > 0) {
+        const duration = Math.floor(s.charging_time);
         const hours = Math.floor(duration / 3600);
         const minutes = Math.floor((duration % 3600) / 60);
         const seconds = duration % 60;
         $('session_time').textContent = `${hours.toString().padStart(2, '0')}:${minutes
           .toString()
           .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-      } else if (s.charging_time) {
-        // Use ChargingTime from D-Bus if available (in seconds)
-        const duration = s.charging_time;
+      } else if (s.session && s.session.start_ts) {
+        // Fallback: compute from session start/end timestamps
+        const startTime = new Date(s.session.start_ts).getTime();
+        const endTime = s.session.end_ts ? new Date(s.session.end_ts).getTime() : Date.now();
+        const duration = Math.floor((endTime - startTime) / 1000);
         const hours = Math.floor(duration / 3600);
         const minutes = Math.floor((duration % 3600) / 60);
         const seconds = duration % 60;
@@ -561,13 +580,12 @@ async function fetchStatus() {
         const rate = s.energy_rate ?? 0.25;
         cost = energy * rate;
       }
-      $('session_cost').textContent = Number(cost).toFixed(2);
+      $('session_cost').textContent = `€${Number(cost).toFixed(2)}`;
     }
     if ($('total_energy')) {
-      // Use total lifetime energy if available
-      // TODO: Get actual total energy from Modbus registers
+      // Use total lifetime energy available from charger
       const totalEnergy = s.total_energy_kwh ?? 0;
-      $('total_energy').textContent = totalEnergy.toFixed(2);
+      $('total_energy').textContent = Number(totalEnergy).toFixed(2);
     }
     // Update active status indicator
     if ($('active_status')) {
@@ -579,7 +597,7 @@ async function fetchStatus() {
       chargingPort.style.fill = s.status === 2 ? '#22c55e' : '#666';
     }
     setTextIfExists('ac_current', `${(s.ac_current ?? 0).toFixed(2)} A`);
-    setTextIfExists('ac_power', `${Math.round(p)} W`);
+    setTextIfExists('ac_power', p >= 1000 ? `${(p / 1000).toFixed(1)} kW` : `${Math.round(p)} W`);
     setTextIfExists('energy', `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`);
     setTextIfExists(
       'l1',
@@ -1145,8 +1163,22 @@ setInterval(() => {
 setInterval(() => {
   const sessionTimeEl = $('session_time');
   if (sessionTimeEl && window.lastStatusData && window.lastStatusData.status === 2) {
-    // Update time display if actively charging
-    if (window.lastStatusData.session && window.lastStatusData.session.start_ts) {
+    // Update time display if actively charging: prefer charging_time
+    if (
+      typeof window.lastStatusData.charging_time === 'number' &&
+      window.lastStatusData.charging_time >= 0
+    ) {
+      const duration = Math.floor(
+        window.lastStatusData.charging_time +
+          (Date.now() / 1000 - (window.lastStatusData._last_update_ts || Date.now() / 1000))
+      );
+      const hours = Math.floor(duration / 3600);
+      const minutes = Math.floor((duration % 3600) / 60);
+      const seconds = duration % 60;
+      sessionTimeEl.textContent = `${hours.toString().padStart(2, '0')}:${minutes
+        .toString()
+        .padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    } else if (window.lastStatusData.session && window.lastStatusData.session.start_ts) {
       const startTime = new Date(window.lastStatusData.session.start_ts).getTime();
       const duration = Math.floor((Date.now() - startTime) / 1000);
       const hours = Math.floor(duration / 3600);

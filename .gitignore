@@ -174,3 +174,6 @@ alfen_driver_config.yaml
 .ruff_cache/
 
 .claude/
+
+# Security scan reports
+bandit-report.json
