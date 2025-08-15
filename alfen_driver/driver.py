@@ -179,6 +179,61 @@ class AlfenDriver:
             # Do not allow snapshot issues to interrupt callbacks; log at debug
             self.logger.debug(f"snapshot merge failed: {exc}")
 
+    def _get_victron_energy_rate(self) -> Optional[float]:
+        """Attempt to detect current EUR/kWh energy price from Victron D-Bus.
+
+        Tries common keys first, then falls back to heuristic search over all values.
+        Returns None if unavailable.
+        """
+        try:
+            if dbus is None:
+                return None
+            bus = dbus.SystemBus()
+            system = bus.get_object("com.victronenergy.system", "/")
+            values = system.GetValue()
+            explicit_keys = [
+               "Energy/Price",
+               "Ac/Consumption/Price",
+               "Ac/Grid/Price",
+               "Settings/Energy/PricekWh",
+               "Settings/Energy/PriceKwh",
+            ]
+            for key in explicit_keys:
+                val = values.get(key)
+                if isinstance(val, (int, float)) and float(val) > 0:
+                    return float(val)
+            for key, val in values.items():
+                if not isinstance(val, (int, float)):
+                    continue
+                key_l = str(key).lower()
+                if ("price" in key_l or "tariff" in key_l or "cost" in key_l) and (
+                    "kwh" in key_l or "per" in key_l or "energy" in key_l
+                ):
+                    fval = float(val)
+                    if 0.0 < fval < 3.0:
+                        return fval
+        except Exception as e:
+            self.logger.debug(f"Victron energy rate detection failed: {e}")
+        return None
+
+    def _get_energy_rate(self) -> Optional[float]:
+        """Get energy rate based on pricing configuration, with safe fallback."""
+        try:
+            src = getattr(self.config, "pricing", None)
+            if src is None:
+                return None
+            if src.source == "static":
+                return float(src.static_rate_eur_per_kwh)
+            if src.source == "victron":
+                rate = self._get_victron_energy_rate()
+                if rate is not None:
+                    return rate
+                # Fallback to static rate if defined
+                return float(src.static_rate_eur_per_kwh)
+        except Exception as e:
+            self.logger.debug(f"Failed to resolve energy rate: {e}")
+        return None
+
     def _to_iso8601(self, value: Any) -> Optional[str]:
         """Convert various timestamp representations to ISO 8601 string.
 
@@ -912,6 +967,21 @@ class AlfenDriver:
 
             # Maintain last applied current for UI display logic
             snapshot["applied_current"] = float(self.last_sent_current)
+
+            # Pricing information and session cost
+            try:
+                rate = self._get_energy_rate()
+                currency = getattr(getattr(self.config, "pricing", None), "currency_symbol", "€")
+                snapshot["pricing_source"] = getattr(getattr(self.config, "pricing", None), "source", "static")
+                snapshot["pricing_currency"] = currency
+                snapshot["energy_rate"] = rate if rate is not None else None
+                session_energy = snapshot["energy_forward_kwh"]
+                if isinstance(session_energy, (int, float)) and rate is not None:
+                    snapshot["session_cost"] = round(float(session_energy) * float(rate), 2)
+                else:
+                    snapshot["session_cost"] = None
+            except Exception as e:
+                self.logger.debug(f"Failed to compute session cost: {e}")
 
             if (
                 hasattr(self.session_manager, "current_session")

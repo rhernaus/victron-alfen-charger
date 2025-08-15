@@ -327,6 +327,21 @@ class WebConfig:
 
 
 @dataclasses.dataclass
+class PricingConfig:
+    """Pricing configuration for computing session cost.
+
+    Attributes:
+        source: 'victron' to use Victron-provided price if available, or 'static' to use a fixed rate.
+        static_rate_eur_per_kwh: Static energy rate in EUR/kWh used when source=='static' or as fallback.
+        currency_symbol: Currency symbol to display for costs.
+    """
+
+    source: str = "static"
+    static_rate_eur_per_kwh: float = 0.25
+    currency_symbol: str = "€"
+
+
+@dataclasses.dataclass
 class Config:
     """Main configuration container.
 
@@ -342,6 +357,7 @@ class Config:
         poll_interval_ms: Polling interval in milliseconds.
         timezone: Timezone for schedule operations.
         web: Web server binding configuration.
+        pricing: Pricing configuration for session cost computation.
     """
 
     modbus: ModbusConfig
@@ -355,6 +371,7 @@ class Config:
     poll_interval_ms: int = 1000
     timezone: str = "UTC"
     web: WebConfig = dataclasses.field(default_factory=WebConfig)
+    pricing: PricingConfig = dataclasses.field(default_factory=PricingConfig)
 
     def __post_init__(self) -> None:
         """Perform basic validation."""
@@ -416,6 +433,7 @@ class Config:
         logging_cfg = LoggingConfig(**data.get("logging", {}))
         controls = ControlsConfig(**data.get("controls", {}))
         tibber = TibberConfig(**data.get("tibber", {}))
+        pricing = PricingConfig(**data.get("pricing", {}))
 
         # Handle schedule configuration
         schedule_data = data.get("schedule", {})
@@ -441,6 +459,7 @@ class Config:
             poll_interval_ms=data.get("poll_interval_ms", 1000),
             timezone=data.get("timezone", "UTC"),
             web=web_cfg,
+            pricing=pricing,
         )
 
 

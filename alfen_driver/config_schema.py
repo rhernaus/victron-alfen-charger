@@ -169,6 +169,24 @@ def get_config_schema() -> Dict[str, Any]:
                     },
                 },
             },
+            "pricing": {
+                "title": "Pricing",
+                "type": "object",
+                "fields": {
+                    "source": {
+                        "type": "enum",
+                        "values": ["victron", "static"],
+                        "title": "Session cost source",
+                    },
+                    "static_rate_eur_per_kwh": {
+                        "type": "number",
+                        "min": 0.0,
+                        "step": 0.001,
+                        "title": "Static rate (EUR/kWh)",
+                    },
+                    "currency_symbol": {"type": "string", "title": "Currency symbol"},
+                },
+            },
             "schedule": {
                 "title": "Schedules",
                 "type": "list",
