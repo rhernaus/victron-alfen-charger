@@ -8,16 +8,17 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 
 from aiohttp import web
 from aiohttp.abc import AbstractAccessLogger
+from aiohttp.web_request import BaseRequest
 from gi.repository import GLib
 
 from .config_schema import get_config_schema
 
 
-class DebugAccessLogger(AbstractAccessLogger):
-    """Log HTTP access lines at DEBUG level instead of INFO."""
+class ConfigurableAccessLogger(AbstractAccessLogger):
+    """Log HTTP access lines honoring the logger's effective level."""
 
     def log(
-        self, request: web.Request, response: web.StreamResponse, time: float
+        self, request: BaseRequest, response: web.StreamResponse, time: float
     ) -> None:  # noqa: D401
         try:
             remote = request.remote or "-"
@@ -25,6 +26,7 @@ class DebugAccessLogger(AbstractAccessLogger):
             path = str(request.rel_url)
             status = getattr(response, "status", 0)
             ua = request.headers.get("User-Agent", "-")
+            # Always categorize access logs as DEBUG; root/config level filters visibility
             self.logger.debug(
                 '%s "%s %s" %s %.3f %s', remote, method, path, status, time, ua
             )
@@ -56,7 +58,19 @@ class WebServer:
         self.runner: Optional[web.AppRunner] = None
         self.thread: Optional[threading.Thread] = None
         self.access_logger = logging.getLogger("alfen_driver.http")
-        self.access_logger.setLevel(logging.DEBUG)
+        # Respect configured logging level (default to root effective level)
+        cfg_logging = getattr(getattr(driver, "config", None), "logging", None)
+        if cfg_logging is not None:
+            try:
+                level_name = getattr(cfg_logging, "level", "INFO")
+                level = getattr(logging, str(level_name).upper(), logging.INFO)
+                self.access_logger.setLevel(level)
+            except Exception as exc:
+                # Fall back to root-configured effective level, but log once
+                logging.getLogger(__name__).warning(
+                    "Failed to apply access log level from config; using root level: %s",
+                    exc,
+                )
 
     def _get_static_dir(self) -> Path:
         base_dir = Path(os.path.dirname(__file__)) / "webui"
@@ -192,7 +206,9 @@ class WebServer:
         self.loop = asyncio.get_running_loop()
         app = await self._create_app()
         self.runner = web.AppRunner(
-            app, access_log_class=DebugAccessLogger, access_log=self.access_logger
+            app,
+            access_log_class=ConfigurableAccessLogger,
+            access_log=self.access_logger,
         )
         await self.runner.setup()
         site = web.TCPSite(self.runner, host=self.host, port=self.port)

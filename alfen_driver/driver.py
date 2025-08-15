@@ -128,8 +128,35 @@ class AlfenDriver:
         self._log_startup_settings()
 
         # HTTP status snapshot state for web server readers
-        self.status_snapshot: Dict[str, Any] = {}
         self.status_lock = threading.Lock()
+        # Initialize a non-empty default snapshot so /api/status is useful before first poll
+        self.status_snapshot: Dict[str, Any] = {
+            "mode": int(self.current_mode.value),
+            "start_stop": int(self.start_stop.value),
+            "set_current": float(self.intended_set_current.value),
+            "station_max_current": float(self.station_max_current),
+            "status": 0,
+            "ac_current": 0.0,
+            "ac_power": 0.0,
+            "energy_forward_kwh": 0.0,
+            "l1_voltage": 0.0,
+            "l2_voltage": 0.0,
+            "l3_voltage": 0.0,
+            "l1_current": 0.0,
+            "l2_current": 0.0,
+            "l3_current": 0.0,
+            "l1_power": 0.0,
+            "l2_power": 0.0,
+            "l3_power": 0.0,
+            "active_phases": 0,
+            "charging_time_sec": 0,
+            "charging_time": 0,
+            "firmware": "",
+            "serial": "",
+            "product_name": "Alfen EV Charger",
+            "device_instance": int(self.config.device_instance),
+            "session": {},
+        }
 
         self.logger.info("Driver initialization complete")
 

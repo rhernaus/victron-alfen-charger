@@ -7,9 +7,9 @@
 
 html, body {
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  background: #f0f4f8;
-  color: #1a1a1a;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background: #f6f8fb;
+  color: #0f172a;
   line-height: 1.6;
 }
 
@@ -18,6 +18,51 @@ html, body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
+}
+
+/* Topbar */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: #0b1220;
+  color: #e5e7eb;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.topbar .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.topbar .logo { font-size: 18px; }
+.topbar .topbar-status { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #a3b2c7; }
+.topbar .dot { width: 10px; height: 10px; border-radius: 999px; background: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.2); }
+
+/* Error banner */
+.error-banner {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 12px 20px;
+  border-bottom: 1px solid #fecaca;
+}
+
+/* Skip link */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.skip-link:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 8px 12px;
+  background: #4A9FD8;
+  color: white;
+  border-radius: 6px;
 }
 
 /* Card styles */
@@ -125,7 +170,7 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin: 40px 0;
+  margin: 24px 0 16px 0;
   position: relative;
 }
 
@@ -390,9 +435,12 @@ html, body {
 }
 
 canvas {
+  display: block;
   width: 100%;
-  height: auto;
-  max-height: 200px;
+  height: 200px;
+}
+@media (max-width: 768px) {
+  canvas { height: 160px; }
 }
 
 .chart-legend {
@@ -529,7 +577,7 @@ canvas {
   justify-content: space-between;
   align-items: center;
   padding: 20px 0;
-  color: #666;
+  color: #64748b;
   font-size: 14px;
 }
 
@@ -733,6 +781,10 @@ body:not(.show-advanced) .section.advanced .section-body {
 /* Improve button hover states */
 button {
   transition: all 0.2s ease;
+}
+button:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
 }
 
 /* Animation for charging cable */

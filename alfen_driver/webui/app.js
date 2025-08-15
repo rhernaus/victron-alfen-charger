@@ -34,7 +34,8 @@ function drawChart() {
     const canvas = $('chart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const W = canvas.width; const H = canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.width / dpr; const H = canvas.height / dpr;
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = '#1a2332';
     ctx.fillRect(0, 0, W, H);
@@ -94,22 +95,80 @@ function setChargeUI(enabled) {
         btn.textContent = 'Stop';
         btn.classList.remove('start');
         btn.classList.add('stop');
+        btn.setAttribute('aria-pressed', 'true');
+        btn.setAttribute('aria-label', 'Stop charging');
     } else {
         btn.textContent = 'Start';
         btn.classList.remove('stop');
         btn.classList.add('start');
+        btn.setAttribute('aria-pressed', 'false');
+        btn.setAttribute('aria-label', 'Start charging');
     }
 }
 
 function setCurrentUI(amps, stationMax) {
     if (Date.now() < currentDirtyUntil) return;
-    $('current_slider').value = String(amps);
+    const slider = $('current_slider');
+    slider.value = String(amps);
+    slider.setAttribute('aria-valuenow', String(Math.round(amps)));
     $('current_display').textContent = `${Math.round(amps)} A`;
     // Update slider min/max based on station capabilities
     if (stationMax > 0) {
-        $('current_slider').max = String(Math.min(stationMax, 25));
+        const max = Math.min(stationMax, 25);
+        slider.max = String(max);
+        slider.setAttribute('aria-valuemax', String(max));
     }
 }
+
+function setConnectionState(ok) {
+    const dot = $('conn_dot');
+    const text = $('conn_text');
+    if (!dot || !text) return;
+    if (ok) {
+        dot.style.background = '#22c55e';
+        dot.style.boxShadow = '0 0 0 2px rgba(34,197,94,0.2)';
+        text.textContent = 'Online';
+    } else {
+        dot.style.background = '#ef4444';
+        dot.style.boxShadow = '0 0 0 2px rgba(239,68,68,0.2)';
+        text.textContent = 'Offline';
+    }
+}
+
+function showError(msg) {
+    const el = document.getElementById('error_banner');
+    if (!el) return;
+    if (msg) {
+        el.textContent = msg;
+        el.style.display = '';
+    } else {
+        el.textContent = '';
+        el.style.display = 'none';
+    }
+}
+
+// Responsive canvas handling
+let chartDevicePixelRatio = 0;
+function resizeChartCanvas() {
+    const canvas = $('chart');
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    if (chartDevicePixelRatio === dpr && canvas.dataset.sized === '1') return;
+    const rect = canvas.getBoundingClientRect();
+    const cssWidth = Math.floor(rect.width);
+    const cssHeight = Math.floor(rect.height);
+    canvas.width = Math.max(320, cssWidth) * dpr;
+    canvas.height = Math.max(120, cssHeight) * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    canvas.dataset.sized = '1';
+    chartDevicePixelRatio = dpr;
+    drawChart();
+}
+window.addEventListener('resize', () => {
+    chartDevicePixelRatio = 0;
+    resizeChartCanvas();
+});
 
 // Wire controls
 $('mode_manual').addEventListener('click', async () => {
@@ -137,10 +196,12 @@ $('charge_btn').addEventListener('click', async () => {
 let currentChangeTimer = null;
 $('current_slider').addEventListener('input', () => {
     currentDirtyUntil = Date.now() + 2000;
-    $('current_display').textContent = `${Math.round($('current_slider').value)} A`;
+    const slider = $('current_slider');
+    $('current_display').textContent = `${Math.round(slider.value)} A`;
+    slider.setAttribute('aria-valuenow', String(Math.round(slider.value)));
     if (currentChangeTimer) clearTimeout(currentChangeTimer);
     currentChangeTimer = setTimeout(async () => {
-        const amps = parseFloat($('current_slider').value);
+        const amps = parseFloat(slider.value);
         await postJSON('/api/set_current', { amps });
     }, 400);
 });
@@ -157,6 +218,8 @@ async function fetchStatus() {
     try {
         const res = await fetch('/api/status');
         const s = await res.json();
+        setConnectionState(true);
+        showError('');
         window.lastStatusData = s; // Store for session timer
         $('product').textContent = s.product_name || '';
         $('serial').textContent = s.serial ? `SN ${s.serial}` : '';
@@ -243,6 +306,8 @@ async function fetchStatus() {
             // no-op here; form rebuild is heavy and only needed after save
         }
     } catch (e) {
+        setConnectionState(false);
+        showError('Failed to fetch status. Retrying…');
         console.error('status error', e);
     }
 }
@@ -618,11 +683,13 @@ function initUX() {
 
 // Removed old control functions that are no longer needed
 
+// Kick off
+resizeChartCanvas();
 fetchStatus();
 initConfigForm();
 initUX();
 // Reduce polling frequency to 2s to lower UI churn
-setInterval(fetchStatus, 2000);
+setInterval(() => { resizeChartCanvas(); fetchStatus(); }, 2000);
 
 // Update session time more frequently when charging
 setInterval(() => {
