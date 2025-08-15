@@ -890,6 +890,8 @@ class AlfenDriver:
             snapshot["charging_time_sec"] = int(self._svc_value("/ChargingTime", 0))
             # Provide legacy alias expected by UI fallback
             snapshot["charging_time"] = snapshot["charging_time_sec"]
+            # Include total lifetime energy from meter
+            snapshot["total_energy_kwh"] = float(energy_kwh)
             snapshot["firmware"] = str(self._svc_value("/FirmwareVersion", ""))
             snapshot["serial"] = str(self._svc_value("/Serial", ""))
             snapshot["product_name"] = str(self._svc_value("/ProductName", ""))
