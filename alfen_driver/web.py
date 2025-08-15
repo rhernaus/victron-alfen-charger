@@ -14,8 +14,8 @@ from gi.repository import GLib
 from .config_schema import get_config_schema
 
 
-class DebugAccessLogger(AbstractAccessLogger):
-    """Log HTTP access lines at DEBUG level instead of INFO."""
+class ConfigurableAccessLogger(AbstractAccessLogger):
+    """Log HTTP access lines honoring the logger's effective level."""
 
     def log(
         self, request: BaseRequest, response: web.StreamResponse, time: float
@@ -26,8 +26,9 @@ class DebugAccessLogger(AbstractAccessLogger):
             path = str(request.rel_url)
             status = getattr(response, "status", 0)
             ua = request.headers.get("User-Agent", "-")
-            self.logger.debug(
-                '%s "%s %s" %s %.3f %s', remote, method, path, status, time, ua
+            level = self.logger.getEffectiveLevel() or logging.INFO
+            self.logger.log(
+                level, '%s "%s %s" %s %.3f %s', remote, method, path, status, time, ua
             )
         except Exception as exc:  # pragma: no cover
             self.logger.debug("access log failed: %s", exc)
@@ -57,7 +58,16 @@ class WebServer:
         self.runner: Optional[web.AppRunner] = None
         self.thread: Optional[threading.Thread] = None
         self.access_logger = logging.getLogger("alfen_driver.http")
-        self.access_logger.setLevel(logging.DEBUG)
+        # Respect configured logging level (default to root effective level)
+        cfg_logging = getattr(getattr(driver, "config", None), "logging", None)
+        if cfg_logging is not None:
+            try:
+                level_name = getattr(cfg_logging, "level", "INFO")
+                level = getattr(logging, str(level_name).upper(), logging.INFO)
+                self.access_logger.setLevel(level)
+            except Exception:
+                # Fall back to root-configured effective level
+                pass
 
     def _get_static_dir(self) -> Path:
         base_dir = Path(os.path.dirname(__file__)) / "webui"
@@ -193,7 +203,7 @@ class WebServer:
         self.loop = asyncio.get_running_loop()
         app = await self._create_app()
         self.runner = web.AppRunner(
-            app, access_log_class=DebugAccessLogger, access_log=self.access_logger
+            app, access_log_class=ConfigurableAccessLogger, access_log=self.access_logger
         )
         await self.runner.setup()
         site = web.TCPSite(self.runner, host=self.host, port=self.port)
