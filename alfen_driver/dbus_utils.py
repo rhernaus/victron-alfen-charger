@@ -42,13 +42,18 @@ def register_dbus_service(
 ) -> VeDbusService:
     service = VeDbusService(service_name, register=False)
     modbus_config = config.modbus
+    # Prefer advertising the local web UI host on /Mgmt/Connection so VRM control panel proxies to the GX device
+    web_cfg = getattr(config, "web", None)
+    web_host: str = getattr(web_cfg, "host", "127.0.0.1") if web_cfg else "127.0.0.1"
+    if web_host in ("0.0.0.0", "::", "0:0:0:0:0:0:0:0"):
+        web_host = "127.0.0.1"
     device_instance = config.device_instance
     dbus_paths: List[Dict[str, Any]] = [
         {"path": "/Mgmt/ProcessName", "value": __file__},
         {"path": "/Mgmt/ProcessVersion", "value": "1.4"},
         {
             "path": "/Mgmt/Connection",
-            "value": f"Modbus TCP at {modbus_config.ip}",
+            "value": f"{web_host}",
         },
         {"path": "/DeviceInstance", "value": device_instance},
         {"path": "/Connected", "value": 0},
