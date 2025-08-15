@@ -29,8 +29,14 @@ const chartHistory = {
 function addHistoryPoint(s) {
   const t = Date.now() / 1000;
   const current = Number(s.ac_current || 0);
-  const allowed = Number(s.set_current || 0);
+  let allowed = Number(s.set_current || 0);
   const station = Number(s.station_max_current || 0);
+  const mode = Number(s.mode || 0);
+  if (mode === 1) { // AUTO
+    allowed = Number(s.applied_current ?? allowed);
+  } else if (mode === 2) { // SCHEDULED
+    allowed = Number(s.applied_current ?? allowed);
+  }
   chartHistory.points.push({ t, current, allowed, station });
   const cutoff = t - chartHistory.windowSec;
   chartHistory.points = chartHistory.points.filter(p => p.t >= cutoff);
@@ -171,16 +177,14 @@ function setChargeUI(enabled) {
   }
 }
 
-function setCurrentUI(amps, stationMax) {
+function setCurrentUI(displayAmps, stationMax) {
   if (Date.now() < currentDirtyUntil) {
     return;
   }
   const slider = $('current_slider');
-  slider.value = String(amps);
-  slider.setAttribute('aria-valuenow', String(Math.round(amps)));
-  $('current_display').textContent = `${Math.round(amps)} A`;
+  $('current_display').textContent = `${Math.round(displayAmps)} A`;
   // Update slider min/max based on station capabilities
-  if (stationMax > 0) {
+  if (slider && stationMax > 0) {
     const max = Math.min(stationMax, 25);
     slider.max = String(max);
     slider.setAttribute('aria-valuemax', String(max));
@@ -357,7 +361,23 @@ async function fetchStatus() {
     setTextIfExists('firmware', s.firmware ? `FW ${s.firmware}` : '');
     setModeUI(Number(s.mode ?? 0));
     setChargeUI(Number(s.start_stop ?? 1) === 1);
-    setCurrentUI(Number(s.set_current ?? 6.0), Number(s.station_max_current ?? 0));
+    // Determine which current to display based on mode
+    const mode = Number(s.mode ?? 0);
+    const setpoint = Number(s.set_current ?? 6.0);
+    let displayCurrent = setpoint;
+    if (mode === 1) { // AUTO
+      displayCurrent = Number(s.applied_current ?? setpoint);
+    } else if (mode === 2) { // SCHEDULED
+      displayCurrent = Number(s.applied_current ?? setpoint);
+    }
+    // Update display and slider separately
+    const stationMax = Number(s.station_max_current ?? 0);
+    setCurrentUI(displayCurrent, stationMax);
+    const slider = $('current_slider');
+    if (slider && Date.now() >= currentDirtyUntil) {
+      slider.value = String(setpoint);
+      slider.setAttribute('aria-valuenow', String(Math.round(setpoint)));
+    }
     setTextIfExists('di', s.device_instance ?? '');
     const stName = statusNames[s.status] || '-';
     setTextIfExists('status', stName);
