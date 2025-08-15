@@ -157,6 +157,7 @@ async function fetchStatus() {
     try {
         const res = await fetch('/api/status');
         const s = await res.json();
+        window.lastStatusData = s; // Store for session timer
         $('product').textContent = s.product_name || '';
         $('serial').textContent = s.serial ? `SN ${s.serial}` : '';
         $('firmware').textContent = s.firmware ? `FW ${s.firmware}` : '';
@@ -168,26 +169,58 @@ async function fetchStatus() {
         $('status').textContent = stName;
         $('status_text').textContent = s.status === 2 ? 'Charging 3P' : stName;
         const p = Number(s.ac_power || 0);
-        $('hero_power_kw').textContent = Math.round(p);
+        // Display power in watts
+        $('hero_power_w').textContent = Math.round(p);
+        // Display power in kW with one decimal for the status card
         $('active_power').textContent = (p/1000).toFixed(1);
-        // Update new session info elements
+
+                // Update session info elements with actual data from backend
         if ($('session_time')) {
-            // Calculate session time (placeholder - would need actual session start time)
-            $('session_time').textContent = '04:59:37';
+            // Use session data from backend if available
+            if (s.session && s.session.start_ts) {
+                const startTime = new Date(s.session.start_ts).getTime();
+                const endTime = s.session.end_ts ? new Date(s.session.end_ts).getTime() : Date.now();
+                const duration = Math.floor((endTime - startTime) / 1000);
+                const hours = Math.floor(duration / 3600);
+                const minutes = Math.floor((duration % 3600) / 60);
+                const seconds = duration % 60;
+                $('session_time').textContent =
+                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            } else if (s.charging_time) {
+                // Use ChargingTime from D-Bus if available (in seconds)
+                const duration = s.charging_time;
+                const hours = Math.floor(duration / 3600);
+                const minutes = Math.floor((duration % 3600) / 60);
+                const seconds = duration % 60;
+                $('session_time').textContent =
+                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            } else {
+                $('session_time').textContent = '00:00:00';
+            }
         }
         if ($('session_energy')) {
+            // Use actual session energy from Ac/Energy/Forward
             $('session_energy').textContent = (s.energy_forward_kwh ?? 0).toFixed(2);
         }
         if ($('session_cost')) {
-            // Calculate cost (placeholder - would need rate info)
-            $('session_cost').textContent = '2.93';
+            // Calculate cost based on energy and configured rate
+            const energy = s.energy_forward_kwh ?? 0;
+            // TODO: Get actual energy rate from config or Tibber integration
+            const rate = s.energy_rate ?? 0.25; // Default rate per kWh
+            const cost = energy * rate;
+            $('session_cost').textContent = cost.toFixed(2);
         }
         if ($('session_saved')) {
-            $('session_saved').textContent = '1.46';
+            // Calculate saved amount if available (e.g., from solar charging)
+            // TODO: Implement actual savings calculation based on solar/grid mix
+            const savedAmount = s.session_saved ?? 0;
+            $('session_saved').textContent = savedAmount.toFixed(2);
         }
         if ($('total_energy')) {
-            // Would need total energy from device
-            $('total_energy').textContent = '3121.34';
+            // Use total lifetime energy if available
+            // TODO: Get actual total energy from Modbus registers
+            const totalEnergy = s.total_energy_kwh ?? 0;
+            $('total_energy').textContent = totalEnergy.toFixed(2);
         }
         // Update active status indicator
         if ($('active_status')) {
@@ -590,3 +623,20 @@ initConfigForm();
 initUX();
 // Reduce polling frequency to 2s to lower UI churn
 setInterval(fetchStatus, 2000);
+
+// Update session time more frequently when charging
+setInterval(() => {
+    const sessionTimeEl = $('session_time');
+    if (sessionTimeEl && window.lastStatusData && window.lastStatusData.status === 2) {
+        // Update time display if actively charging
+        if (window.lastStatusData.session && window.lastStatusData.session.start_ts) {
+            const startTime = new Date(window.lastStatusData.session.start_ts).getTime();
+            const duration = Math.floor((Date.now() - startTime) / 1000);
+            const hours = Math.floor(duration / 3600);
+            const minutes = Math.floor((duration % 3600) / 60);
+            const seconds = duration % 60;
+            sessionTimeEl.textContent =
+                `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+    }
+}, 1000);
