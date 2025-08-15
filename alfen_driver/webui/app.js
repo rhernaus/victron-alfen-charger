@@ -14,7 +14,7 @@ const statusNames = {
   3: 'Charged',
   4: 'Wait sun',
   6: 'Wait start',
-  7: 'Low SOC',
+  7: 'Low SOC'
 };
 
 let currentConfig = null;
@@ -25,7 +25,7 @@ const chartHistory = {
   points: [], // {t, current, allowed, station}
   windowSec: 300,
   maxBufferSec: 21600, // keep up to 6h for smooth window changes
-  hoverT: null,
+  hoverT: null
 };
 
 function addHistoryPoint(s) {
@@ -344,7 +344,7 @@ window.addEventListener('resize', () => {
 
 // Enhanced visual feedback for interactions
 function addButtonFeedback(button) {
-  button.addEventListener('click', function () {
+  button.addEventListener('click', function() {
     this.style.transform = 'scale(0.95)';
     setTimeout(() => {
       this.style.transform = '';
@@ -353,23 +353,23 @@ function addButtonFeedback(button) {
 }
 
 // Wire controls with enhanced feedback
-$('mode_manual').addEventListener('click', async () => {
+$('mode_manual').addEventListener('click', async() => {
   modeDirtyUntil = Date.now() + 2000;
   setModeUI(0);
   await postJSON('/api/mode', { mode: 0 });
 });
-$('mode_auto').addEventListener('click', async () => {
+$('mode_auto').addEventListener('click', async() => {
   modeDirtyUntil = Date.now() + 2000;
   setModeUI(1);
   await postJSON('/api/mode', { mode: 1 });
 });
-$('mode_sched').addEventListener('click', async () => {
+$('mode_sched').addEventListener('click', async() => {
   modeDirtyUntil = Date.now() + 2000;
   setModeUI(2);
   await postJSON('/api/mode', { mode: 2 });
 });
 
-$('charge_btn').addEventListener('click', async () => {
+$('charge_btn').addEventListener('click', async() => {
   // Toggle with animation
   const isEnabled = !$('charge_btn').classList.contains('start');
   const btn = $('charge_btn');
@@ -421,7 +421,7 @@ $('current_slider').addEventListener('input', () => {
   if (currentChangeTimer) {
     clearTimeout(currentChangeTimer);
   }
-  currentChangeTimer = setTimeout(async () => {
+  currentChangeTimer = setTimeout(async() => {
     const amps = parseFloat(slider.value);
     await postJSON('/api/set_current', { amps });
   }, 400);
@@ -438,18 +438,24 @@ $('current_slider').addEventListener('pointerup', () => {
 // Chart hover listeners
 (function initChartHover() {
   const canvas = $('chart');
-  if (!canvas) return;
+  if (!canvas) {
+    return;
+  }
   canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     const cssX = e.clientX - rect.left;
     const dpr = window.devicePixelRatio || 1;
     const W = canvas.width / dpr;
     // Recompute current visible window mapping
-    if (chartHistory.points.length < 2) return;
+    if (chartHistory.points.length < 2) {
+      return;
+    }
     const tEnd = chartHistory.points[chartHistory.points.length - 1].t;
     const tMinDesired = tEnd - chartHistory.windowSec;
     const visible = chartHistory.points.filter(p => p.t >= tMinDesired);
-    if (visible.length < 2) return;
+    if (visible.length < 2) {
+      return;
+    }
     const tMin = visible[0].t;
     const tMax = visible[visible.length - 1].t;
     const tSpan = Math.max(1, tMax - tMin);
@@ -505,7 +511,10 @@ async function fetchStatus() {
     setTextIfExists('di', s.device_instance ?? '');
     const stName = statusNames[s.status] || '-';
     setTextIfExists('status', stName);
-    setTextIfExists('status_text', s.status === 2 ? `Charging ${Number(s.active_phases) === 1 ? '1P' : '3P'}` : stName);
+    setTextIfExists(
+      'status_text',
+      s.status === 2 ? `Charging ${Number(s.active_phases) === 1 ? '1P' : '3P'}` : stName
+    );
     const p = Number(s.ac_power || 0);
 
     // Animate power value changes
@@ -525,10 +534,12 @@ async function fetchStatus() {
       // Display power in watts or kW if >= 1000W
       powerEl.textContent = newPower >= 1000 ? (newPower / 1000).toFixed(1) : newPower;
     }
-              // Display power with conditional units
+    // Display power with conditional units
     setTextIfExists('active_power', p >= 1000 ? (p / 1000).toFixed(1) : Math.round(p));
-const unitEl = $('hero_power_unit');
-      if (unitEl) unitEl.textContent = (newPower >= 1000 ? 'kW' : 'W');
+    const unitEl = $('hero_power_unit');
+    if (unitEl) {
+      unitEl.textContent = p >= 1000 ? 'kW' : 'W';
+    }
 
     // Update session info elements with actual data from backend
     if ($('session_time')) {
@@ -586,7 +597,7 @@ const unitEl = $('hero_power_unit');
       chargingPort.style.fill = s.status === 2 ? '#22c55e' : '#666';
     }
     setTextIfExists('ac_current', `${(s.ac_current ?? 0).toFixed(2)} A`);
-    setTextIfExists('ac_power', p >= 1000 ? `${(p/1000).toFixed(1)} kW` : `${Math.round(p)} W`);
+    setTextIfExists('ac_power', p >= 1000 ? `${(p / 1000).toFixed(1)} kW` : `${Math.round(p)} W`);
     setTextIfExists('energy', `${(s.energy_forward_kwh ?? 0).toFixed(3)} kWh`);
     setTextIfExists(
       'l1',
@@ -628,7 +639,7 @@ async function postJSON(url, payload, method = 'POST') {
   const res = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload)
   });
   return await res.json();
 }
@@ -649,94 +660,94 @@ function createInput(fieldKey, def, value, path) {
   error.style.display = 'none';
 
   switch (def.type) {
-    case 'string': {
-      input = document.createElement('input');
-      input.type = 'text';
-      if (def.format === 'ipv4') {
-        input.placeholder = 'e.g. 192.168.1.100';
-        input.pattern = '^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$';
-      }
-      input.value = value ?? '';
-      break;
+  case 'string': {
+    input = document.createElement('input');
+    input.type = 'text';
+    if (def.format === 'ipv4') {
+      input.placeholder = 'e.g. 192.168.1.100';
+      input.pattern = '^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$';
     }
-    case 'integer': {
-      input = document.createElement('input');
-      input.type = 'number';
-      input.step = '1';
-      if (def.min !== null && def.min !== undefined) {
-        input.min = String(def.min);
-      }
-      if (def.max !== null && def.max !== undefined) {
-        input.max = String(def.max);
-      }
-      input.value = value !== null && value !== undefined ? String(value) : '';
-      break;
+    input.value = value ?? '';
+    break;
+  }
+  case 'integer': {
+    input = document.createElement('input');
+    input.type = 'number';
+    input.step = '1';
+    if (def.min !== null && def.min !== undefined) {
+      input.min = String(def.min);
     }
-    case 'number': {
-      input = document.createElement('input');
-      input.type = 'number';
-      input.step = def.step !== null && def.step !== undefined ? String(def.step) : 'any';
-      if (def.min !== null && def.min !== undefined) {
-        input.min = String(def.min);
-      }
-      if (def.max !== null && def.max !== undefined) {
-        input.max = String(def.max);
-      }
-      input.value = value !== null && value !== undefined ? String(value) : '';
-      break;
+    if (def.max !== null && def.max !== undefined) {
+      input.max = String(def.max);
     }
-    case 'boolean': {
-      input = document.createElement('input');
-      input.type = 'checkbox';
-      input.checked = !!value;
-      break;
+    input.value = value !== null && value !== undefined ? String(value) : '';
+    break;
+  }
+  case 'number': {
+    input = document.createElement('input');
+    input.type = 'number';
+    input.step = def.step !== null && def.step !== undefined ? String(def.step) : 'any';
+    if (def.min !== null && def.min !== undefined) {
+      input.min = String(def.min);
     }
-    case 'enum': {
-      input = document.createElement('select');
-      (def.values || []).forEach(opt => {
-        const o = document.createElement('option');
-        o.value = String(opt);
-        o.textContent = String(opt);
-        if (String(value) === String(opt)) {
-          o.selected = true;
+    if (def.max !== null && def.max !== undefined) {
+      input.max = String(def.max);
+    }
+    input.value = value !== null && value !== undefined ? String(value) : '';
+    break;
+  }
+  case 'boolean': {
+    input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = !!value;
+    break;
+  }
+  case 'enum': {
+    input = document.createElement('select');
+    (def.values || []).forEach(opt => {
+      const o = document.createElement('option');
+      o.value = String(opt);
+      o.textContent = String(opt);
+      if (String(value) === String(opt)) {
+        o.selected = true;
+      }
+      input.appendChild(o);
+    });
+    break;
+  }
+  case 'time': {
+    input = document.createElement('input');
+    input.type = 'time';
+    input.value = value || '00:00';
+    break;
+  }
+  case 'array': {
+    // Only special case we support here is days-of-week chips
+    const container = document.createElement('div');
+    container.className = 'days';
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const set = new Set((value || []).map(n => Number(n)));
+    days.forEach((name, idx) => {
+      const chip = document.createElement('div');
+      chip.className = 'day-chip' + (set.has(idx) ? ' active' : '');
+      chip.textContent = name;
+      chip.addEventListener('click', () => {
+        if (chip.classList.contains('active')) {
+          chip.classList.remove('active');
+        } else {
+          chip.classList.add('active');
         }
-        input.appendChild(o);
       });
-      break;
-    }
-    case 'time': {
-      input = document.createElement('input');
-      input.type = 'time';
-      input.value = value || '00:00';
-      break;
-    }
-    case 'array': {
-      // Only special case we support here is days-of-week chips
-      const container = document.createElement('div');
-      container.className = 'days';
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      const set = new Set((value || []).map(n => Number(n)));
-      days.forEach((name, idx) => {
-        const chip = document.createElement('div');
-        chip.className = 'day-chip' + (set.has(idx) ? ' active' : '');
-        chip.textContent = name;
-        chip.addEventListener('click', () => {
-          if (chip.classList.contains('active')) {
-            chip.classList.remove('active');
-          } else {
-            chip.classList.add('active');
-          }
-        });
-        container.appendChild(chip);
-      });
-      input = container;
-      break;
-    }
-    default: {
-      input = document.createElement('input');
-      input.type = 'text';
-      input.value = value ?? '';
-    }
+      container.appendChild(chip);
+    });
+    input = container;
+    break;
+  }
+  default: {
+    input = document.createElement('input');
+    input.type = 'text';
+    input.value = value ?? '';
+  }
   }
   input.id = id;
   wrap.appendChild(input);
@@ -838,7 +849,7 @@ function buildSection(container, key, sectionDef, cfg) {
           key,
           'items',
           String(listWrap.children.length),
-          fkey,
+          fkey
         ]);
         itemBody.appendChild(fieldEl);
       });
@@ -1031,7 +1042,7 @@ async function initConfigForm() {
   try {
     [currentSchema, currentConfig] = await Promise.all([
       getJSON('/api/config/schema'),
-      getJSON('/api/config'),
+      getJSON('/api/config')
     ]);
     buildForm(currentSchema, currentConfig);
   } catch (e) {
@@ -1153,8 +1164,14 @@ setInterval(() => {
   const sessionTimeEl = $('session_time');
   if (sessionTimeEl && window.lastStatusData && window.lastStatusData.status === 2) {
     // Update time display if actively charging: prefer charging_time
-    if (typeof window.lastStatusData.charging_time === 'number' && window.lastStatusData.charging_time >= 0) {
-      const duration = Math.floor(window.lastStatusData.charging_time + ((Date.now() / 1000) - (window.lastStatusData._last_update_ts || (Date.now() / 1000))));
+    if (
+      typeof window.lastStatusData.charging_time === 'number' &&
+      window.lastStatusData.charging_time >= 0
+    ) {
+      const duration = Math.floor(
+        window.lastStatusData.charging_time +
+          (Date.now() / 1000 - (window.lastStatusData._last_update_ts || Date.now() / 1000))
+      );
       const hours = Math.floor(duration / 3600);
       const minutes = Math.floor((duration % 3600) / 60);
       const seconds = duration % 60;
