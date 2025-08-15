@@ -1,0 +1,42 @@
+{
+  "env": {
+    "browser": true,
+    "es2021": true
+  },
+  "extends": [
+    "eslint:recommended"
+  ],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "script"
+  },
+  "rules": {
+    "indent": ["warn", 2],
+    "quotes": ["error", "single"],
+    "semi": ["error", "always"],
+    "no-unused-vars": ["warn"],
+    "no-console": ["warn"],
+    "eqeqeq": ["error", "always"],
+    "curly": ["warn", "all"],
+    "brace-style": ["warn", "1tbs"],
+    "comma-dangle": ["warn", "never"],
+    "space-before-function-paren": ["warn", "never"],
+    "object-curly-spacing": ["warn", "always"]
+  },
+  "globals": {
+    "fetch": "readonly",
+    "console": "readonly",
+    "document": "readonly",
+    "window": "readonly",
+    "setTimeout": "readonly",
+    "clearTimeout": "readonly",
+    "setInterval": "readonly",
+    "Date": "readonly",
+    "parseInt": "readonly",
+    "parseFloat": "readonly",
+    "Number": "readonly",
+    "Math": "readonly",
+    "Array": "readonly",
+    "JSON": "readonly"
+  }
+}
