@@ -2,6 +2,17 @@
 
 Integrate an Alfen Eve (Pro Line and similar NG9xx platform) EV charger with a Victron GX device (Venus OS) using Modbus TCP and D‑Bus. The charger is exposed as a first‑class EV charger in the Victron ecosystem.
 
+## Preview
+
+![Web interface](images/web.jpg)
+The built‑in web UI dashboard with live charging power, mode controls (**Manual**, **Auto**, **Scheduled**), a charging‑current slider, Start/Stop button, a live graph of actual vs allowed current (and station max), plus session tiles for time, energy and cost.
+
+![VRM](images/vrm.png)
+Victron VRM widget showing the EV charger’s instantaneous power, charging status, elapsed charge time, active mode, charging current and energy delivered.
+
+![GX device](images/gx.png)
+Victron GX device page for the charger with session totals (power, current vs limit, energy and time). Provides quick access to charge mode, charge current, the enable/disable toggle, setup and device information.
+
 ## Features
 
 - MANUAL, AUTO (excess‑solar), and SCHEDULED modes
