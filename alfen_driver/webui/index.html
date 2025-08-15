@@ -1,130 +1,212 @@
 <!doctype html>
 <html lang="en">
 <head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Alfen EV Charger</title>
-	<link rel="stylesheet" href="/ui/styles.css">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Alfen EV Charger</title>
+    <link rel="stylesheet" href="/ui/styles.css">
 </head>
 <body>
-	<header>
-		<h1>Alfen EV Charger</h1>
-		<div class="meta">
-			<span id="product"></span>
-			<span id="serial"></span>
-			<span id="firmware"></span>
-		</div>
-	</header>
-	<main>
-		<section class="panel evcs">
-			<div class="hero">
-				<div class="hero-left">
-					<div class="status-line">
-						<div class="status-dot" id="status_dot"></div>
-						<div class="status-text" id="status_text">-</div>
-					</div>
-					<div class="power-big"><span id="hero_power_kw">0.0</span><small>kW</small></div>
-					<div class="segmented" role="group" aria-label="Mode">
-						<button id="mode_manual" data-mode="0" class="seg">Manual</button>
-						<button id="mode_auto" data-mode="1" class="seg">Auto</button>
-						<button id="mode_sched" data-mode="2" class="seg">Scheduled</button>
-					</div>
-				</div>
-				<div class="hero-right">
-					<button id="charge_btn" class="charge on" aria-label="Start/Stop"></button>
-				</div>
-			</div>
+    <div class="container">
+        <!-- Main charging status card -->
+        <div class="card charging-card">
+            <div class="charging-header">
+                <div class="mode-selector">
+                    <span class="mode-label">Charge mode:</span>
+                    <div class="mode-buttons">
+                        <button id="mode_manual" data-mode="0" class="mode-btn active">Manual</button>
+                        <button id="mode_auto" data-mode="1" class="mode-btn">Auto</button>
+                        <button id="mode_sched" data-mode="2" class="mode-btn">Scheduled</button>
+                    </div>
+                </div>
+                <div class="charging-control">
+                    <span class="charging-status">Charging current [6-25A]:</span>
+                    <span class="current-display" id="current_display">11 A</span>
+                    <button id="charge_btn" class="stop-btn">Stop</button>
+                </div>
+            </div>
 
-			<div class="controls-row">
-				<div class="slider-wrap">
-					<label for="current_slider">Set current</label>
-					<input type="range" id="current_slider" min="0" max="64" step="0.1">
-					<div class="slider-values">
-						<span id="current_value">0.0 A</span>
-						<span class="hint">Station max <span id="station_max">0.0 A</span></span>
-					</div>
-				</div>
-				<div class="mini-metrics">
-					<div class="mini"><span>Power</span><strong id="hero_power">0 W</strong></div>
-					<div class="mini"><span>Energy</span><strong id="hero_energy">0.000 kWh</strong></div>
-					<div class="mini"><span>Current</span><strong id="hero_current">0.00 A</strong></div>
-				</div>
-			</div>
-		</section>
+            <div class="charging-visual">
+                <div class="power-display">
+                    <span id="hero_power_w" class="power-value">0</span>
+                    <span class="power-unit">W</span>
+                </div>
+                <div class="car-illustration">
+                    <svg class="car-svg" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+                        <!-- Car body -->
+                        <path d="M80 180 L80 150 C80 140 85 130 95 125 L130 110 C140 105 160 100 180 100 L220 100 C240 100 260 105 270 110 L305 125 C315 130 320 140 320 150 L320 180 C320 190 315 195 305 195 L95 195 C85 195 80 190 80 180 Z" fill="#4A9FD8" stroke="#3B87BD" stroke-width="2"/>
+                        <!-- Car windows -->
+                        <path d="M110 140 L130 125 L270 125 L290 140 L110 140 Z" fill="#6BB4E5" opacity="0.5"/>
+                        <!-- Wheels -->
+                        <circle cx="120" cy="195" r="20" fill="#2C5F7C"/>
+                        <circle cx="280" cy="195" r="20" fill="#2C5F7C"/>
+                        <!-- Charging port -->
+                        <circle cx="100" cy="150" r="8" fill="#22C55E" class="charging-port"/>
+                    </svg>
+                    <svg class="charging-cable" viewBox="0 0 200 300" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M150 50 Q100 100 80 150" stroke="#22C55E" stroke-width="8" fill="none" stroke-linecap="round"/>
+                        <circle cx="150" cy="50" r="15" fill="#4A9FD8"/>
+                        <rect x="140" y="20" width="20" height="30" rx="5" fill="#4A9FD8"/>
+                    </svg>
+                </div>
+                <div class="status-line">
+                    <span id="status_text" class="status-text">Charging 3P</span>
+                </div>
+            </div>
 
-		<section class="metrics">
-			<div class="metric">
-				<span class="label">Status</span>
-				<span class="value" id="status">-</span>
-			</div>
-			<div class="metric">
-				<span class="label">AC Current</span>
-				<span class="value" id="ac_current">0.0 A</span>
-			</div>
-			<div class="metric">
-				<span class="label">AC Power</span>
-				<span class="value" id="ac_power">0 W</span>
-			</div>
-			<div class="metric">
-				<span class="label">Energy (session)</span>
-				<span class="value" id="energy">0.000 kWh</span>
-			</div>
-			<div class="metric">
-				<span class="label">L1</span>
-				<span class="value" id="l1">0.0 V / 0.00 A / 0 W</span>
-			</div>
-			<div class="metric">
-				<span class="label">L2</span>
-				<span class="value" id="l2">0.0 V / 0.00 A / 0 W</span>
-			</div>
-			<div class="metric">
-				<span class="label">L3</span>
-				<span class="value" id="l3">0.0 V / 0.00 A / 0 W</span>
-			</div>
-		</section>
+            <div class="current-slider-section">
+                <input type="range" id="current_slider" min="6" max="25" step="1" value="11" class="current-slider">
+            </div>
+        </div>
 
-		<section class="history">
-			<div class="history-header">
-				<h2>Recent history</h2>
-				<div class="range">
-					<label for="range">Window</label>
-					<select id="range">
-						<option value="60">60 s</option>
-						<option value="300" selected>300 s</option>
-						<option value="3600">3600 s</option>
-					</select>
-				</div>
-			</div>
-			<canvas id="chart" width="1000" height="260"></canvas>
-			<div class="legend">
-				<span class="dot dot-current"></span> Actual current
-				<span class="dot dot-allowed"></span> Allowed current
-				<span class="dot dot-station"></span> Station max
-			</div>
-		</section>
+        <!-- Session info cards -->
+        <div class="info-grid">
+            <div class="info-card">
+                <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="12" r="10" stroke="#4A9FD8" stroke-width="2"/>
+                    <path d="M12 6 L12 12 L16 16" stroke="#4A9FD8" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                <span class="info-label">Session time</span>
+                <span class="info-value" id="session_time">04:59:37</span>
+            </div>
 
-		<section class="config collapsed">
-			<h2>Configuration</h2>
-			<div class="toolbar">
-				<button id="toggle_config">Edit configuration</button>
-				<div class="spacer"></div>
-				<label class="checkbox"><input type="checkbox" id="show_advanced"> Show advanced</label>
-				<button id="expand_all" class="ghost">Expand all</button>
-				<button id="collapse_all" class="ghost">Collapse all</button>
-			</div>
-			<div id="config_nav" class="config-nav"></div>
-			<div id="config_body" class="config-body">
-				<div id="config_form"></div>
-				<div class="config-actions">
-					<button id="save_config">Save configuration</button>
-					<span id="config_status"></span>
-				</div>
-			</div>
-		</section>
-	</main>
-	<footer>
-		<div>Device instance: <span id="di"></span></div>
-	</footer>
-	<script src="/ui/app.js"></script>
+            <div class="info-card">
+                <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="#4A9FD8" stroke-width="2" fill="none"/>
+                </svg>
+                <span class="info-label">Session energy</span>
+                <span class="info-value"><span id="session_energy">33.80</span> kWh</span>
+            </div>
+
+            <div class="info-card">
+                <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2v20M17 5l-5 5-5-5M7 19l5-5 5 5" stroke="#4A9FD8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="info-label">Session cost</span>
+                <span class="info-value" id="session_cost">2.93</span>
+            </div>
+
+            <div class="info-card">
+                <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5Z" stroke="#4A9FD8" stroke-width="2" fill="none"/>
+                </svg>
+                <span class="info-label">Session saved cost</span>
+                <span class="info-value" id="session_saved">1.46</span>
+            </div>
+
+            <div class="info-card full-width">
+                <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="3" y="3" width="18" height="18" rx="2" stroke="#4A9FD8" stroke-width="2"/>
+                    <path d="M3 9h18M9 21V9" stroke="#4A9FD8" stroke-width="2"/>
+                </svg>
+                <span class="info-label">Total energy</span>
+                <span class="info-value"><span id="total_energy">3121.34</span> kWh</span>
+            </div>
+        </div>
+
+        <!-- Detailed status section -->
+        <div class="card status-card dark-theme">
+            <div class="status-header">
+                <h2>Alfen EV Charger</h2>
+                <div class="status-controls">
+                    <span class="active-status" id="active_status">●</span>
+                    <span id="active_power">0.0</span> <span class="unit">kW</span>
+                    <button class="pause-btn" id="pause_btn">||</button>
+                </div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <span class="metric-label">Status</span>
+                    <span class="metric-value" id="status">-</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">AC Current</span>
+                    <span class="metric-value" id="ac_current">0.00 A</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">AC Power</span>
+                    <span class="metric-value" id="ac_power">0 W</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Energy (session)</span>
+                    <span class="metric-value" id="energy">0.000 kWh</span>
+                </div>
+            </div>
+
+            <div class="phase-grid">
+                <div class="phase-item">
+                    <span class="phase-label">L1</span>
+                    <span class="phase-value" id="l1">0.0 V / 0.00 A / 0 W</span>
+                </div>
+                <div class="phase-item">
+                    <span class="phase-label">L2</span>
+                    <span class="phase-value" id="l2">0.0 V / 0.00 A / 0 W</span>
+                </div>
+                <div class="phase-item">
+                    <span class="phase-label">L3</span>
+                    <span class="phase-value" id="l3">0.0 V / 0.00 A / 0 W</span>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <div class="chart-header">
+                    <h3>Recent history</h3>
+                    <div class="chart-controls">
+                        <span>Window</span>
+                        <select id="range" class="range-select">
+                            <option value="60">60 s</option>
+                            <option value="300" selected>300 s</option>
+                            <option value="3600">3600 s</option>
+                        </select>
+                    </div>
+                </div>
+                <canvas id="chart" width="800" height="200"></canvas>
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="legend-dot actual"></span>Actual current</span>
+                    <span class="legend-item"><span class="legend-dot allowed"></span>Allowed current</span>
+                    <span class="legend-item"><span class="legend-dot station"></span>Station max</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configuration section -->
+        <div class="card config-card dark-theme">
+            <div class="config-header">
+                <h2>Configuration</h2>
+                <button id="toggle_config" class="edit-btn">Edit configuration</button>
+            </div>
+
+            <div class="config-toolbar" style="display: none;">
+                <label class="checkbox">
+                    <input type="checkbox" id="show_advanced">
+                    <span>Show advanced</span>
+                </label>
+                <button id="expand_all" class="text-btn">Expand all</button>
+                <button id="collapse_all" class="text-btn">Collapse all</button>
+            </div>
+
+            <div class="config-tabs" id="config_nav" style="display: none;"></div>
+
+            <div id="config_body" class="config-body" style="display: none;">
+                <div id="config_form"></div>
+                <div class="config-actions">
+                    <button id="save_config" class="save-btn">Save configuration</button>
+                    <span id="config_status"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <span>Device instance: <span id="di"></span></span>
+            <div class="device-info">
+                <span id="product"></span>
+                <span id="serial"></span>
+                <span id="firmware"></span>
+            </div>
+        </div>
+    </div>
+
+    <script src="/ui/app.js"></script>
 </body>
 </html>
