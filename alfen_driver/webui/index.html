@@ -55,18 +55,18 @@
                             </div>
                             <span class="current-display" id="current_display" aria-live="polite">11 A</span>
                             <input
-                              type="range"
-                              id="current_slider"
-                              min="6"
-                              max="25"
-                              step="1"
-                              value="11"
-                              class="current-slider compact"
-                              role="slider"
-                              aria-labelledby="current_slider_label"
-                              aria-valuemin="6"
-                              aria-valuemax="25"
-                              aria-valuenow="11"
+                                type="range"
+                                id="current_slider"
+                                min="6"
+                                max="25"
+                                step="1"
+                                value="11"
+                                class="current-slider compact"
+                                role="slider"
+                                aria-labelledby="current_slider_label"
+                                aria-valuemin="6"
+                                aria-valuemax="25"
+                                aria-valuenow="11"
                             />
                             <button id="charge_btn" class="stop-btn" aria-pressed="true" aria-label="Stop charging">
                                 <span class="btn-icon">⏹️</span>
@@ -97,9 +97,9 @@
                                 </select>
                             </div>
                         </div>
-                        <div style="position:relative">
+                        <div style="position: relative">
                             <canvas id="chart" width="800" height="200"></canvas>
-                            <div id="chart_tooltip" class="chart-tooltip" style="display:none"></div>
+                            <div id="chart_tooltip" class="chart-tooltip" style="display: none"></div>
                         </div>
                         <div class="chart-legend">
                             <span class="legend-item"><span class="legend-dot actual"></span>Actual current</span>
@@ -113,7 +113,12 @@
                         <div class="info-card">
                             <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <circle cx="12" cy="12" r="10" stroke="#4A9FD8" stroke-width="2" />
-                                <path d="M12 6 L12 12 L16 16" stroke="#4A9FD8" stroke-width="2" stroke-linecap="round" />
+                                <path
+                                    d="M12 6 L12 12 L16 16"
+                                    stroke="#4A9FD8"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                />
                             </svg>
                             <span class="info-label">Session time</span>
                             <span class="info-value" id="session_time">04:59:37</span>
@@ -121,7 +126,12 @@
 
                         <div class="info-card">
                             <svg class="info-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="#4A9FD8" stroke-width="2" fill="none" />
+                                <path
+                                    d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"
+                                    stroke="#4A9FD8"
+                                    stroke-width="2"
+                                    fill="none"
+                                />
                             </svg>
                             <span class="info-label">Session energy</span>
                             <span class="info-value"><span id="session_energy">33.80</span> kWh</span>

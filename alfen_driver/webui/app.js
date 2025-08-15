@@ -25,7 +25,7 @@ const chartHistory = {
   points: [], // {t, current, allowed, station}
   windowSec: 300,
   maxBufferSec: 21600, // keep up to 6h for smooth window changes
-  hoverT: null
+  hoverT: null,
 };
 
 function addHistoryPoint(s) {
@@ -45,6 +45,13 @@ function addHistoryPoint(s) {
   const cutoff = t - chartHistory.maxBufferSec;
   chartHistory.points = chartHistory.points.filter(p => p.t >= cutoff);
   drawChart();
+}
+
+function drawDotOnChart(ctx, x, y, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, 3, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawChart() {
@@ -165,29 +172,27 @@ function drawChart() {
     ctx.lineTo(x, H - 20);
     ctx.stroke();
     // Points
-    function drawDot(color, value) {
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(x, mapY(value), 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    drawDot('#22c55e', nearest.current);
-    drawDot('#f59e0b', nearest.allowed);
-    drawDot('#ef4444', nearest.station);
+    drawDotOnChart(ctx, x, mapY(nearest.current), '#22c55e');
+    drawDotOnChart(ctx, x, mapY(nearest.allowed), '#f59e0b');
+    drawDotOnChart(ctx, x, mapY(nearest.station), '#ef4444');
     // Tooltip content
     const d = new Date(nearest.t * 1000);
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     const ss = String(d.getSeconds()).padStart(2, '0');
-    tip.innerHTML = `${hh}:${mm}:${ss} — cur ${nearest.current.toFixed(1)} A · allow ${nearest.allowed.toFixed(1)} A · max ${nearest.station.toFixed(0)} A`;
+    tip.innerHTML = `${hh}:${mm}:${ss} — cur ${nearest.current.toFixed(
+      1
+    )} A · allow ${nearest.allowed.toFixed(1)} A · max ${nearest.station.toFixed(0)} A`;
     // Place tooltip
     const rect = canvas.getBoundingClientRect();
     const parent = canvas.parentElement;
-    const parentRect = parent ? parent.getBoundingClientRect() : { left: 0, top: 0, width: rect.width };
+    const parentRect = parent
+      ? parent.getBoundingClientRect()
+      : { left: 0, top: 0, width: rect.width };
     const canvasCssW = rect.width;
     const scale = canvasCssW / W;
-    const cssX = (x * scale) + (rect.left - parentRect.left);
-    const top = (rect.top - parentRect.top) + 12;
+    const cssX = x * scale + (rect.left - parentRect.left);
+    const top = rect.top - parentRect.top + 12;
     tip.style.left = `${cssX}px`;
     tip.style.top = `${top}px`;
     tip.style.display = '';
@@ -550,7 +555,7 @@ async function fetchStatus() {
     if ($('session_cost')) {
       // Prefer server-calculated session_cost (hourly price aware) if provided
       let cost = s.session_cost;
-      if (cost == null) {
+      if (cost === null || cost === undefined) {
         const energy = s.energy_forward_kwh ?? 0;
         // Fallback: flat rate per kWh when hourly breakdown is unavailable
         const rate = s.energy_rate ?? 0.25;
